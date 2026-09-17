@@ -44,9 +44,13 @@ make CROSS_PREFIX=i686-elf-
 5. Assembly creates a 16 KiB stack, clears the direction flag, aligns the stack
    for the C ABI, saves the Multiboot arguments, loads rum's own GDT and segment
    selectors, and calls `kernel_main(magic, info_address)`.
-6. The C kernel initializes VGA and COM1, installs the IDT, verifies the handoff,
-   and prints. CPU exceptions now enter the panic handler.
-7. The assembly halt loop idles with interrupts disabled.
+6. The C kernel initializes VGA and COM1, installs the IDT, remaps and masks the
+   PIC, programs the PIT, initializes the PS/2 keyboard, and verifies the handoff.
+   CPU exceptions enter the panic handler.
+7. After printing boot checks, rum unmasks IRQ0 and (if initialization succeeded)
+   IRQ1, then enables CPU interrupts. IRQs return after acknowledging the PIC.
+8. The foreground loop echoes queued keys and refreshes uptime. It sleeps with
+   `sti; hlt` when no work is pending; hardware interrupts wake it again.
 
 The tutorial's essential build and boot approach is preserved. rum adds separate
 console and serial modules, a few compiler-required memory routines, automatic
@@ -54,6 +58,8 @@ Multiboot validation, build scripts, and the terminal exercises (newlines and sc
 
 Milestone 2 adds a kernel GDT, IDT, and exception diagnostics. The implementation
 and fault tests are described in [exceptions.md](exceptions.md).
+Milestone 3 adds the live timer and keyboard paths described in
+[interrupts.md](interrupts.md).
 
 References: [Bare Bones](https://wiki.osdev.org/Bare_Bones),
 [GCC Cross-Compiler](https://wiki.osdev.org/GCC_Cross-Compiler),

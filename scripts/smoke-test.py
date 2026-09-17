@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check normal boots, CPU tables, and real exceptions in isolated test ELFs."""
+"""Check boots, CPU faults, IRQ returns, and live PIT/PS2 input in QEMU."""
 import argparse
 import json
 import os
@@ -62,7 +62,7 @@ def dump_ram(stream, address, length, path):
     return data
 
 
-def cpu_tables_test(stream, symbols, artifacts, mode):
+def cpu_tables_test(stream, symbols, artifacts, mode, live=False):
     registers = qmp_command(stream, "human-monitor-command", {"command-line": "info registers"})
     (artifacts / f"{mode}-cpu.txt").write_text(registers)
     for name, expected_base, expected_limit in (("GDT", symbols["rum_gdt"], 23),
@@ -75,20 +75,125 @@ def cpu_tables_test(stream, symbols, artifacts, mode):
         if not match or int(match[1], 16) != selector:
             raise RuntimeError(f"Wrong {name} selector: {registers}")
     flags = re.search(r"\bEFL=([0-9a-fA-F]+)", registers)
-    if not flags or int(flags[1], 16) & 0x600:
-        raise RuntimeError("Device interrupts were enabled or the C direction flag was set")
+    if not flags or int(flags[1], 16) & 0x400 or bool(int(flags[1], 16) & 0x200) != live:
+        raise RuntimeError("Wrong CPU interrupt/direction flags")
     gdt = dump_ram(stream, symbols["rum_gdt"], 24, artifacts / f"{mode}-gdt.bin")
     if gdt != struct.pack("<QQQ", 0, 0x00CF9B000000FFFF, 0x00CF93000000FFFF):
         raise RuntimeError("Unexpected GDT descriptors")
     idt = dump_ram(stream, symbols["idt"], 2048, artifacts / f"{mode}-idt.bin")
-    for vector in range(32):
+    for vector in range(48):
         low, selector, reserved, attributes, high = struct.unpack_from("<HHBBH", idt, vector * 8)
-        if ((high << 16 | low) != symbols[f"exception_{vector}"]
+        target = f"exception_{vector}" if vector < 32 else f"irq_{vector - 32}"
+        if ((high << 16 | low) != symbols[target]
                 or (selector, reserved, attributes) != (8, 0, 0x8E)):
             raise RuntimeError(f"Wrong IDT gate {vector}")
-    if any(idt[32 * 8:]):
-        raise RuntimeError("Unexpected device gates before the IRQ milestone")
+    if any(idt[48 * 8:]):
+        raise RuntimeError("Unexpected IDT gates above the PIC range")
     return registers
+
+
+def timer_test(stream, symbols, artifacts, mode):
+    def count():
+        raw = dump_ram(stream, symbols["ticks"], 4, artifacts / f"{mode}-ticks.bin")
+        return struct.unpack("<I", raw)[0]
+    first = count()
+    qmp_command(stream, "cont")
+    time.sleep(0.35)
+    qmp_command(stream, "stop")
+    second = count()
+    if not 2 <= ((second - first) & 0xFFFFFFFF) < 200:
+        raise RuntimeError(f"PIT interrupts stopped or ran too fast: {first} -> {second}")
+
+
+def stop_at_idle(stream):
+    # Sample the idle loop, rather than a transient CLI region or an ISR.
+    for _ in range(20):
+        qmp_command(stream, "stop")
+        registers = qmp_command(stream, "human-monitor-command", {"command-line": "info registers"})
+        if "HLT=1" in registers:
+            return
+        qmp_command(stream, "cont")
+        time.sleep(0.02)
+    raise RuntimeError("Kernel did not reach interrupt-enabled HLT")
+
+
+def keyboard_test(stream, symbols, artifacts, mode, serial):
+    qmp_command(stream, "cont")
+
+    def send(*keys):
+        qmp_command(stream, "send-key", {
+            "keys": [{"type": "qcode", "data": key} for key in keys], "hold-time": 20
+        })
+        time.sleep(0.07)  # Release modifiers before the next input.
+
+    def expect(suffix):
+        deadline = time.monotonic() + 3
+        while not serial.read_bytes().endswith(suffix.encode()):
+            if time.monotonic() > deadline:
+                raise RuntimeError(f"PS/2 echo mismatch: expected {suffix!r}, got {serial.read_bytes()[-200:]!r}")
+            time.sleep(0.02)
+
+    send("backspace")  # Cannot erase the prompt at the start of a line.
+    expect("rum_boot_ok\r\n")
+    for key in ("r", "u", "m"):
+        send(key)
+    expect("rum")
+    send("shift", "a")
+    send("shift_r", "1")
+    send("caps_lock")
+    send("b")
+    send("shift", "c")
+    send("caps_lock")
+    send("x")
+    send("backspace")
+    send("d")
+    expect("rumA!Bcx\b \bd")
+    # Navigation, Print Screen, Pause and Ctrl/Alt must not leak text or shifts.
+    for keys in (("up",), ("print",), ("pause",), ("ctrl", "a"), ("alt", "b")):
+        send(*keys)
+    send("e")
+    send("tab")
+    send("f")
+    expect("rumA!Bcx\b \bde    f")
+    send("ret")
+    for key in ("r", "u", "m"):
+        send(key)
+    send("spc")
+    for key in ("i", "s", "spc", "a", "l", "i", "v", "e"):
+        send(key)
+    send("shift", "1")
+    expect("\r\n> rum is alive!")
+    stop_at_idle(stream)
+    memory = dump_ram(stream, 0xB8000, 4000, artifacts / f"{mode}-keyboard-vga.bin")
+    screen = "\n".join(memory[y*160:(y+1)*160:2].decode("ascii") for y in range(25))
+    for text in ("> rumA!Bcde    f", "> rum is alive!", "uptime:"):
+        if text not in screen:
+            raise RuntimeError(f"Missing edited keyboard text {text!r}:\n{screen}")
+    qmp_command(stream, "screendump", {"filename": str(artifacts / f"{mode}-keyboard.ppm")})
+    # Exercise scrolling and repeated EOIs without depending on a command shell.
+    qmp_command(stream, "cont")
+    for _ in range(28):
+        send("ret")
+    send("o")
+    send("k")
+    expect("\r\n> ok")
+    stop_at_idle(stream)
+    memory = dump_ram(stream, 0xB8000, 4000, artifacts / f"{mode}-scroll-vga.bin")
+    if b"> ok" not in memory[:24*160:2] or not memory[24*160::2].startswith(b"uptime: "):
+        raise RuntimeError("Keyboard scrolling damaged the prompt or timer status row")
+    counts = struct.unpack("<16I", dump_ram(stream, symbols["irq_counts"], 64,
+                                          artifacts / f"{mode}-irq-counts.bin"))
+    if counts[0] < 100 or counts[1] < 50 or any(counts[2:]):
+        raise RuntimeError(f"Unexpected hardware IRQ delivery: {counts}")
+    dropped = struct.unpack("<I", dump_ram(stream, symbols["dropped"], 4,
+                                         artifacts / f"{mode}-keyboard-dropped.bin"))[0]
+    if dropped:
+        raise RuntimeError(f"Keyboard dropped {dropped} characters")
+    pic = qmp_command(stream, "human-monitor-command", {"command-line": "info pic"})
+    (artifacts / f"{mode}-pic.txt").write_text(pic)
+    if not re.search(r"pic0:.*imr=fc", pic) or not re.search(r"pic1:.*imr=ff", pic):
+        raise RuntimeError(f"Unexpected PIC interrupt masks: {pic}")
+    timer_test(stream, symbols, artifacts, mode)  # Timer still runs after keyboard traffic.
 
 
 FAULT_CASES = {
@@ -126,14 +231,15 @@ def fault_report_test(stream, symbols, artifacts, mode, fault, serial_text, scre
         raise RuntimeError("Fault did not reach cpu_halt")
 
 
-def boot_test(qemu, project, mode, artifacts, fault=None):
+def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False):
     serial = artifacts / f"{mode}-serial.log"
     vga_dump = artifacts / f"{mode}-vga.bin"
     screenshot = artifacts / f"{mode}.ppm"
     serial.write_text("")
-    image = project / (f"build/tests/fault-{fault}.elf" if fault else "build/rum.elf")
+    image = project / ("build/tests/irq.elf" if irq_test else
+                       f"build/tests/fault-{fault}.elf" if fault else "build/rum.elf")
     symbols = elf_symbols(image)
-    marker = "rum_panic_halted" if fault else "rum_boot_ok"
+    marker = "rum_irq_test_ok" if irq_test else "rum_panic_halted" if fault else "rum_boot_ok"
     with tempfile.TemporaryDirectory(prefix="rum-qmp-") as temporary:
         monitor = str(Path(temporary) / "qmp.sock")
         # Windows QEMU uses a loopback TCP monitor; Linux can use a Unix socket.
@@ -172,27 +278,38 @@ def boot_test(qemu, project, mode, artifacts, fault=None):
                     status = qmp_command(stream, "query-status")
                     if not status["running"]:
                         raise RuntimeError(f"Guest unexpectedly stopped: {status}")
-                    qmp_command(stream, "stop")
-                    registers = cpu_tables_test(stream, symbols, artifacts, mode)
+                    if not fault and not irq_test:
+                        stop_at_idle(stream)
+                    else:
+                        qmp_command(stream, "stop")
+                    registers = cpu_tables_test(stream, symbols, artifacts, mode, live=not fault and not irq_test)
+                    if not fault and not irq_test:
+                        timer_test(stream, symbols, artifacts, mode)
                     memory = dump_ram(stream, 0xB8000, 4000, vga_dump)
                     qmp_command(stream, "screendump", {"filename": str(screenshot)})
                     rows = [memory[y * 160:(y + 1) * 160:2].decode("ascii", errors="replace").rstrip()
                             for y in range(25)]
                     screen = "\n".join(rows)
                     (artifacts / f"{mode}-screen.txt").write_text(screen + "\n")
-                    expected_text = (("rum kernel panic", FAULT_CASES[fault][2], "CPU halted.") if fault
+                    expected_text = (("rum IRQ return and spurious interrupt tests passed.",) if irq_test else
+                                     ("rum kernel panic", FAULT_CASES[fault][2], "CPU halted.") if fault
                                      else ("rum OS v0.1.0", "Hello, kernel world!", "[ok] Multiboot handoff",
-                                           "[ok] Kernel GDT and segments", "[ok] IDT and CPU exception handlers", "CPU idle."))
+                                           "[ok] Kernel GDT and segments", "[ok] IDT and CPU exception handlers",
+                                           "[ok] PIT timer at 100 Hz", "[ok] PS/2 keyboard (US layout)",
+                                           "uptime:", "Close QEMU to return"))
                     for expected in expected_text:
                         if expected not in screen:
                             raise RuntimeError(f"Missing VGA text {expected!r} ({mode})")
                     if fault:
                         fault_report_test(stream, symbols, artifacts, mode, fault,
                                           serial.read_text(), screen, registers)
+                    elif not irq_test:
+                        keyboard_test(stream, symbols, artifacts, mode, serial)
                     qmp_command(stream, "quit")
             print(f"PASS: {mode}, GDT/IDT/segments, " +
                   ("real exception, saved registers, error code, EIP, stack, VGA/serial panic, halt" if fault
-                   else "Multiboot handoff, serial log, and VGA output"))
+                   else "IRQ return, saved registers/flags, spurious IRQ7/IRQ15" if irq_test
+                   else "Multiboot, VGA/serial, PIT ticks, PS/2 editing/modifiers/scrolling, PIC masks/EOIs"))
         finally:
             if process.poll() is None:
                 process.terminate()
@@ -214,6 +331,7 @@ def main():
         boot_test(args.qemu, project, mode, artifacts)
     for fault in FAULT_CASES:
         boot_test(args.qemu, project, f"fault-{fault}", artifacts, fault=fault)
+    boot_test(args.qemu, project, "irq", artifacts, irq_test=True)
 
 
 if __name__ == "__main__":

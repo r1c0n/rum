@@ -83,6 +83,58 @@ exception_common:
     jmp cpu_halt
 .size exception_common, . - exception_common
 
+/* Device IRQs have no CPU error code and return to the interrupted context. */
+.macro IRQ line
+.type irq_\line, @function
+irq_\line:
+    pushl $0
+    pushl $(32 + \line)
+    jmp irq_common
+.size irq_\line, . - irq_\line
+.endm
+.irp line,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+    IRQ \line
+.endr
+
+.type irq_common, @function
+irq_common:
+    cld
+    pushal
+    xor %eax, %eax
+    mov %ds, %ax
+    push %eax
+    mov %es, %ax
+    push %eax
+    mov %fs, %ax
+    push %eax
+    mov %gs, %ax
+    push %eax
+    mov $0x10, %ax
+    mov %ax, %ds
+    mov %ax, %es
+    mov %ax, %fs
+    mov %ax, %gs
+
+    /* EBX is callee-saved by C. Retain the frame across stack alignment. */
+    mov %esp, %ebx
+    and $-16, %esp
+    sub $12, %esp
+    push %ebx
+    call irq_dispatch
+    mov %ebx, %esp
+    pop %eax
+    mov %ax, %gs
+    pop %eax
+    mov %ax, %fs
+    pop %eax
+    mov %ax, %es
+    pop %eax
+    mov %ax, %ds
+    popal
+    add $8, %esp
+    iret
+.size irq_common, . - irq_common
+
 .section .rodata, "a"
 .balign 4
 .global exception_stub_table
@@ -92,5 +144,13 @@ exception_stub_table:
     .long exception_\vector
 .endr
 .size exception_stub_table, . - exception_stub_table
+
+.global irq_stub_table
+.type irq_stub_table, @object
+irq_stub_table:
+.irp line,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+    .long irq_\line
+.endr
+.size irq_stub_table, . - irq_stub_table
 
 .section .note.GNU-stack, "", @progbits

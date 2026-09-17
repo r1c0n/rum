@@ -12,7 +12,7 @@ CFLAGS := -std=gnu11 -ffreestanding -O2 -g -Wall -Wextra -Werror \
           -fno-pie -fno-builtin -fno-asynchronous-unwind-tables -mno-mmx -mno-sse -mno-sse2
 LDFLAGS := -T arch/i386/linker.ld -nostdlib -ffreestanding -no-pie \
            -Wl,--build-id=none -Wl,-Map,build/rum.map
-SOURCES := kernel/kernel.c kernel/terminal.c kernel/serial.c kernel/memory.c arch/i386/exceptions.c
+SOURCES := kernel/kernel.c kernel/terminal.c kernel/serial.c kernel/memory.c kernel/timer.c kernel/keyboard.c kernel/keyboard_decode.c arch/i386/exceptions.c arch/i386/pic.c arch/i386/irq.c
 ASM_SOURCES := arch/i386/boot.s arch/i386/gdt.s arch/i386/interrupts.s
 OBJECTS := $(ASM_SOURCES:%.s=build/%.o) $(SOURCES:%.c=build/%.o)
 DEPENDENCIES := $(OBJECTS:.o=.d)
@@ -58,8 +58,12 @@ debug: iso
 panic: build/tests/fault-ud.elf
 	$(QEMU) -m 64M -kernel $< -serial stdio -no-reboot -no-shutdown
 
-test: test-host iso $(FAULT_KERNELS)
+test: test-host iso $(FAULT_KERNELS) build/tests/irq.elf
 	python3 scripts/smoke-test.py --qemu $(QEMU)
+
+build/tests/irq.elf: build/tests/irq-kernel.o build/tests/irq-probe.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) arch/i386/linker.ld
+	$(CC) -T arch/i386/linker.ld -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
 
 build/tests/fault-de.o: FAULT_CASE=0
 build/tests/fault-ud.o: FAULT_CASE=1
@@ -86,9 +90,14 @@ build/tests/memory-test: tests/memory-test.c kernel/memory.c include/rum/memory.
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Iinclude tests/memory-test.c kernel/memory.c -o $@
 
-test-host: build/tests/console-test build/tests/memory-test
+build/tests/keyboard-test: tests/keyboard-test.c kernel/keyboard_decode.c include/rum/keyboard_decode.h
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude tests/keyboard-test.c kernel/keyboard_decode.c -o $@
+
+test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard-test
 	./build/tests/console-test
 	./build/tests/memory-test
+	./build/tests/keyboard-test
 
 doctor:
 	bash scripts/doctor.sh

@@ -3,6 +3,7 @@
 
 #define VGA_WIDTH 80
 #define VGA_HEIGHT 25
+#define TEXT_HEIGHT (VGA_HEIGHT - 1)
 
 static volatile uint16_t *const buffer = (volatile uint16_t *)0xB8000;
 static size_t row;
@@ -32,12 +33,12 @@ static void clear_row(size_t target)
 static void advance_row(void)
 {
     column = 0;
-    if (++row < VGA_HEIGHT)
+    if (++row < TEXT_HEIGHT)
         return;
-    for (size_t y = 1; y < VGA_HEIGHT; ++y)
+    for (size_t y = 1; y < TEXT_HEIGHT; ++y)
         for (size_t x = 0; x < VGA_WIDTH; ++x)
             buffer[(y - 1) * VGA_WIDTH + x] = buffer[y * VGA_WIDTH + x];
-    row = VGA_HEIGHT - 1;
+    row = TEXT_HEIGHT - 1;
     clear_row(row);
 }
 
@@ -90,6 +91,17 @@ void terminal_write(const char *text, size_t length)
 {
     for (size_t i = 0; i < length; ++i)
         terminal_putchar(text[i]);
+}
+
+void terminal_status(const char *text)
+{
+    /* Keep the bottom row outside console scrolling and leave its cursor alone. */
+    for (size_t x = 0; x < VGA_WIDTH; ++x) {
+        char c = ' ';
+        if (*text)
+            c = *text++;
+        buffer[TEXT_HEIGHT * VGA_WIDTH + x] = (uint16_t)(unsigned char)c | (uint16_t)VGA_DARK_GREY << 8;
+    }
 }
 
 void terminal_writestring(const char *text)

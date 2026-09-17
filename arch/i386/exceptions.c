@@ -24,13 +24,14 @@ _Static_assert(sizeof(struct idt_descriptor) == 6, "32-bit IDTR operand size");
 
 static struct idt_gate idt[256] __attribute__((aligned(16)));
 extern const uintptr_t exception_stub_table[32];
+extern const uintptr_t irq_stub_table[16];
 static bool panicking;
 
 void idt_initialize(void)
 {
     memset(idt, 0, sizeof(idt));
-    for (unsigned vector = 0; vector < 32; ++vector) {
-        uintptr_t address = exception_stub_table[vector];
+    for (unsigned vector = 0; vector < 48; ++vector) {
+        uintptr_t address = vector < 32 ? exception_stub_table[vector] : irq_stub_table[vector - 32];
         idt[vector] = (struct idt_gate) {
             .offset_low = (uint16_t)address,
             .selector = KERNEL_CODE_SELECTOR,

@@ -6,14 +6,14 @@ Version numbers change when we plan a release, rather than after each milestone.
 1. **Complete:** boot a C kernel through GRUB with VGA and serial output.
 2. **Complete:** kernel GDT, IDT, and CPU exception handlers with
    register diagnostics and real-fault tests. See [exceptions](exceptions.md).
-3. Add PIC interrupt handling, a PIT timer, and PS/2 keyboard input.
+3. **Complete:** PIC interrupt handling, a 100 Hz PIT timer with uptime,
+   and PS/2 keyboard input with text echo. See [device interrupts](interrupts.md).
 4. Build a small command loop: `help`, `clear`, `about`, and `echo`.
 5. Use Multiboot's memory map to build a physical page allocator and paging.
 6. Add a heap, then a small RAM filesystem and embedded files.
 7. Make something fun: ASCII Snake or a tiny text adventure.
 
-Next: milestone 3. Work through PIC remapping, a timer, and keyboard input,
-checking each part in QEMU before adding the next.
+Next: milestone 4. Use the keyboard queue to build the small command loop.
 
 Keep each milestone bootable in QEMU. Serial logs and `make test` should keep
 working as the kernel grows. Add targeted tests when new hardware behavior needs them.

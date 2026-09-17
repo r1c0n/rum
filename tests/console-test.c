@@ -47,11 +47,23 @@ int main(void)
         terminal_putchar((char)('A' + line % 26));
         terminal_putchar('\n');
     }
-    /* Six discarded lines; the final newline leaves the bottom row empty. */
-    assert(character(0) == 'G');
-    assert(character(23 * 80) == 'D');
+    /* 24 console rows plus a reserved status row; seven lines discarded. */
+    assert(character(0) == 'H');
+    assert(character(22 * 80) == 'D');
+    for (size_t x = 0; x < 80; ++x)
+        assert(character(23 * 80 + x) == ' ');
     for (size_t x = 0; x < 80; ++x)
         assert(character(24 * 80 + x) == ' ');
+
+    terminal_initialize();
+    terminal_writestring("ab");
+    terminal_status("uptime: 1s");
+    terminal_putchar('c');
+    assert(character(2) == 'c'); /* Status updates must not move the cursor. */
+    assert(character(24 * 80) == 'u');
+    for (unsigned line = 0; line < 30; ++line)
+        terminal_putchar('\n');
+    assert(character(24 * 80) == 'u'); /* Scrolling must preserve the status. */
 
     assert(munmap(mapping, 4096) == 0);
     puts("PASS: console newlines, wrapping, colors, tabs, backspace, scrolling");

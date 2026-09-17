@@ -20,6 +20,9 @@ _Static_assert(offsetof(struct exception_frame, eip) == 56, "ISR instruction off
 _Static_assert(sizeof(struct exception_frame) == 68, "ISR frame size");
 
 void idt_initialize(void);
+void irq_register(uint8_t irq, void (*handler)(void));
+void irq_dispatch(const struct exception_frame *frame);
+uint32_t irq_spurious_count(void);
 _Noreturn void exception_dispatch(const struct exception_frame *frame);
 
 #endif
