@@ -10,6 +10,7 @@ case "${1:-build}" in
     doctor) bash scripts/doctor.sh ;;
     build) make all ;;
     run-kernel) make check ;;
+    panic) make build/tests/fault-ud.elf ;;
     test) make test ;;
     clean) make clean ;;
     *) echo "Unknown action: $1" >&2; exit 2 ;;

@@ -45,6 +45,7 @@ make run
 | `./rum.ps1 run-kernel` | `make run-kernel`   | Boot ELF directly through QEMU's Multiboot loader         |
 | `./rum.ps1 test`       | `make test`         | Check console and memory behavior, then ISO and ELF boots |
 | `./rum.ps1 debug`      | `make debug`        | Start paused with GDB server on localhost port 1234       |
+| `./rum.ps1 panic`      | `make panic`        | Show a deliberate invalid-opcode panic in a separate test kernel |
 | `./rum.ps1 clean`      | `make clean`        | Remove generated `build/` directory                       |
 
 Close QEMU's window to exit. With `make run`, serial output also appears in your
@@ -54,6 +55,9 @@ terminal. `Ctrl+C` stops that foreground QEMU process.
 
 ```text
 arch/i386/boot.s       Multiboot header, stack setup, C entry, halt loop
+arch/i386/gdt.s        Flat kernel GDT, segment reload, shared CPU halt routine
+arch/i386/interrupts.s CPU exception stubs and C stack-frame setup
+arch/i386/exceptions.c IDT setup and VGA/serial panic diagnostics
 arch/i386/linker.ld    ELF layout; loads at 2 MiB
 boot/grub/grub.cfg    GRUB boot menu
 include/rum/          Kernel headers and x86 port I/O helpers
@@ -62,7 +66,7 @@ kernel/terminal.c    VGA text, color, cursor, wrapping, newlines, scrolling
 kernel/serial.c      COM1 output for debugging
 kernel/memory.c      Freestanding memcpy, memmove, memset, memcmp
 scripts/             Setup, environment audit, and QEMU boot tests
-tests/               Host checks of console boundaries and memory routines
+tests/               Console/memory checks and isolated hardware fault kernels
 docs/                Setup and next milestones
 Makefile             Build, validate, package, run, debug
 rum.ps1              Windows commands backed by WSL
@@ -74,9 +78,20 @@ GRUB is the bootloader. `boot.s` is rum's kernel startup code: it runs after GRU
 has loaded the kernel into 32-bit protected mode. We aren't building our own
 bootloader in this milestone.
 
-The kernel keeps interrupts disabled until we have an interrupt descriptor table
-and handlers. It prints a greeting and returns into `cli` / `hlt`; the machine
-then idles. There are no processes, allocator, filesystem, shell, or host C library.
+rum loads its own GDT before entering C and installs IDT gates for CPU
+exception vectors 0–31. Fatal exceptions show their name, error code, EIP, EFLAGS,
+and registers on VGA and COM1, then halt. Page faults also show CR2 and basic
+access information. Device interrupts remain disabled until the next milestone
+adds PIC handling and device handlers. Normal boot prints a greeting and idles.
+There are no processes, allocator, filesystem, shell, or host C library.
+
+`./rum.ps1 panic` uses a separate test ELF that deliberately executes `ud2`.
+Close its QEMU window and use `./rum.ps1 run` for the normal rum build.
+`make test` checks normal ISO/ELF boots and real divide, invalid-opcode, protection,
+and page faults. It verifies CPU tables, selectors, registers, error codes,
+instruction addresses, stack pointers, direction flags, VGA/serial output, and halt.
+The page-fault test has its own small paging fixture; production rum does not
+enable paging yet. See [exception handling](docs/exceptions.md).
 
 ## Debug
 

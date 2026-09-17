@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <rum/interrupts.h>
 #include <rum/serial.h>
 #include <rum/terminal.h>
 
@@ -23,6 +24,7 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
 {
     terminal_initialize();
     serial_initialize();
+    idt_initialize();
     if (multiboot_magic != MULTIBOOT_BOOTLOADER_MAGIC || multiboot_info_address == 0) {
         terminal_set_color(VGA_LIGHT_RED, VGA_BLACK);
         print("rum: invalid Multiboot handoff. Halting.\n");
@@ -40,9 +42,11 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     print("  [ok] Multiboot handoff\n");
     print("  [ok] C kernel and stack\n");
     print("  [ok] VGA text console\n");
-    print("  [ok] COM1 serial logging\n\n");
+    print("  [ok] COM1 serial logging\n");
+    print("  [ok] Kernel GDT and segments\n");
+    print("  [ok] IDT and CPU exception handlers\n\n");
     terminal_set_color(VGA_LIGHT_GREY, VGA_BLACK);
-    print("  First landfall. Next up: keyboard input and a shell.\n");
+    print("  Next up: timer interrupts and keyboard input.\n");
     print("  CPU idle. Close QEMU to return to your host.\n");
     serial_writestring("rum_boot_ok\n");
     /* Return to the assembly halt loop. There is no scheduler or shell yet. */

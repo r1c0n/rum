@@ -33,14 +33,13 @@ _start:
     sub $8, %esp
     push %ebx                   /* Second C argument: boot information address. */
     push %eax                   /* First C argument: Multiboot magic. */
+    /* Save the handoff before reloading AX and replace GRUB's segment table. */
+    call gdt_initialize
     call kernel_main
     add $16, %esp
 
-    /* No interrupt handlers exist yet, so leave interrupts disabled. */
-    cli
-1:
-    hlt
-    jmp 1b
+    /* Device IRQ handling comes next; leave interrupts disabled. */
+    jmp cpu_halt
 .size _start, . - _start
 
 .section .note.GNU-stack, "", @progbits

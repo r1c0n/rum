@@ -12,14 +12,18 @@ CFLAGS := -std=gnu11 -ffreestanding -O2 -g -Wall -Wextra -Werror \
           -fno-pie -fno-builtin -fno-asynchronous-unwind-tables -mno-mmx -mno-sse -mno-sse2
 LDFLAGS := -T arch/i386/linker.ld -nostdlib -ffreestanding -no-pie \
            -Wl,--build-id=none -Wl,-Map,build/rum.map
-SOURCES := kernel/kernel.c kernel/terminal.c kernel/serial.c kernel/memory.c
-OBJECTS := build/arch/i386/boot.o $(SOURCES:%.c=build/%.o)
+SOURCES := kernel/kernel.c kernel/terminal.c kernel/serial.c kernel/memory.c arch/i386/exceptions.c
+ASM_SOURCES := arch/i386/boot.s arch/i386/gdt.s arch/i386/interrupts.s
+OBJECTS := $(ASM_SOURCES:%.s=build/%.o) $(SOURCES:%.c=build/%.o)
 DEPENDENCIES := $(OBJECTS:.o=.d)
+FAULT_KERNELS := build/tests/fault-de.elf build/tests/fault-ud.elf build/tests/fault-gp.elf build/tests/fault-pf.elf
+FAULT_COMMON := $(filter-out build/kernel/kernel.o,$(OBJECTS)) build/tests/fault-trigger.o
 
-.PHONY: all check iso run run-kernel debug test test-host doctor toolchain clean
+.PHONY: all check iso run run-kernel debug panic test test-host doctor toolchain clean
+.SECONDARY: $(FAULT_KERNELS:.elf=.o)
 all: iso
 
-build/arch/i386/boot.o: arch/i386/boot.s
+build/%.o: %.s
 	@mkdir -p $(@D)
 	$(AS) $< -o $@
 
@@ -51,8 +55,28 @@ run-kernel: check
 debug: iso
 	$(QEMU) -m 64M -boot d -cdrom build/rum.iso -serial stdio -no-reboot -no-shutdown -S -s
 
-test: test-host iso
+panic: build/tests/fault-ud.elf
+	$(QEMU) -m 64M -kernel $< -serial stdio -no-reboot -no-shutdown
+
+test: test-host iso $(FAULT_KERNELS)
 	python3 scripts/smoke-test.py --qemu $(QEMU)
+
+build/tests/fault-de.o: FAULT_CASE=0
+build/tests/fault-ud.o: FAULT_CASE=1
+build/tests/fault-gp.o: FAULT_CASE=2
+build/tests/fault-pf.o: FAULT_CASE=3
+
+build/tests/fault-trigger.o: tests/fault-trigger.s
+	@mkdir -p $(@D)
+	$(AS) $< -o $@
+
+build/tests/fault-%.o: tests/fault-kernel.c
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DRUM_FAULT_CASE=$(FAULT_CASE) -MMD -MP -c $< -o $@
+
+build/tests/fault-%.elf: build/tests/fault-%.o $(FAULT_COMMON) arch/i386/linker.ld
+	$(CC) -T arch/i386/linker.ld -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(FAULT_COMMON) $< -lgcc -o $@
+	grub-file --is-x86-multiboot $@
 
 build/tests/console-test: tests/console-test.c kernel/terminal.c include/rum/terminal.h tests/include/rum/io.h
 	@mkdir -p $(@D)
@@ -75,4 +99,4 @@ toolchain:
 clean:
 	rm -rf -- build
 
--include $(DEPENDENCIES)
+-include $(DEPENDENCIES) $(wildcard build/tests/fault-*.d)
