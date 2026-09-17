@@ -60,9 +60,9 @@ navigation, keyboard LEDs, and other layouts are later work.
 Printable characters enter a 128-slot ring buffer (127 usable). A full queue
 drops the newest character and increments a diagnostic counter. Reading the
 queue briefly saves/disables/restores interrupts. Handlers never print or edit
-the console: the foreground loop performs VGA and serial echo. Backspace cannot
-erase the prompt, Tab inserts four spaces, Enter starts a new prompt, and each
-line accepts up to 255 characters. Command execution belongs to milestone 4.
+the console: the foreground loop passes characters to the [shell](shell.md),
+which performs VGA and serial echo and runs commands on Enter. Backspace cannot
+erase the prompt, Tab inserts four spaces, and each line accepts up to 255 characters.
 
 ## Verification
 

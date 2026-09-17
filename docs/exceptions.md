@@ -36,7 +36,7 @@ cd F:\Projects\osdev\rum
 ```
 
 This boots `build/tests/fault-ud.elf`, a separate test kernel. Normal `rum.elf`
-and `rum.iso` keep their normal echo console and timer. `make panic` does the same
+and `rum.iso` keep their normal command loop and timer. `make panic` does the same
 from WSL. Each fault ELF includes production startup, GDT, IDT, and panic code.
 
 ## Verification

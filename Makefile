@@ -12,7 +12,7 @@ CFLAGS := -std=gnu11 -ffreestanding -O2 -g -Wall -Wextra -Werror \
           -fno-pie -fno-builtin -fno-asynchronous-unwind-tables -mno-mmx -mno-sse -mno-sse2
 LDFLAGS := -T arch/i386/linker.ld -nostdlib -ffreestanding -no-pie \
            -Wl,--build-id=none -Wl,-Map,build/rum.map
-SOURCES := kernel/kernel.c kernel/terminal.c kernel/serial.c kernel/memory.c kernel/timer.c kernel/keyboard.c kernel/keyboard_decode.c arch/i386/exceptions.c arch/i386/pic.c arch/i386/irq.c
+SOURCES := kernel/kernel.c kernel/terminal.c kernel/serial.c kernel/memory.c kernel/timer.c kernel/keyboard.c kernel/keyboard_decode.c kernel/shell.c arch/i386/exceptions.c arch/i386/pic.c arch/i386/irq.c
 ASM_SOURCES := arch/i386/boot.s arch/i386/gdt.s arch/i386/interrupts.s
 OBJECTS := $(ASM_SOURCES:%.s=build/%.o) $(SOURCES:%.c=build/%.o)
 DEPENDENCIES := $(OBJECTS:.o=.d)
@@ -94,10 +94,15 @@ build/tests/keyboard-test: tests/keyboard-test.c kernel/keyboard_decode.c includ
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude tests/keyboard-test.c kernel/keyboard_decode.c -o $@
 
-test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard-test
+build/tests/shell-test: tests/shell-test.c kernel/shell.c kernel/terminal.c include/rum/shell.h include/rum/terminal.h include/rum/serial.h tests/include/rum/io.h
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/include -Iinclude tests/shell-test.c kernel/shell.c kernel/terminal.c -o $@
+
+test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test
 	./build/tests/console-test
 	./build/tests/memory-test
 	./build/tests/keyboard-test
+	./build/tests/shell-test
 
 doctor:
 	bash scripts/doctor.sh

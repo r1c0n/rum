@@ -49,7 +49,8 @@ make CROSS_PREFIX=i686-elf-
    CPU exceptions enter the panic handler.
 7. After printing boot checks, rum unmasks IRQ0 and (if initialization succeeded)
    IRQ1, then enables CPU interrupts. IRQs return after acknowledging the PIC.
-8. The foreground loop echoes queued keys and refreshes uptime. It sleeps with
+8. The foreground loop feeds queued keys into the shell, runs completed command
+   lines, and refreshes uptime. It sleeps with
    `sti; hlt` when no work is pending; hardware interrupts wake it again.
 
 The tutorial's essential build and boot approach is preserved. rum adds separate
@@ -60,6 +61,7 @@ Milestone 2 adds a kernel GDT, IDT, and exception diagnostics. The implementatio
 and fault tests are described in [exceptions.md](exceptions.md).
 Milestone 3 adds the live timer and keyboard paths described in
 [interrupts.md](interrupts.md).
+Milestone 4 adds the command loop described in [shell.md](shell.md).
 
 References: [Bare Bones](https://wiki.osdev.org/Bare_Bones),
 [GCC Cross-Compiler](https://wiki.osdev.org/GCC_Cross-Compiler),

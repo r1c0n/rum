@@ -8,12 +8,14 @@ Version numbers change when we plan a release, rather than after each milestone.
    register diagnostics and real-fault tests. See [exceptions](exceptions.md).
 3. **Complete:** PIC interrupt handling, a 100 Hz PIT timer with uptime,
    and PS/2 keyboard input with text echo. See [device interrupts](interrupts.md).
-4. Build a small command loop: `help`, `clear`, `about`, and `echo`.
+4. **Complete:** small command loop with `help`, `clear`, `about`, and `echo`,
+   bounded line editing, and VGA/serial output. See [the shell](shell.md).
 5. Use Multiboot's memory map to build a physical page allocator and paging.
 6. Add a heap, then a small RAM filesystem and embedded files.
 7. Make something fun: ASCII Snake or a tiny text adventure.
 
-Next: milestone 4. Use the keyboard queue to build the small command loop.
+Next: milestone 5. Use Multiboot's memory map to build a physical page allocator
+and paging.
 
 Keep each milestone bootable in QEMU. Serial logs and `make test` should keep
 working as the kernel grows. Add targeted tests when new hardware behavior needs them.

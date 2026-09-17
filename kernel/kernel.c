@@ -4,6 +4,7 @@
 #include <rum/keyboard.h>
 #include <rum/pic.h>
 #include <rum/serial.h>
+#include <rum/shell.h>
 #include <rum/terminal.h>
 #include <rum/timer.h>
 
@@ -37,28 +38,6 @@ static void update_uptime(uint32_t seconds)
     text[length++] = 's';
     text[length] = '\0';
     terminal_status(text);
-}
-
-static void echo_character(char character, unsigned *length)
-{
-    if (character == '\n') {
-        print("\n> ");
-        *length = 0;
-    } else if (character == '\b') {
-        if (*length) {
-            terminal_putchar('\b');
-            serial_writestring("\b \b");
-            --*length;
-        }
-    } else if (character == '\t') {
-        /* Fixed four-space expansion, so backspace can erase each space. */
-        for (unsigned i = 0; i < 4; ++i)
-            echo_character(' ', length);
-    } else if (character >= ' ' && character <= '~' && *length < 255) {
-        terminal_putchar(character);
-        serial_putchar(character);
-        ++*length;
-    }
 }
 
 void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address);
@@ -100,8 +79,9 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
         print("  [failed] PS/2 keyboard initialization\n\n");
     }
     terminal_set_color(VGA_LIGHT_GREY, VGA_BLACK);
-    print("  Type here. Enter starts a new line; Backspace edits.\n");
-    print("  Close QEMU to return to your host.\n\n> ");
+    print("  Type 'help' for commands; Backspace edits.\n");
+    print("  Close QEMU to return to your host.\n\n");
+    shell_initialize();
     update_uptime(0);
     pic_unmask(0);
     if (keyboard_ready)
@@ -109,7 +89,6 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     serial_writestring("rum_boot_ok\n");
     cpu_interrupt_enable();
     uint32_t displayed = 0;
-    unsigned line_length = 0;
     for (;;) {
         uint32_t flags = cpu_interrupt_save();
         uint32_t seconds = timer_ticks() / TIMER_HZ;
@@ -122,7 +101,7 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
                 update_uptime(seconds);
             }
             if (available)
-                echo_character(character, &line_length);
+                shell_receive(character);
         } else {
             cpu_idle();
         }

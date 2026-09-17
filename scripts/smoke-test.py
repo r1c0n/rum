@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check boots, CPU faults, IRQ returns, and live PIT/PS2 input in QEMU."""
+"""Check boots, CPU faults, IRQ returns, live PIT/PS2 input, and shell commands."""
 import argparse
 import json
 import os
@@ -117,9 +117,7 @@ def stop_at_idle(stream):
     raise RuntimeError("Kernel did not reach interrupt-enabled HLT")
 
 
-def keyboard_test(stream, symbols, artifacts, mode, serial):
-    qmp_command(stream, "cont")
-
+def guest_keyboard(stream, serial):
     def send(*keys):
         qmp_command(stream, "send-key", {
             "keys": [{"type": "qcode", "data": key} for key in keys], "hold-time": 20
@@ -132,6 +130,24 @@ def keyboard_test(stream, symbols, artifacts, mode, serial):
             if time.monotonic() > deadline:
                 raise RuntimeError(f"PS/2 echo mismatch: expected {suffix!r}, got {serial.read_bytes()[-200:]!r}")
             time.sleep(0.02)
+
+    def type_text(text):
+        special = {" ": "spc", "\n": "ret", "\t": "tab", "\b": "backspace"}
+        for character in text:
+            if character in special:
+                send(special[character])
+            elif character == "!":
+                send("shift", "1")
+            elif "a" <= character <= "z" or character.isdigit():
+                send(character)
+            else:
+                raise ValueError(f"Unsupported test input {character!r}")
+    return send, expect, type_text
+
+
+def keyboard_test(stream, symbols, artifacts, mode, serial):
+    qmp_command(stream, "cont")
+    send, expect, _ = guest_keyboard(stream, serial)
 
     send("backspace")  # Cannot erase the prompt at the start of a line.
     expect("rum_boot_ok\r\n")
@@ -170,7 +186,7 @@ def keyboard_test(stream, symbols, artifacts, mode, serial):
         if text not in screen:
             raise RuntimeError(f"Missing edited keyboard text {text!r}:\n{screen}")
     qmp_command(stream, "screendump", {"filename": str(artifacts / f"{mode}-keyboard.ppm")})
-    # Exercise scrolling and repeated EOIs without depending on a command shell.
+    # Exercise scrolling and repeated EOIs with empty command lines.
     qmp_command(stream, "cont")
     for _ in range(28):
         send("ret")
@@ -194,6 +210,65 @@ def keyboard_test(stream, symbols, artifacts, mode, serial):
     if not re.search(r"pic0:.*imr=fc", pic) or not re.search(r"pic1:.*imr=ff", pic):
         raise RuntimeError(f"Unexpected PIC interrupt masks: {pic}")
     timer_test(stream, symbols, artifacts, mode)  # Timer still runs after keyboard traffic.
+
+
+def shell_test(stream, symbols, artifacts, mode, serial):
+    qmp_command(stream, "cont")
+    _, expect, type_text = guest_keyboard(stream, serial)
+    type_text("\b\b")  # Remove the keyboard test's unsubmitted 'ok'.
+    type_text("help\n")
+    expect("Commands:\r\n"
+           "  help         Show this list.\r\n"
+           "  clear        Clear the console.\r\n"
+           "  about        About rum.\r\n"
+           "  echo <text>  Print text.\r\n> ")
+    type_text("about\n")
+    expect("rum OS v0.1.0 (unreleased)\r\n"
+           "An island of our own. A hobby kernel in C and x86 assembly.\r\n"
+           "32-bit x86 | GRUB Multiboot | PIC, PIT and PS/2\r\n> ")
+    type_text("echx\bo rum is alive!\n")
+    expect("\r\nrum is alive!\r\n> ")
+    type_text("   echo   two  spaces\n")
+    expect("\r\ntwo  spaces\r\n> ")
+    before = serial.read_bytes()
+    type_text(" \t\n")
+    expect("     \r\n> ")
+    if b"Unknown command" in serial.read_bytes()[len(before):]:
+        raise RuntimeError("Whitespace-only input dispatched a command")
+    type_text("echo\n")
+    expect("echo\r\n\r\n> ")
+    type_text("nope\n")
+    expect("Unknown command: nope. Type 'help'.\r\n> ")
+    type_text("clear x\n")
+    expect("Usage: clear\r\n> ")
+    stop_at_idle(stream)
+    memory = dump_ram(stream, 0xB8000, 4000, artifacts / f"{mode}-shell-errors-vga.bin")
+    if b"Usage: clear" not in memory[:24*160:2]:
+        raise RuntimeError("Command usage error missing from VGA")
+    qmp_command(stream, "cont")
+    type_text("clear\n")
+    expect("clear\r\n\x1b[2J\x1b[H> ")
+    stop_at_idle(stream)
+    memory = dump_ram(stream, 0xB8000, 4000, artifacts / f"{mode}-clear-vga.bin")
+    text = memory[:24*160:2]
+    if text != b"> " + b" " * (24*80 - 2):
+        raise RuntimeError("Clear did not reset the console and prompt")
+    if not memory[24*160::2].startswith(b"uptime: "):
+        raise RuntimeError("Clear erased the uptime row")
+    # A clean demonstration also checks commands still run after clear.
+    qmp_command(stream, "cont")
+    type_text("help\nabout\necho rum has a shell!\n")
+    expect("\r\nrum has a shell!\r\n> ")
+    stop_at_idle(stream)
+    memory = dump_ram(stream, 0xB8000, 4000, artifacts / f"{mode}-shell-vga.bin")
+    rows = [memory[y*160:(y+1)*160:2].decode("ascii").rstrip() for y in range(25)]
+    screen = "\n".join(rows)
+    for text in ("Commands:", "echo <text>", "rum OS v0.1.0 (unreleased)", "rum has a shell!", "uptime:"):
+        if text not in screen:
+            raise RuntimeError(f"Missing shell VGA text {text!r}")
+    (artifacts / f"{mode}-shell-screen.txt").write_text(screen + "\n")
+    qmp_command(stream, "screendump", {"filename": str(artifacts / f"{mode}-shell.ppm")})
+    timer_test(stream, symbols, artifacts, mode)
 
 
 FAULT_CASES = {
@@ -305,11 +380,12 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False):
                                           serial.read_text(), screen, registers)
                     elif not irq_test:
                         keyboard_test(stream, symbols, artifacts, mode, serial)
+                        shell_test(stream, symbols, artifacts, mode, serial)
                     qmp_command(stream, "quit")
             print(f"PASS: {mode}, GDT/IDT/segments, " +
                   ("real exception, saved registers, error code, EIP, stack, VGA/serial panic, halt" if fault
                    else "IRQ return, saved registers/flags, spurious IRQ7/IRQ15" if irq_test
-                   else "Multiboot, VGA/serial, PIT ticks, PS/2 editing/modifiers/scrolling, PIC masks/EOIs"))
+                   else "Multiboot, VGA/serial, PIT, PS/2 editing/scrolling, PIC, help/clear/about/echo"))
         finally:
             if process.poll() is None:
                 process.terminate()

@@ -87,6 +87,15 @@ void terminal_putchar(char c)
     update_cursor();
 }
 
+void terminal_clear(void)
+{
+    /* Clear console text only; keep the timer status and current color. */
+    row = column = 0;
+    for (size_t y = 0; y < TEXT_HEIGHT; ++y)
+        clear_row(y);
+    update_cursor();
+}
+
 void terminal_write(const char *text, size_t length)
 {
     for (size_t i = 0; i < length; ++i)
