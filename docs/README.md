@@ -13,7 +13,7 @@
 | [Memory management](memory.md) | Physical pages, paging contexts, and shared kernel mappings |
 | [Memory layout and ownership](memory-layout.md) | Shared ranges, stack reservations, process limits, and cleanup rules |
 | [Heap and RAM files](storage.md) | Allocation APIs, file ownership, and embedded assets |
-| [0.2.0 roadmap](roadmap.md) | Kernel prerequisites, user processes, syscalls, and persistent storage |
+| [Roadmap](roadmap.md) | 0.3.0 protected user processes and 0.4.0 persistent files and userspace shell |
 
 ## Boot sequence
 

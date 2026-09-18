@@ -1,289 +1,357 @@
-# rum 0.2.0 roadmap
+# rum roadmap
 
-The next release lays the foundations for user processes and persistent files.
-The first target is a small program running in ring 3 that prints through a
-syscall and exits without affecting the kernel. From there, add disk storage
-and move the shell and basic tools into userspace.
+rum 0.2.0 provides the kernel foundation for protected processes: explicit
+address spaces, cooperative kernel tasks, per-task kernel stacks, a user ABI
+and build, and ownership diagnostics. The next two releases turn that work into
+a usable userspace and then add persistent storage.
 
-rum keeps its 32-bit x86 BIOS target and VGA text interface. The kernel owns
-hardware drivers, memory protection, process management, and filesystems.
-User programs access those services through syscalls.
+The 32-bit x86 BIOS target, GRUB Multiboot boot path and VGA text interface
+remain supported. The kernel owns hardware, memory protection, scheduling and
+filesystems. User programs use versioned syscalls and never access kernel memory,
+VGA memory or hardware ports directly.
 
-## Preparation
+Each phase must keep the host tests, GRUB ISO boot, direct ELF boot, kernel fault
+fixtures, IRQ tests, paging tests, shell and Snake working. Add focused failure
+and cleanup tests with every new owner or resource type.
 
-Record the current passing tests and memory usage first, then complete these
-foundations before entering user mode. Each change should keep the kernel shell,
-Snake, and both boot paths working.
+## 0.3.0 — protected user processes
 
-### P1. Memory layout and resource ownership
-
-- [x] Define shared address-range constants for the kernel, identity window, heap,
-  kernel stacks, user programs, and user stacks.
-- [x] Keep the existing boot layout and reserve non-overlapping user/stack ranges.
-- [x] Define ownership of private frames, shared tables, stacks, and process records,
-  including cleanup after partial initialization.
-
-The kernel is loaded at 2 MiB, identity maps physical memory below 1 GiB, and
-reserves `0x40000000`–`0x403fffff` for its heap. User mappings must fit around
-these existing ranges. Set initial bounds for process count, stack sizes, user
-memory, arguments, and file handles. Allocate user payloads directly as physical
-pages; the kernel heap holds metadata rather than program payloads.
-
-The shared constants and initial policy are in `include/rum/memory_layout.h`
-and `include/rum/process_limits.h`. [Memory layout and ownership](memory-layout.md)
-records the ranges, cleanup contract, and passing test/memory baseline. Process
-allocation and runtime quota enforcement belong to the later implementation.
-
-### P2. Paging contexts and shared kernel mappings
-
-- [x] Refactor paging operations to accept an explicit address-space object instead
-  of relying on one global directory.
-- [x] Distinguish the kernel directory from the currently active CR3 and provide
-  a controlled switch that updates bookkeeping and cached translations.
-- [x] Keep kernel code, CPU tables, stacks, and heap mappings available in every
-  address space, with supervisor-only permissions.
-- [x] Make later kernel/heap growth visible in all existing address spaces.
-
-Paging now uses registered `struct paging_space` handles. New directories borrow
-supervisor-only kernel tables, including the heap and boot stack. Kernel table
-creation and removal propagate to every live space; switching updates CR3 and
-active-space bookkeeping. Destruction releases only an inactive directory and
-its metadata, preserving shared kernel resources.
-
-Tests switch between two directories, grow the heap afterwards, publish and
-retire kernel tables, return from live timer IRQs, and recover from limits and
-allocation failure. Null and code/constant protection are also tested under
-child CR3s. [Address spaces](memory.md#address-spaces) documents the API. Private
-user mappings remain part of the process address-space implementation below.
-
-### P3. CPU entry and descriptor preparation
-
-- [x] Put mutable GDT/TSS storage in writable kernel memory and define their layouts
-  with size/offset assertions.
-- [x] Refactor common interrupt entry/return code while preserving the current
-  register, segment, direction-flag, stack-alignment, and EOI guarantees.
-- [x] Define how frames distinguish ring-0 entries from entries carrying user SS/ESP.
-- [x] Specify initial user EFLAGS and port-I/O permissions, and an FPU/SIMD policy.
-
-The writable GDT now contains kernel/user segments and a loaded 32-bit TSS.
-The TSS holds the kernel entry stack and denies user port I/O. One assembly
-path preserves and restores registers, segments and flags for interrupt entry
-from either privilege level. Frame helpers distinguish the short kernel frame
-from the user frame carrying ESP and SS.
-
-Fresh user frames start with EFLAGS `0x202`, zeroed registers and user selectors.
-Hardware controls enforce the integer-only policy until extended CPU-state
-preservation exists. Isolated ring-3 fixtures verify repeated PIT delivery,
-TSS stack switching, `iret` restoration, and actual x87/MMX/SSE/I/O faults.
-Paging tests verify writable supervisor CPU tables under child CR3s.
-[CPU entry and policy](exceptions.md) documents the interfaces and tests.
-User mappings, process-owned user contexts, and recoverable user faults remain
-later work.
-
-### P4. Kernel contexts, stacks, and waiting
-
-- [x] Introduce a current-task record, saved kernel context, and a kernel idle context.
-- [x] Allocate private kernel stacks and prove context switches using ring-0 test tasks.
-- [x] Define runnable, blocked, and exited states with wait/wakeup operations that
-  cannot lose an event between checking a queue and sleeping.
-- [x] Keep short interrupt-protected updates separate from blocking or device waits.
-- [x] Defer freeing an exited task's active stack and address space until execution
-  has switched to a surviving kernel context.
-
-Cooperative kernel tasks now own private 16 KiB page-backed stacks and may own
-an inactive paging context transferred at successful creation. Switching updates
-CR3, current-task bookkeeping and TSS.ESP0 before restoring kernel execution.
-The boot shell waits on timer/keyboard events; a private idle context preserves
-the existing `sti; hlt` sleep boundary. IRQ handlers only publish wakeups.
-
-Wait attachment and event-sequence checking are atomic with respect to IRQs.
-Exit switches away before a surviving context releases the old stack and owned
-directory. Tests cover actual register/stack/CR3 switching, idle and broadcast
-wakeups, sleep boundaries, limits, failed setup and repeated cleanup.
-[Kernel tasks](tasks.md) documents the contracts and ownership rules.
-
-Stacks currently use contiguous PMM pages in the supervisor identity window
-without guards. Add an independent double-fault stack/entry path together with
-any future kernel stack guard pages. User contexts, parent exit statuses and
-general timer preemption remain later work.
-
-### P5. User ABI and build foundation
-
-- [x] Create shared ABI headers with fixed-width syscall types, error values, and
-  bounded argument structures, separate from private kernel headers.
-- [x] Add a `user/` source tree, separate compile/link rules, a user linker script, startup code,
-  and build directories using the existing cross-toolchain.
-- [x] Define static ELF32 support and the initial stack/argument convention.
-- [x] Check that executable assets fit the embedding/runtime limits and keep
-  symbol-rich debugging artifacts separately when stripping embedded binaries.
-
-Public headers in `include/rum/abi/` define the initial syscall register ABI,
-fixed-width values, errors, argument packet and user stack convention.
-`make user` builds a separate static ELF32 `hello` with its own startup/runtime
-and linker script. Only public headers are exposed to the user compiler;
-no host startup, host C library or kernel objects are linked.
-
-Stripped executables in `build/user/ramfs/` are checked against symbol-rich
-copies in `build/user/debug/`. Segment bounds, entry, permissions, page budget
-and unchanged load bytes are verified before publishing assets. The existing
-64 KiB file and 64-file limits apply to the combined source/generated asset set.
-The validation output is not yet linked into the normal kernel.
-
-Host malformed-input tests and isolated ring-3 fixtures verify the actual
-startup and syscall wrappers, maximum arguments, BSS, signed main/exit results
-and partial writes. [User ABI and executables](user-abi.md) documents the format
-and build. Production mapping, dispatch and process launching remain later work.
-
-### P6. Foundation verification and diagnostics
-
-- [x] Verify host, GRUB, direct ELF, kernel-fault, IRQ, paging, and heap/file checks
-  after preparation, rerunning relevant checks during each refactor.
-- [x] Extend CPU-table and frame tests for intentional layout changes while retaining
-  checks for permissions, register restoration, and kernel panic behavior.
-- [x] Add diagnostics for the active task, CR3, kernel stack, and owned resources.
-- [x] Add repeatable allocation-failure and context-switch fixtures for the new paths.
-
-Use memory/frame counts to catch leaks after failed setup and repeated switching.
-Keep fault tests isolated so malformed frames or programs cannot turn the whole
-test run into an unexplained hang. Preserve serial logs and QEMU artifacts.
-
-The `diag` command and panic reports now expose copied task, CR3, kernel-stack
-and resource snapshots. Task fixtures verify ownership through real switching,
-repeat insufficient and fragmented allocation budgets, and recover at the exact
-stack limit. An isolated worker panic preserves its active stack and private
-directory; monitor checks independently audit every claimed physical frame and
-mapping permission. Host frame checks cover both frame lengths and complete
-fresh user-register initialization. The complete host, ELF-validation and
-31-case QEMU suite covers both boot paths, input, Snake, CPU policy, faults,
-paging, heap and files. [Kernel diagnostics](diagnostics.md) records the APIs
-and interpretation of the counts.
-
-## Planned work
-
-After preparation, work through these items in order. Add targeted tests alongside
-each feature; release integration gathers the completed checks.
+The release goal is a real foreground process running an embedded static ELF in
+ring 3. It must print through production syscalls, return an exit status and
+release all of its resources. A bad program must terminate without taking down
+the kernel shell or another process.
 
 ### 1. User address spaces
 
-- [ ] Create and destroy a page directory for each process.
-- [ ] Share kernel mappings as supervisor-only pages and reserve a separate user range.
-- [ ] Map private program data and a user stack with an unmapped guard page.
-- [ ] Zero private frames, including stack and segment padding, before exposing them.
-- [ ] Add bounded helpers for checking and copying user buffers.
+- [ ] Add ownership-aware operations for mapping, protecting and removing private
+  user pages in a registered paging space.
+- [ ] Keep every shared kernel mapping supervisor-only in every process directory.
+- [ ] Map program segments within `RUM_USER_BASE`–`RUM_USER_PROGRAM_END` and a
+  private 64 KiB stack below `RUM_USER_STACK_TOP`.
+- [ ] Leave `RUM_USER_STACK_GUARD_BASE` unmapped and keep page zero unmapped.
+- [ ] Enforce the per-process mapped-page budget before committing any mapping.
+- [ ] Zero each new physical frame, including segment padding, BSS and unused
+  stack bytes, before making it visible to ring 3.
+- [ ] Add checked copy-in, copy-out and string-copy helpers for user ranges.
+- [ ] Roll back only pages acquired by the failed operation and leave existing
+  mappings unchanged.
 
-Keep kernel code, heap, physical identity mappings, and page tables inaccessible
-from ring 3. Test page ownership, cross-page buffers, address overflow, failed
-allocation rollback, and complete teardown. Two address spaces must be able to
-use the same user virtual address without sharing private data.
+User mappings need independent read/write and user/supervisor permissions.
+The i386 target has no NX support, so the ELF validator must continue rejecting
+writable executable segments even though hardware cannot enforce execute denial.
+Private frames belong to one address space even when two processes use the same
+virtual address.
 
-### 2. Ring 3 and exception handling
+Tests should cover cross-page buffers, zero-length ranges, address and size
+overflow, guard pages, read-only destinations, holes, the last permitted byte,
+partial allocation failure and complete teardown. Two address spaces must map
+the same user virtual address to different physical bytes. QEMU must inspect the
+real page tables and PMM bitmap rather than relying only on paging API results.
 
-- [ ] Connect the prepared user descriptors and TSS to process-owned contexts.
-- [ ] Provide a kernel stack for entry from each process and keep port I/O privileged.
-- [ ] Update the loaded TSS's ring-0 stack pointer when the current task changes.
-- [ ] Enter user mode with `iret` and preserve timer/keyboard delivery.
-- [ ] Integrate the prepared user SS/ESP frames with process return and fault handling.
-- [ ] Separate user faults from kernel panics.
+### 2. Kernel entry stacks and process records
 
-A user null access, kernel-memory access, or privileged instruction must terminate
-the offending process and leave rum usable. Kernel faults must retain their
-panic diagnostics. Update CPU-table tests for the new descriptors and verify
-interrupt return from both privilege levels.
+- [ ] Move task kernel stacks into the reserved virtual stack slots and leave an
+  unmapped guard page between slots.
+- [ ] Add a dedicated double-fault entry stack so stack exhaustion produces a
+  controlled report instead of a reset or unexplained hang.
+- [ ] Extend task records with a positive process ID, parent, address space,
+  trusted user frame, exit status and resource accounting.
+- [ ] Keep kernel-only tasks distinct from user processes while sharing the same
+  scheduler and wait/event machinery.
+- [ ] Update TSS.ESP0 before every switch to a process and retain a valid kernel
+  entry stack throughout interrupt, syscall and fault handling.
+- [ ] Publish a process as runnable only after its mappings, arguments and initial
+  CPU frame are complete.
 
-### 3. Syscall interface
+Construction remains private until the final publish step. Failure unwinds the
+user stack, program pages, private tables, directory, kernel stack and metadata
+in reverse order. Exit and faults first switch to a surviving kernel context;
+only then may the reaper free the old CR3 or active stack.
 
-- [ ] Add an `int 0x80` entry callable from ring 3 with a documented register ABI.
-- [ ] Start with console input/output, process exit, and process identification.
-- [ ] Validate user pointers, lengths, syscall numbers, and return errors consistently.
-- [ ] Block for keyboard input without spinning or holding interrupts disabled.
+Extend CPU-table, interrupt-frame and task diagnostics tests for guarded virtual
+stacks and process records. Verify TSS.ESP0, actual CR3, kernel stack bounds,
+supervisor permissions and PMM ownership before and after repeated switching.
+Force failure after each construction stage and require the original resource
+ledger to be restored.
 
-Use the prepared task and wait/wakeup paths; syscall entry is not permission to
-block while holding an interrupt-protected resource. Define partial-read/write
-behavior and distinguish an invalid user buffer from a kernel implementation fault.
+### 3. Ring-3 entry and fault recovery
 
-User programs must not access VGA memory, kernel pointers, or hardware ports
-directly. Test invalid calls and buffers, including buffers spanning unmapped
-or read-only pages, while keeping the kernel alive and resources accounted for.
+- [ ] Build the first trusted user frame with user selectors, validated EIP/ESP
+  and EFLAGS `0x202`.
+- [ ] Enter ring 3 through the production interrupt-return path.
+- [ ] Preserve timer and keyboard delivery while user code is running.
+- [ ] Distinguish exceptions from CPL 3 from faults in kernel code.
+- [ ] Convert a user exception into process termination with a recorded reason.
+- [ ] Preserve the existing kernel panic path and its register/resource report.
+- [ ] Deny port I/O and keep the integer-only x87/MMX/SSE policy active.
 
-### 4. ELF programs and process lifetime
+Null access, kernel-memory access, writes to read-only pages, `ud2`, privileged
+instructions and invalid port I/O must terminate only the current process.
+The parent kernel task must wake, observe the result and remain usable. A fault
+while handling a syscall or another kernel-mode fault still follows the kernel
+panic path.
 
-- [ ] Load static ELF32 executables built with the existing `i686-elf` toolchain.
-- [ ] Validate load segments, entry points, permissions, sizes, and address ranges.
-- [ ] Zero BSS and build the initial user stack with bounded arguments.
-- [ ] Extend the task records with the program image, user context, and exit status.
-- [ ] Launch an embedded `hello` program from the existing kernel shell.
+Tests should enter through the real GDT/TSS/IDT path and compare the reported
+fault with the original user EIP, ESP and registers. After each fault, verify
+the parent context, CR3, TSS stack, task registry, page ownership and interrupt
+delivery. Keep deliberately faulting programs in isolated QEMU cases.
 
-Start with one foreground program. On exit or a user fault, release its pages
-and kernel stack and return to the shell. Repeated launches must not leak memory.
-Reject malformed executables before entering user mode.
+### 4. Production syscall path
 
-Add small C syscall wrappers and the first program under the prepared `user/`
-tree. Load the first binaries from embedded RAM files.
+- [ ] Install vector `0x80` as a present ring-3 interrupt gate.
+- [ ] Dispatch ABI v1 syscall numbers from EAX with arguments in EBX, ECX and EDX.
+- [ ] Implement `exit`, `read`, `write` and `getpid` with the documented signed
+  results and errors from `include/rum/abi/`.
+- [ ] Preserve every general register except EAX on return to userspace.
+- [ ] Validate syscall numbers, handles, pointer ranges and page permissions before
+  reading or writing user memory.
+- [ ] Support partial console reads/writes and zero-length operations.
+- [ ] Block standard-input reads on keyboard events without polling or holding
+  interrupts disabled.
 
-### 5. Disk I/O
+The first release uses handles 0, 1 and 2 for standard input, output and error.
+Copy user data through checked helpers; drivers and the console never receive a
+raw user pointer. Unsupported calls return `-RUM_ENOSYS`. Invalid arguments
+return a defined ABI error and do not become kernel faults.
 
-- [ ] Add an ATA PIO block driver for a secondary IDE disk in QEMU.
-- [ ] Validate sector ranges and use bounded waits with reported device errors.
-- [ ] Add an optional disk-image argument to the launch scripts.
-- [ ] Provide a separate command to create a disposable test image.
+Test every syscall at range and page boundaries, including buffers spanning two
+pages, unmapped holes, read-only memory, overflowing lengths, unknown numbers
+and invalid handles. Exercise short writes and blocking input while PIT IRQs and
+another runnable context continue making progress.
 
-Check reads and writes against host-side bytes. Missing disks must leave rum
-usable with RAM files. Normal boot must never format or reset an existing image.
-Drivers stay in the kernel; user programs receive file access through syscalls.
+### 5. ELF loading and initial stack
 
-### 6. Filesystems and persistent files
+- [ ] Parse the validated static little-endian i386 ELF32 subset from a RAM file.
+- [ ] Recheck type, machine, program-header bounds, load ranges, alignment,
+  permissions, file sizes and entry point inside the kernel before mapping.
+- [ ] Allocate distinct pages for every load segment and copy only its file bytes.
+- [ ] Zero BSS, page padding and the rest of the initial user stack.
+- [ ] Validate a bounded `rum_arguments` packet and build the documented
+  `argc`/`argv`/empty-`envp` stack with 16-byte alignment.
+- [ ] Link stripped executables into the boot RAM filesystem while retaining
+  symbol-rich copies and linker maps under `build/user/debug/`.
+
+The loader accepts no interpreter, dynamic linking, relocation, TLS or shared
+library dependency. Reject overlapping segments, shared pages between segments,
+writable executable input, entry points outside file-backed executable bytes and
+images that exceed process or RAM-file limits. Rejection must happen before the
+process becomes runnable.
+
+Reuse the host ELF corpus and run malformed images through production loader
+fixtures. QEMU should compare mapped bytes and permissions with the source ELF,
+including BSS and padding, then confirm that repeated load failure and successful
+exit return every private frame.
+
+### 6. Foreground launch and process lifetime
+
+- [ ] Add a kernel-shell launch command for an embedded program and bounded
+  arguments.
+- [ ] Start one foreground child, transfer console input to it and block the parent
+  on a process-exit event.
+- [ ] Return the child's full signed exit status or fault reason to the parent.
+- [ ] Reap all program pages, private tables, directory, kernel stack and metadata
+  after switching away from the child.
+- [ ] Add a cancellation flag checked at safe return-to-user boundaries.
+- [ ] Decode Ctrl+C and terminate a foreground child, including a CPU-bound loop,
+  before restoring input to the parent shell.
+- [ ] Keep failed launch, normal exit, user fault and cancellation cleanup on the
+  same ownership path.
+
+The initial model remains deliberately small: one foreground child per parent,
+no background jobs and no general fork operation. Kernel tasks stay cooperative;
+timer/keyboard return provides a safe boundary for observing cancellation while
+user code runs.
+
+Repeatedly launch `hello`, a nonzero-return program, a user-fault program and a
+CPU-bound cancellation probe. After each run, compare task, heap, page-directory
+and PMM counts with the pre-launch snapshot. The kernel shell, keyboard, timer,
+RAM files and Snake must remain usable.
+
+### 7. 0.3.0 integration and documentation
+
+- [ ] Run host, user-ELF and all existing QEMU cases on every supported RAM size.
+- [ ] Add production process cases for normal exit, every user fault class,
+  invalid syscalls, invalid buffers, limits, cancellation and repeated cleanup.
+- [ ] Test both GRUB ISO and direct ELF boot with and without launching a process.
+- [ ] Record process/task ownership in `diag` and panic logs without exposing
+  kernel pointers through the user ABI.
+- [ ] Document process lifetime, user memory, syscall errors, launch syntax and
+  the supported ELF subset.
+- [ ] Verify the release package on Windows and Linux and keep `rum.iso` usable
+  without debug artifacts.
+
+0.3.0 is ready when the normal kernel shell can launch the embedded `hello` ELF,
+the program prints only through production `write`, receives its real PID and
+exits back to the shell. A deliberately faulting program and Ctrl+C must also
+return control without a leaked frame, stale task or corrupted parent context.
+
+Work outside this release includes persistent disks, filesystem handles beyond
+the standard streams, a userspace shell, background jobs, general preemption,
+dynamic linking and extended CPU-state preservation.
+
+## 0.4.0 — persistent files and a userspace shell
+
+The release goal is a userspace shell that launches programs and reads and
+writes a FAT16-backed `/disk`. Files must survive separate QEMU runs. rum must
+also boot cleanly without a disk and retain its RAM filesystem and kernel
+recovery shell.
+
+### 1. Block-device interface and ATA PIO
+
+- [ ] Define a kernel block-device API with sector size/count, read, write and
+  flush operations plus explicit error results.
+- [ ] Add an ATA PIO driver for an optional secondary IDE disk in QEMU.
+- [ ] Identify device capabilities and validate LBA/count ranges without integer
+  overflow before issuing commands.
+- [ ] Use bounded status polling with timeout, device-fault and error-register
+  reporting; never wait forever for missing or broken hardware.
+- [ ] Serialize requests and keep port I/O inside the kernel.
+- [ ] Add launch-script support for an explicitly supplied raw disk image.
+- [ ] Add a separate command that creates a disposable test image; normal boot
+  must never format, truncate or replace an existing image.
+
+Host-driven tests should write recognizable sector patterns, read them through
+the guest and compare exact bytes. Cover first/last sectors, zero sectors, ranges
+past the end, arithmetic overflow, missing disks, read-only images, controller
+errors and timeout paths. Canary sectors outside each request must not change.
+
+### 2. Filesystem and path layer
 
 - [ ] Introduce common filesystem operations for RAM and disk backends.
-- [ ] Add directories, absolute/relative paths, and a working directory.
-- [ ] Mount a small, unpartitioned FAT16 image at `/disk`, initially read-only.
-- [ ] Add file and directory creation, replacement, deletion, and write flushing.
-- [ ] Add per-process file handles and file/directory syscalls.
-- [ ] Define backend naming rules, file/path limits, access modes, and error mapping.
+- [ ] Resolve absolute and relative paths through one bounded parser.
+- [ ] Support directories, `.`, `..`, repeated separators and a per-process
+  working directory without escaping a mounted root.
+- [ ] Mount the persistent volume at `/disk` while preserving embedded RAM files
+  in the existing root namespace.
+- [ ] Define path, component and directory-depth limits in public/private headers.
+- [ ] Define backend naming, access-mode and error translation rules.
+- [ ] Track open objects by backend identity so removal and replacement have
+  explicit behavior while handles remain open.
 
-Start disk filenames with FAT's 8.3 format and defer long-name support. Preserve
-the existing RAM filename rules. Add volume bounds checks and bounded cluster-chain
-traversal before writing files, including detection of loops and invalid clusters.
+Reject invalid bytes, overlong paths/components, arithmetic overflow and mount
+traversal before calling a backend. RAM filenames keep their existing rules.
+FAT begins with uppercase-compatible 8.3 names; long filename support remains
+outside 0.4.0.
 
-Keep embedded files at the RAM root. Begin file syscalls with open, read, write,
-close, seek, and directory listing; extend them for path and directory operations.
-Check handles, access modes, offsets, paths, and user buffers. Process exit must
-close its handles. Direct block-device access remains a kernel operation.
+Test root and nested traversal, equivalent normalized paths, missing components,
+file/directory confusion, maximum lengths, mount boundaries and operations on
+both backends. Existing RAM-file commands must retain their bytes and limits.
 
-Files under `/disk` must survive separate QEMU runs and be readable with host
-FAT tools. Test invalid volumes, full disks, cluster reuse, and I/O failures.
-Document interrupted-write behavior; crash recovery is outside this release's
-scope. RAM files remain temporary.
+### 3. Read-only FAT16
 
-### 7. Userspace shell and tools
+- [ ] Mount a small unpartitioned FAT16 image and validate its BPB and derived
+  region sizes against the block-device bounds.
+- [ ] Read both FAT copies, the fixed root directory, subdirectories and regular
+  files with bounded cluster-chain traversal.
+- [ ] Detect invalid/reserved clusters, premature end markers, loops, chains that
+  exceed file size and directory entries outside the volume.
+- [ ] Decode valid 8.3 names and ignore deleted, volume-label and unsupported
+  long-name entries safely.
+- [ ] Expose directory iteration and random/sequential file reads through the
+  common filesystem layer.
 
-- [ ] Add foreground child launch and wait so a shell can run another executable.
-- [ ] Start a userspace shell at boot, with a kernel recovery shell available.
-- [ ] Move command parsing and basic tools such as `echo`, `cat`, and `ls` into `user/`.
-- [ ] Use syscalls for console access, paths, and files instead of kernel internals.
-- [ ] Allow Ctrl+C to interrupt a foreground child, including a CPU-bound loop,
-  and return control to its parent.
+Use host FAT tools to build known images, then compare guest listings and bytes.
+Add malformed-image fixtures for invalid geometry, overlapping regions, bad
+cluster sizes, cyclic chains, truncated directories and out-of-range clusters.
+A rejected volume must leave rum usable with RAM files.
 
-Keep the initial process model small: one foreground child at a time, with its
-parent waiting. Transfer console input to the child and restore it on exit.
-Extend keyboard control-key decoding and defer cancellation to a safe kernel
-return boundary, using the prepared context-switch and cleanup paths.
-Test normal exit, user faults, failed launches, and cleanup without losing the
-parent shell. Background jobs and a general preemptive scheduler can follow
-after this path is reliable.
+### 4. Writable FAT16
 
-Shell history, a text editor, and moving Snake to userspace follow the process
-and syscall foundations. They should use the same interfaces as other programs.
+- [ ] Allocate and free clusters consistently in every FAT copy.
+- [ ] Create, replace, extend, truncate and delete regular files.
+- [ ] Create and remove directories, including `.` and `..` entries and nonempty
+  directory checks.
+- [ ] Reuse deleted directory slots and clusters without cross-linking files.
+- [ ] Flush file data, FAT changes and directory metadata in a documented order.
+- [ ] Report full media, read-only devices and partial I/O failures without
+  corrupting in-memory ownership state.
 
-### 8. Release integration
+Define the interrupted-write guarantee honestly. 0.4.0 does not need journaling
+or general crash recovery, but it must never write outside the volume. Prefer an
+ordering that makes newly allocated data reachable only after its contents and
+FAT chain are written, and document cases that may require host repair.
 
-- [ ] Extend the suite with ring-3, syscall, ELF, process, and filesystem tests.
-- [ ] Run programs that deliberately fault or pass invalid syscall arguments.
-- [ ] Verify process isolation, repeated launch/exit cleanup, and parent recovery.
-- [ ] Check foreground cancellation and resource limits as well as fault recovery.
-- [ ] Test disk persistence across two separate QEMU runs and boots without a disk.
-- [ ] Document the user ABI, executable build process, and disk-image commands.
-- [ ] Verify packaging on Windows and Linux; keep the ISO usable on its own.
+Test empty and multi-cluster files, boundary-sized writes, replacement, truncate,
+delete/recreate, directory growth, full media, cluster reuse and injected failures
+at each write stage. Validate the resulting image with host FAT tools after QEMU
+exits.
 
-The release is ready when the userspace shell can launch a program, read and
-write `/disk/notes.txt`, survive a child fault, and recover those bytes after a
-restart. Kernel memory, exception, and IRQ checks must still pass.
+### 5. File handles and filesystem syscalls
+
+- [ ] Extend the public ABI with open, close, seek, directory listing and path or
+  working-directory operations, using fixed-width versioned structures.
+- [ ] Give each process a bounded handle table with access mode, offset and a
+  referenced backend object; reserve handles 0–2 for standard streams.
+- [ ] Route `read` and `write` through handles with defined partial-operation and
+  end-of-file behavior.
+- [ ] Validate every user buffer, path, structure, flag, handle and offset before
+  touching a driver or filesystem.
+- [ ] Close every handle and release backend references on exit, user fault,
+  cancellation and partial process construction.
+- [ ] Block filesystem work only in foreground/task context and never while an IRQ
+  or short interrupt-protected update is active.
+
+Tests should combine invalid handles, modes and flags with cross-page user buffers,
+large offsets, seek overflow, short I/O, removal of open files and exhaustion of
+the 32-handle process limit. Repeated process exit must return handle/object counts
+to their baseline.
+
+### 6. Userspace shell and tools
+
+- [ ] Build a userspace shell with the same separate toolchain and public headers
+  as every other program.
+- [ ] Start it as the initial foreground process after kernel initialization.
+- [ ] Keep a kernel recovery shell available if the userspace shell cannot load or
+  exits repeatedly.
+- [ ] Move command parsing and `echo`, `cat`, `ls`, `pwd` and `cd` behavior into
+  user programs using only syscalls.
+- [ ] Launch another ELF as a foreground child and wait for its exit status.
+- [ ] Transfer console input to the child and restore it after exit, fault or Ctrl+C.
+- [ ] Report filesystem and process errors without exposing kernel addresses or
+  internal error values.
+
+The userspace shell may keep commands as built-ins initially; separate tool ELFs
+can follow when the launch interface is stable. Background jobs, pipelines,
+redirection, quoting, history and completion remain future work. Snake may stay
+as a kernel application for this release and later move through the same public
+interfaces.
+
+Test normal commands, paths on both mounts, empty/binary files, failed launches,
+child statuses, child faults, CPU-bound cancellation and shell restart. The shell
+must not access VGA, keyboard queues, RAMFS nodes, ATA ports or kernel pointers
+directly.
+
+### 7. 0.4.0 integration and release
+
+- [ ] Boot with no disk, a valid disk, a read-only disk, a malformed disk and an
+  image that becomes full.
+- [ ] Verify process isolation and resource cleanup while file handles and disk
+  requests are active.
+- [ ] Write `/disk/notes.txt`, shut down QEMU, boot again and recover identical
+  bytes through both the userspace shell and host FAT tools.
+- [ ] Inject block and filesystem failures and confirm the shell, RAM files,
+  diagnostics and kernel recovery path remain usable.
+- [ ] Run the complete host and QEMU suite through both boot paths and supported
+  RAM sizes.
+- [ ] Document image creation, QEMU attachment, mounts, paths, FAT limitations,
+  syscall structures, flush behavior and recovery expectations.
+- [ ] Verify packaging on Windows and Linux. Keep the ISO standalone and do not
+  bundle a mutable user disk unless a release explicitly calls for one.
+
+0.4.0 is ready when the userspace shell can launch a program, create and read
+`/disk/notes.txt`, survive a child fault or Ctrl+C, and recover the same file
+after a separate QEMU boot. Booting with no disk must still provide the kernel
+recovery shell, RAM files, diagnostics and Snake.
+
+## Delivery order
+
+Use one focused branch and pull request for each numbered phase, for example
+`0.3/user-address-spaces`, `0.3/syscalls`, `0.4/ata-pio` and `0.4/fat16-write`.
+Keep each phase buildable and testable before starting the next dependency.
+Integration branches collect completed work; they should not hide unrelated
+features in one final commit.
+
+Before either release, rerun the full suite from a clean build, review the saved
+serial/QMP artifacts and ownership ledgers, build `rum.zip`, and boot the exact
+packaged ISO. Update the ABI version only when a public contract changes, and
+keep the previous contract documented when existing binaries remain supported.
