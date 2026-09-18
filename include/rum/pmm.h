@@ -19,6 +19,10 @@ struct pmm_statistics {
 /* Startup only, with paging/interrupts off. Missing or malformed maps fail closed. */
 bool pmm_initialize(const struct multiboot_info *info, uint32_t kernel_start, uint32_t kernel_end);
 uint32_t pmm_allocate_page(void); /* Physical address; zero means exhausted/unready. */
+/* Contiguous whole pages for unguarded identity-mapped kernel stacks.
+   Allocation and release are atomic; the caller owns every returned frame. */
+uint32_t pmm_allocate_contiguous(uint32_t pages);
+bool pmm_free_contiguous(uint32_t physical, uint32_t pages);
 bool pmm_free_page(uint32_t physical);
 bool pmm_is_managed(uint32_t physical);
 bool pmm_is_allocated(uint32_t physical);
