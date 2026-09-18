@@ -1,0 +1,32 @@
+#include <assert.h>
+#include <stdio.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <rum/gdt.h>
+#include <rum/interrupts.h>
+
+int main(void)
+{
+    size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
+    char *pages = mmap(NULL, page_size * 2, PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    assert(pages != MAP_FAILED);
+    assert(mprotect(pages + page_size, page_size, PROT_NONE) == 0);
+    /* Place the short frame against an inaccessible page: reading a user
+       tail from a kernel interrupt must fail this test, even accidentally. */
+    struct exception_frame *kernel = (void *)(pages + page_size - sizeof *kernel);
+    *kernel = (struct exception_frame){ .cs = KERNEL_CODE_SELECTOR, .saved_esp = 0x12340000 };
+    assert(!exception_frame_from_user(kernel));
+    assert(exception_frame_esp(kernel) == 0x12340014);
+    assert(exception_frame_ss(kernel) == KERNEL_DATA_SELECTOR);
+    struct exception_user_frame user = {
+        .core = { .cs = USER_CODE_SELECTOR, .saved_esp = 0xDEADBEEF },
+        .esp = 0xBFFFFFF0, .ss = USER_DATA_SELECTOR,
+    };
+    assert(exception_frame_from_user(&user.core));
+    assert(exception_frame_esp(&user.core) == user.esp);
+    assert(exception_frame_ss(&user.core) == USER_DATA_SELECTOR);
+    assert(munmap(pages, page_size * 2) == 0);
+    puts("PASS: interrupt frame lengths and privilege-change stack access");
+    return 0;
+}

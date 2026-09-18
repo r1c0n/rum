@@ -14,10 +14,10 @@ LAYOUT_HEADERS := include/rum/memory_layout.h include/rum/process_limits.h
 LINKER_SCRIPT := build/arch/i386/linker.ld
 LDFLAGS := -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie \
            -Wl,--build-id=none -Wl,-Map,build/rum.map
-SOURCES := kernel/kernel.c kernel/terminal.c kernel/serial.c kernel/memory.c kernel/timer.c kernel/keyboard.c kernel/keyboard_decode.c kernel/shell.c kernel/snake.c kernel/snake_model.c kernel/pmm.c kernel/heap.c kernel/ramfs.c arch/i386/gdt.c arch/i386/exceptions.c arch/i386/pic.c arch/i386/irq.c arch/i386/paging.c
+SOURCES := kernel/kernel.c kernel/terminal.c kernel/serial.c kernel/memory.c kernel/timer.c kernel/keyboard.c kernel/keyboard_decode.c kernel/shell.c kernel/snake.c kernel/snake_model.c kernel/pmm.c kernel/heap.c kernel/ramfs.c arch/i386/gdt.c arch/i386/interrupt.c arch/i386/exceptions.c arch/i386/pic.c arch/i386/irq.c arch/i386/paging.c
 ASM_SOURCES := arch/i386/boot.s arch/i386/interrupts.s
 OBJECTS := $(ASM_SOURCES:%.s=build/%.o) build/arch/i386/gdt-load.o $(SOURCES:%.c=build/%.o) build/generated/embedded-files.o
-DEPENDENCIES := $(SOURCES:%.c=build/%.d) build/arch/i386/boot.d build/arch/i386/gdt-load.d build/generated/embedded-files.d
+DEPENDENCIES := $(SOURCES:%.c=build/%.d) build/arch/i386/boot.d build/arch/i386/interrupts.d build/arch/i386/gdt-load.d build/generated/embedded-files.d
 FAULT_KERNELS := build/tests/fault-de.elf build/tests/fault-ud.elf build/tests/fault-gp.elf build/tests/fault-pf.elf
 FAULT_OBJECTS := $(FAULT_KERNELS:.elf=.o)
 FAULT_COMMON := $(filter-out build/kernel/kernel.o,$(OBJECTS)) build/tests/fault-trigger.o
@@ -42,7 +42,10 @@ build/arch/i386/gdt-load.o: arch/i386/gdt.s include/rum/cpu_layout.h
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
 
-# Only the boot assembly and linker script need the shared layout preprocessor.
+build/arch/i386/interrupts.o: arch/i386/interrupts.s include/rum/cpu_layout.h
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
+# The boot assembly and linker script share the memory layout constants.
 build/arch/i386/boot.o: arch/i386/boot.s include/rum/memory_layout.h
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
@@ -174,7 +177,11 @@ build/tests/layout-test: tests/layout-test.c $(LAYOUT_HEADERS)
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude $< -o $@
 
-test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test
+build/tests/frame-test: tests/frame-test.c include/rum/interrupts.h include/rum/gdt.h include/rum/cpu_layout.h
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude $< -o $@
+
+test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test
 	./build/tests/console-test
 	./build/tests/memory-test
 	./build/tests/keyboard-test
@@ -183,6 +190,7 @@ test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard
 	./build/tests/storage-test
 	./build/tests/snake-test
 	./build/tests/layout-test
+	./build/tests/frame-test
 	python3 tests/embed-test.py
 
 doctor:

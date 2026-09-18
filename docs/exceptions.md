@@ -24,10 +24,18 @@ gates clear IF on entry; CPU faults can enter with device interrupts disabled.
    data selectors, aligns the stack, and passes an `exception_frame` pointer to C.
 4. The panic handler prints to VGA and COM1, then halts with `cli; hlt`.
 
-All CPU exceptions are fatal, including breakpoints and NMIs. The frame handles
-same-privilege ring-0 exceptions on the current kernel stack; there is no
-separate double-fault stack. A nested panic halts without printing recursively.
-Device IRQs use a separate path that returns with `iret`.
+All CPU exceptions are fatal, including breakpoints and NMIs. Exceptions and
+device IRQs share one assembly entry/return path. `interrupt_dispatch` sends
+device vectors to the IRQ handler and other vectors to the panic handler.
+IRQ return restores segment registers, general registers and the CPU frame
+with `iret`. A nested panic halts without printing recursively.
+
+`exception_frame` is the 68-byte common prefix. Ring-0 entries end at EFLAGS;
+ring-3 entries add the interrupted ESP and SS in a 76-byte
+`exception_user_frame`. The saved CS privilege bits select the frame length.
+Stack helpers read the tail only for user entries. For ring 0, interrupted ESP
+comes from PUSHAD's saved ESP plus the normalized five-word CPU/stub frame.
+There is no separate double-fault stack yet.
 
 Panic reports include the vector and name, error code, EIP, CS, EFLAGS,
 general registers, segment selectors, and interrupted ESP. Page faults also

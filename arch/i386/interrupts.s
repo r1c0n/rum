@@ -1,3 +1,4 @@
+#include <rum/cpu_layout.h>
 .section .text, "ax"
 .code32
 
@@ -8,7 +9,7 @@
 exception_\vector:
     pushl $0
     pushl $\vector
-    jmp exception_common
+    jmp interrupt_common
 .size exception_\vector, . - exception_\vector
 .endm
 
@@ -16,7 +17,7 @@ exception_\vector:
 .type exception_\vector, @function
 exception_\vector:
     pushl $\vector
-    jmp exception_common
+    jmp interrupt_common
 .size exception_\vector, . - exception_\vector
 .endm
 
@@ -53,51 +54,21 @@ ERR 29
 ERR 30
 NOERR 31
 
-.type exception_common, @function
-exception_common:
-    /* CPU-saved EFLAGS retain the interrupted DF; C always needs DF clear. */
-    cld
-    pushal
-    /* Explicit zero-extension avoids unspecified upper bits of PUSH segment. */
-    xor %eax, %eax
-    mov %ds, %ax
-    push %eax
-    mov %es, %ax
-    push %eax
-    mov %fs, %ax
-    push %eax
-    mov %gs, %ax
-    push %eax
-    mov $0x10, %ax
-    mov %ax, %ds
-    mov %ax, %es
-    mov %ax, %fs
-    mov %ax, %gs
-
-    mov %esp, %eax
-    and $-16, %esp
-    sub $12, %esp
-    push %eax
-    call exception_dispatch
-    /* All exceptions are fatal for now; no IRET or recovery policy yet. */
-    jmp cpu_halt
-.size exception_common, . - exception_common
-
 /* Device IRQs have no CPU error code and return to the interrupted context. */
 .macro IRQ line
 .type irq_\line, @function
 irq_\line:
     pushl $0
     pushl $(32 + \line)
-    jmp irq_common
+    jmp interrupt_common
 .size irq_\line, . - irq_\line
 .endm
 .irp line,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
     IRQ \line
 .endr
 
-.type irq_common, @function
-irq_common:
+.type interrupt_common, @function
+interrupt_common:
     cld
     pushal
     xor %eax, %eax
@@ -109,7 +80,7 @@ irq_common:
     push %eax
     mov %gs, %ax
     push %eax
-    mov $0x10, %ax
+    mov $KERNEL_DATA_SELECTOR, %ax
     mov %ax, %ds
     mov %ax, %es
     mov %ax, %fs
@@ -120,7 +91,7 @@ irq_common:
     and $-16, %esp
     sub $12, %esp
     push %ebx
-    call irq_dispatch
+    call interrupt_dispatch
     mov %ebx, %esp
     pop %eax
     mov %ax, %gs
@@ -133,7 +104,7 @@ irq_common:
     popal
     add $8, %esp
     iret
-.size irq_common, . - irq_common
+.size interrupt_common, . - interrupt_common
 
 .section .rodata, "a"
 .balign 4
