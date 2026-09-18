@@ -1,6 +1,7 @@
 /* Install the IDT and report fatal CPU exceptions. */
 #include <stdbool.h>
 #include <rum/cpu.h>
+#include <rum/diagnostics.h>
 #include <rum/interrupts.h>
 #include <rum/memory.h>
 #include <rum/serial.h>
@@ -108,6 +109,7 @@ _Noreturn void exception_dispatch(const struct exception_frame *frame)
         write((frame->error & 2) ? ", write" : ", read");
         write((frame->error & 4) ? ", user" : ", supervisor");
     }
+    diagnostics_panic();
     write("\n\n  CPU halted. Close QEMU to return to your host.\n");
     serial_writestring("rum_panic_halted\n");
     cpu_halt();

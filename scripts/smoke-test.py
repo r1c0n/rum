@@ -537,11 +537,31 @@ def shell_test(stream, symbols, artifacts, mode, serial):
            "  write <name> [text]  Create or replace a file.\r\n"
            "  rm <name>    Remove a file.\r\n"
            "  mem          Show heap and file usage.\r\n"
+           "  diag         Show task and memory diagnostics.\r\n"
            "  snake        Play ASCII Snake.\r\n> ")
     type_text("about\n")
     expect("rum OS v0.1.0\r\n"
            "An island of our own. A hobby kernel in C and x86 assembly.\r\n"
            "32-bit x86 | GRUB Multiboot | PIC, PIT and PS/2\r\n> ")
+    start = len(serial.read_bytes())
+    type_text("diag x\ndiag\n")
+    expect("borrowed\r\n> ")
+    report = serial.read_bytes()[start:].decode()
+    if "Usage: diag" not in report or "Task: 1 | CR3:" not in report or \
+            "Tasks: 2 live, 4 owned stack pages, 0 owned directories" not in report:
+        raise RuntimeError(f"Bad shell diagnostics: {report}")
+    cr3 = re.search(r"Task: 1 \| CR3: 0x([0-9a-f]{8})", report)
+    esp0 = re.search(r"TSS.ESP0: 0x([0-9a-f]{8})", report)
+    kesp = re.search(r"Kernel ESP: 0x([0-9a-f]{8})", report)
+    if not cr3 or not esp0 or not kesp or int(esp0[1], 16) != symbols["__boot_stack_top"] or \
+            not symbols["__boot_stack_bottom"] <= int(kesp[1], 16) < symbols["__boot_stack_top"]:
+        raise RuntimeError("Shell diagnostics lost the boot task/TSS/stack")
+    stop_at_idle(stream)
+    registers = qmp_command(stream, "human-monitor-command", {"command-line": "info registers"})
+    actual = re.search(r"\bCR3=([0-9a-fA-F]+)", registers)
+    if not actual or int(actual[1], 16) != int(cr3[1], 16):
+        raise RuntimeError("Shell diagnostics disagree with hardware CR3")
+    qmp_command(stream, "cont")
     type_text("echx\bo rum is alive!\n")
     expect("\r\nrum is alive!\r\n> ")
     type_text("   echo   two  spaces\n")
