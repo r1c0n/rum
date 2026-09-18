@@ -1,9 +1,16 @@
 # CPU exceptions
 
-rum uses a flat ring-0 GDT: a null descriptor, code at selector `0x08`, and
-data at `0x10`. Code and data segments cover the 32-bit address space.
+rum uses a writable GDT with flat kernel code/data at selectors `0x08`/`0x10`,
+user code/data at `0x1B`/`0x23`, and a 32-bit TSS at `0x28`. Code and data
+segments cover the 32-bit address space. The user descriptors prepare for
+future processes; the normal kernel still runs entirely in ring 0.
 Startup saves the Multiboot arguments, loads GDTR, reloads CS with a far jump,
-reloads the data and stack segments, and enters C with an aligned stack.
+reloads the data and stack segments, loads TR, and enters the kernel with an
+aligned stack. The TSS starts with the boot stack in ESP0 and kernel data in
+SS0. Its I/O-map offset is beyond the descriptor limit, denying user port I/O
+when IOPL is zero. `gdt_set_kernel_stack` updates ESP0 for a caller-owned,
+mapped supervisor stack. Loading TR sets the descriptor's busy bit, so the
+GDT must remain writable.
 
 `idt_initialize` installs 32-bit ring-0 interrupt gates for exceptions 0–31
 and PIC IRQs 32–47 in a 256-entry IDT. Gates 48–255 are absent. Interrupt
@@ -50,7 +57,7 @@ Fault fixtures keep device interrupts disabled.
 | --- | --- | --- |
 | Divide error | Divide by zero | `0 / 0` |
 | Invalid opcode | `ud2` with DF set | `6 / 0` |
-| General protection | Load DS with selector `0x18`, beyond the GDT | `13 / 0x18` |
+| General protection | Load DS with selector `0x30`, beyond the GDT | `13 / 0x30` |
 | Page fault | Read unmapped `0x00400000` | `14 / 0`, CR2 `0x00400000` |
 
 The diagnostic page-fault fixture maps only the first 4 MiB. Additional test

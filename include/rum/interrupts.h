@@ -4,8 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define KERNEL_CODE_SELECTOR 0x08
-#define KERNEL_DATA_SELECTOR 0x10
+#include <rum/cpu_layout.h>
 
 /* Layout built by interrupts.s. Only ring 0 is supported at this milestone:
    the CPU pushes EIP, CS and EFLAGS, without a privilege-change SS/ESP pair. */

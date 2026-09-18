@@ -286,7 +286,7 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
 def cpu_tables_test(stream, symbols, artifacts, mode, live=False):
     registers = qmp_command(stream, "human-monitor-command", {"command-line": "info registers"})
     (artifacts / f"{mode}-cpu.txt").write_text(registers)
-    for name, expected_base, expected_limit in (("GDT", symbols["rum_gdt"], 23),
+    for name, expected_base, expected_limit in (("GDT", symbols["rum_gdt"], 47),
                                                ("IDT", symbols["idt"], 2047)):
         match = re.search(rf"\b{name}=\s*([0-9a-fA-F]+)\s+([0-9a-fA-F]+)", registers)
         if not match or tuple(int(value, 16) for value in match.groups()) != (expected_base, expected_limit):
@@ -298,9 +298,23 @@ def cpu_tables_test(stream, symbols, artifacts, mode, live=False):
     flags = re.search(r"\bEFL=([0-9a-fA-F]+)", registers)
     if not flags or int(flags[1], 16) & 0x400 or bool(int(flags[1], 16) & 0x200) != live:
         raise RuntimeError("Wrong CPU interrupt/direction flags")
-    gdt = dump_ram(stream, symbols["rum_gdt"], 24, artifacts / f"{mode}-gdt.bin")
-    if gdt != struct.pack("<QQQ", 0, 0x00CF9B000000FFFF, 0x00CF93000000FFFF):
+    gdt = dump_ram(stream, symbols["rum_gdt"], 48, artifacts / f"{mode}-gdt.bin")
+    if gdt[:40] != struct.pack("<QQQQQ", 0, 0x00CF9B000000FFFF, 0x00CF93000000FFFF,
+                              0x00CFFB000000FFFF, 0x00CFF3000000FFFF):
         raise RuntimeError("Unexpected GDT descriptors")
+    base = symbols["rum_tss"]
+    expected_tss = struct.pack("<HHBBBB", 103, base & 0xFFFF, (base >> 16) & 0xFF,
+                               0x8B, 0, base >> 24)
+    if gdt[40:] != expected_tss:
+        raise RuntimeError("Wrong TSS descriptor or missing hardware busy flag")
+    task_register = re.search(r"\bTR\s*=\s*([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)", registers)
+    if not task_register or tuple(int(value, 16) for value in task_register.groups()) != (0x28, base, 103):
+        raise RuntimeError(f"Wrong task register: {registers}")
+    tss = dump_ram(stream, base, 104, artifacts / f"{mode}-tss.bin")
+    if (struct.unpack_from("<I", tss, 4)[0] != symbols.get("cpu_test_stack_top", symbols["__boot_stack_top"])
+            or struct.unpack_from("<H", tss, 8)[0] != 0x10
+            or struct.unpack_from("<H", tss, 102)[0] != 104):
+        raise RuntimeError("Wrong TSS kernel stack or user I/O policy")
     idt = dump_ram(stream, symbols["idt"], 2048, artifacts / f"{mode}-idt.bin")
     for vector in range(48):
         low, selector, reserved, attributes, high = struct.unpack_from("<HHBBH", idt, vector * 8)
@@ -505,7 +519,7 @@ def shell_test(stream, symbols, artifacts, mode, serial):
 FAULT_CASES = {
     "de": (0, 0, "Divide error"),
     "ud": (6, 0, "Invalid opcode"),
-    "gp": (13, 0x18, "General protection fault"),
+    "gp": (13, 0x30, "General protection fault"),
     "pf": (14, 0, "Page fault"),
 }
 
@@ -545,7 +559,7 @@ def fault_report_test(stream, symbols, artifacts, mode, fault, serial_text, scre
     if fault == "de":
         expected.update(ecx=0, edx=0)
     if fault == "gp":
-        expected["eax"] = 0x11220018
+        expected["eax"] = 0x11220030
     if fault == "pf":
         expected["cr2"] = 0x400000
         if "page not present, read, supervisor" not in screen:
