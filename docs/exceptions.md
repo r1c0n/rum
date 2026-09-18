@@ -50,8 +50,9 @@ from WSL. Each fault ELF includes production startup, GDT, IDT, and panic code.
 | General protection | Load DS with selector `0x18`, beyond the GDT | `13 / 0x18` |
 | Page fault | Supervisor read at unmapped `0x00400000` | `14 / 0`, CR2 `0x00400000` |
 
-The page-fault fixture maps only the first 4 MiB in a separate kernel. Production
-paging remains a later milestone. The tests use actual faulting instructions;
+The original page-fault fixture maps only the first 4 MiB in a separate kernel.
+Normal rum uses the paging implementation described in [memory management](memory.md).
+The tests use actual faulting instructions;
 software `int` instructions do not reproduce CPU-supplied exception error codes.
 
 QMP checks GDTR/IDTR bases and limits, segment selectors, GDT bytes, all 32 IDT
@@ -60,6 +61,10 @@ Known register values, ELF instruction
 symbols, and a saved ESP are compared with the VGA and serial panic reports.
 The invalid-opcode test checks that the saved EFLAGS retain DF while the handler
 clears DF for C. Finally, the CPU must be in `cpu_halt` with IF clear.
+Additional isolated kernels use production page tables to check null access,
+unmapped aliases, and writes to read-only code, constants, and aliased pages.
+Their real page faults verify CR2, error codes, faulting EIP, and fatal halt.
+See [memory management](memory.md).
 Logs, memory dumps, and screenshots are in `build/test-artifacts/`.
 
 To resolve an instruction address from a normal rum panic, run in WSL:

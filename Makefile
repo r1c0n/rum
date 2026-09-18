@@ -12,15 +12,22 @@ CFLAGS := -std=gnu11 -ffreestanding -O2 -g -Wall -Wextra -Werror \
           -fno-pie -fno-builtin -fno-asynchronous-unwind-tables -mno-mmx -mno-sse -mno-sse2
 LDFLAGS := -T arch/i386/linker.ld -nostdlib -ffreestanding -no-pie \
            -Wl,--build-id=none -Wl,-Map,build/rum.map
-SOURCES := kernel/kernel.c kernel/terminal.c kernel/serial.c kernel/memory.c kernel/timer.c kernel/keyboard.c kernel/keyboard_decode.c kernel/shell.c arch/i386/exceptions.c arch/i386/pic.c arch/i386/irq.c
+SOURCES := kernel/kernel.c kernel/terminal.c kernel/serial.c kernel/memory.c kernel/timer.c kernel/keyboard.c kernel/keyboard_decode.c kernel/shell.c kernel/pmm.c kernel/heap.c kernel/ramfs.c arch/i386/exceptions.c arch/i386/pic.c arch/i386/irq.c arch/i386/paging.c
 ASM_SOURCES := arch/i386/boot.s arch/i386/gdt.s arch/i386/interrupts.s
-OBJECTS := $(ASM_SOURCES:%.s=build/%.o) $(SOURCES:%.c=build/%.o)
-DEPENDENCIES := $(OBJECTS:.o=.d)
+OBJECTS := $(ASM_SOURCES:%.s=build/%.o) $(SOURCES:%.c=build/%.o) build/generated/embedded-files.o
+DEPENDENCIES := $(SOURCES:%.c=build/%.d) build/generated/embedded-files.d
 FAULT_KERNELS := build/tests/fault-de.elf build/tests/fault-ud.elf build/tests/fault-gp.elf build/tests/fault-pf.elf
+FAULT_OBJECTS := $(FAULT_KERNELS:.elf=.o)
 FAULT_COMMON := $(filter-out build/kernel/kernel.o,$(OBJECTS)) build/tests/fault-trigger.o
+PAGING_CASES := ok null text rodata unmapped readonly
+PAGING_KERNELS := $(addprefix build/tests/paging-,$(addsuffix .elf,$(PAGING_CASES)))
+PAGING_OBJECTS := $(PAGING_KERNELS:.elf=.o)
+TEST_DEPENDENCIES := $(FAULT_OBJECTS:.o=.d) $(PAGING_OBJECTS:.o=.d) build/tests/irq-kernel.d build/tests/storage-kernel.d build/tests/storage-checks.d
+STORAGE_HOST_SOURCES := kernel/heap.c kernel/ramfs.c kernel/memory.c tests/page-backend.c build/embedded-files.c
+STORAGE_HOST_HEADERS := include/rum/heap.h include/rum/ramfs.h include/rum/embedded.h include/rum/paging.h include/rum/pmm.h include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h
 
-.PHONY: all check iso run run-kernel debug panic test test-host doctor toolchain clean
-.SECONDARY: $(FAULT_KERNELS:.elf=.o)
+.PHONY: all check iso run run-kernel debug panic test test-host doctor toolchain clean FORCE
+.SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS)
 all: iso
 
 build/%.o: %.s
@@ -28,6 +35,15 @@ build/%.o: %.s
 	$(AS) $< -o $@
 
 build/%.o: %.c
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
+
+# Check the directory each build, including removed assets. Unchanged C keeps mtime.
+FORCE:
+build/embedded-files.c: FORCE scripts/embed-files.py $(wildcard assets/ramfs/*)
+	python3 scripts/embed-files.py assets/ramfs $@
+
+build/generated/embedded-files.o: build/embedded-files.c
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
@@ -58,10 +74,33 @@ debug: iso
 panic: build/tests/fault-ud.elf
 	$(QEMU) -m 64M -kernel $< -serial stdio -no-reboot -no-shutdown
 
-test: test-host iso $(FAULT_KERNELS) build/tests/irq.elf
+test: test-host iso $(FAULT_KERNELS) build/tests/irq.elf $(PAGING_KERNELS) build/tests/storage.elf
 	python3 scripts/smoke-test.py --qemu $(QEMU)
 
 build/tests/irq.elf: build/tests/irq-kernel.o build/tests/irq-probe.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) arch/i386/linker.ld
+	$(CC) -T arch/i386/linker.ld -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
+
+build/tests/storage.elf: build/tests/storage-kernel.o build/tests/storage-checks.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) arch/i386/linker.ld
+	$(CC) -T arch/i386/linker.ld -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
+
+build/tests/paging-ok.o: PAGING_CASE=0
+build/tests/paging-null.o: PAGING_CASE=1
+build/tests/paging-text.o: PAGING_CASE=2
+build/tests/paging-rodata.o: PAGING_CASE=3
+build/tests/paging-unmapped.o: PAGING_CASE=4
+build/tests/paging-readonly.o: PAGING_CASE=5
+
+build/tests/paging-trigger.o: tests/paging-trigger.s
+	@mkdir -p $(@D)
+	$(AS) $< -o $@
+
+$(PAGING_OBJECTS): build/tests/paging-%.o: tests/paging-kernel.c
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DRUM_PAGING_CASE=$(PAGING_CASE) -MMD -MP -c $< -o $@
+
+build/tests/paging-%.elf: build/tests/paging-%.o build/tests/paging-trigger.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) arch/i386/linker.ld
 	$(CC) -T arch/i386/linker.ld -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
 
@@ -74,7 +113,7 @@ build/tests/fault-trigger.o: tests/fault-trigger.s
 	@mkdir -p $(@D)
 	$(AS) $< -o $@
 
-build/tests/fault-%.o: tests/fault-kernel.c
+$(FAULT_OBJECTS): build/tests/fault-%.o: tests/fault-kernel.c
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DRUM_FAULT_CASE=$(FAULT_CASE) -MMD -MP -c $< -o $@
 
@@ -94,15 +133,26 @@ build/tests/keyboard-test: tests/keyboard-test.c kernel/keyboard_decode.c includ
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude tests/keyboard-test.c kernel/keyboard_decode.c -o $@
 
-build/tests/shell-test: tests/shell-test.c kernel/shell.c kernel/terminal.c include/rum/shell.h include/rum/terminal.h include/rum/serial.h tests/include/rum/io.h
+build/tests/shell-test: tests/shell-test.c kernel/shell.c kernel/terminal.c include/rum/shell.h include/rum/terminal.h include/rum/serial.h tests/include/rum/io.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/include -Iinclude tests/shell-test.c kernel/shell.c kernel/terminal.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Iinclude tests/shell-test.c kernel/shell.c kernel/terminal.c $(STORAGE_HOST_SOURCES) -o $@
 
-test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test
+build/tests/pmm-test: tests/pmm-test.c kernel/pmm.c include/rum/pmm.h include/rum/multiboot.h tests/include/rum/cpu.h
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Iinclude tests/pmm-test.c kernel/pmm.c -o $@
+
+build/tests/storage-test: tests/storage-test.c tests/storage-checks.c tests/storage-checks.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Iinclude tests/storage-test.c tests/storage-checks.c $(STORAGE_HOST_SOURCES) -o $@
+
+test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test
 	./build/tests/console-test
 	./build/tests/memory-test
 	./build/tests/keyboard-test
 	./build/tests/shell-test
+	./build/tests/pmm-test
+	./build/tests/storage-test
+	python3 tests/embed-test.py
 
 doctor:
 	bash scripts/doctor.sh
@@ -113,4 +163,7 @@ toolchain:
 clean:
 	rm -rf -- build
 
--include $(DEPENDENCIES) $(wildcard build/tests/fault-*.d)
+# The compiler writes these alongside objects; never try to rebuild them alone.
+$(DEPENDENCIES) $(TEST_DEPENDENCIES): ;
+
+-include $(DEPENDENCIES) $(TEST_DEPENDENCIES)

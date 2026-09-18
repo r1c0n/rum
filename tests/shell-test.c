@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <rum/heap.h>
+#include <rum/ramfs.h>
 #include <rum/serial.h>
 #include <rum/shell.h>
 #include <rum/terminal.h>
@@ -51,6 +53,9 @@ static void assert_status(void)
 
 int main(void)
 {
+    assert(heap_initialize() && ramfs_initialize());
+    assert(ramfs_put("welcome.txt", "Welcome to rum.\n", 16));
+    assert(ramfs_put("readme.txt", "test seed", 9));
     void *mapping = mmap((void *)0xB8000, 4096, PROT_READ | PROT_WRITE,
                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
     assert(mapping != MAP_FAILED);
@@ -64,7 +69,22 @@ int main(void)
     for (const char **name = (const char *[]){"help ", "clear ", "about ", "echo <text>", NULL}; *name; ++name)
         assert(strstr(output, *name));
     receive("about\n");
-    assert(strstr(output, "rum OS v0.1.0 (unreleased)\r\n"));
+    assert(strstr(output, "rum OS v0.1.0\r\n"));
+    assert_status();
+    reset();
+    receive("ls\ncat welcome.txt\nwrite notes.txt hello  from rum\ncat /notes.txt\nmem\n");
+    assert(strstr(output, "welcome.txt  ") && strstr(output, "readme.txt  "));
+    assert(strstr(output, "Welcome to rum."));
+    assert(strstr(output, "\r\nhello  from rum\r\n> "));
+    assert(strstr(output, "Heap: ") && strstr(output, "RAM files: 3 files, "));
+    receive("write notes.txt replacement\ncat notes.txt\nwrite empty\ncat empty\n");
+    assert(strstr(output, "\r\nreplacement\r\n> ") && ramfs_stats().files == 4);
+    receive("rm notes.txt\ncat notes.txt\nrm empty\n");
+    assert(strstr(output, "File not found: notes.txt\r\n"));
+    receive("ls x\ncat\ncat a b\nrm\nrm a b\nmem x\nwrite\nwrite bad/name no\n");
+    for (const char **text = (const char *[]){"Usage: ls", "Usage: cat <name>", "Usage: rm <name>",
+             "Usage: mem", "Usage: write <name> [text]", "Cannot write file:", NULL}; *text; ++text)
+        assert(strstr(output, *text));
     assert_status();
 
     reset();
@@ -127,6 +147,6 @@ int main(void)
         receive("echo scroll\n");
     assert_status();
     assert(munmap(mapping, 4096) == 0);
-    puts("PASS: shell commands, whitespace, usage, unknown commands, editing, line limit, clear/status, scrolling");
+    puts("PASS: shell commands, RAM file read/write/remove/list, heap usage, whitespace, editing, line limit, clear/status, scrolling");
     return 0;
 }

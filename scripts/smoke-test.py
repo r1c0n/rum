@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check boots, CPU faults, IRQ returns, live PIT/PS2 input, and shell commands."""
+"""Check boots, memory/storage, CPU faults, IRQs, PS/2 input and commands."""
 import argparse
 import json
 import os
@@ -60,6 +60,205 @@ def dump_ram(stream, address, length, path):
     if len(data) != length:
         raise RuntimeError(f"Incomplete memory dump: {path}")
     return data
+
+
+def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_text, project):
+    match = re.search(r"rum_memory_ok info=(\d+) usable=(\d+) managed=(\d+) free=(\d+) limit=(\d+) directory=(\d+)", serial_text)
+    if not match:
+        raise RuntimeError("Missing physical memory boot report")
+    info_address, usable, managed_count, free, limit, directory_address = map(int, match.groups())
+    cap, page_size = 1 << 30, 4096
+    if not 0 < limit <= cap or limit % page_size:
+        raise RuntimeError("Invalid identity window limit")
+    controls = {name: int(value, 16) for name, value in re.findall(r"\b(CR[034])=([0-9a-fA-F]+)", registers)}
+    if (controls.get("CR0", 0) & 0x80010000 != 0x80010000 or
+            controls.get("CR3") != directory_address or controls.get("CR4", 0) & 0xB0):
+        raise RuntimeError(f"Paging control registers incorrect: {controls}")
+    # Derive allocator eligibility from the real bootloader map and metadata.
+    info = dump_ram(stream, info_address, 116, artifacts / f"{mode}-multiboot.bin")
+    words = struct.unpack_from("<22I", info)
+    flags, map_length, map_address = words[0], words[11], words[12]
+    if not flags & 0x40:
+        raise RuntimeError("Bootloader did not provide a memory map")
+    raw = dump_ram(stream, map_address, map_length, artifacts / f"{mode}-memory-map.bin")
+    entries, offset = [], 0
+    while offset < len(raw):
+        size, address, length, kind = struct.unpack_from("<IQQI", raw, offset)
+        if size < 20 or offset + size + 4 > len(raw):
+            raise RuntimeError("Malformed QEMU memory map")
+        entries.append((address, length, kind))
+        offset += size + 4
+    pages = set()
+    for address, length, kind in entries:
+        if kind == 1:
+            pages.update(range((address + 4095) // 4096, min(address + length, cap) // 4096))
+
+    def block(address, length):
+        if length:
+            pages.difference_update(range(address // 4096, (min(address + length, cap) + 4095) // 4096))
+
+    for address, length, kind in entries:
+        if kind != 1:
+            block(address, length)
+    if usable != len(pages) or limit != (max(pages) + 1) * 4096:
+        raise RuntimeError("Usable RAM count/limit disagrees with Multiboot map")
+    block(0, 0x100000)
+    block(symbols["__kernel_start"], symbols["__kernel_end"] - symbols["__kernel_start"])
+    block(info_address, 116)
+    block(map_address, map_length)
+
+    def string(address):
+        if not address:
+            return
+        data = dump_ram(stream, address, 4096, artifacts / f"{mode}-boot-string.bin")
+        end = data.find(b"\0")
+        if end < 0:
+            raise RuntimeError("Unterminated boot string")
+        block(address, end + 1)
+
+    if flags & 4: string(words[4])
+    if flags & 0x200: string(words[16])
+    if flags & 8 and words[5]:
+        block(words[6], words[5] * 16)
+        modules = dump_ram(stream, words[6], words[5] * 16, artifacts / f"{mode}-modules.bin")
+        for start, end, name, _ in struct.iter_unpack("<4I", modules):
+            block(start, end - start)
+            string(name)
+    if flags & 0x10: block(words[9], words[7] + words[8])
+    if flags & 0x20 and words[7]:
+        block(words[9], words[7] * words[8])
+        sections = dump_ram(stream, words[9], words[7] * words[8], artifacts / f"{mode}-elf-sections.bin")
+        for offset in range(0, len(sections), words[8]):
+            address, size = struct.unpack_from("<I", sections, offset + 12)[0], struct.unpack_from("<I", sections, offset + 20)[0]
+            if address: block(address, size)
+    if flags & 0x80: block(words[14], words[13])
+    if flags & 0x100 and words[15]:
+        data = dump_ram(stream, words[15], 2, artifacts / f"{mode}-bios-config.bin")
+        block(words[15], struct.unpack("<H", data)[0] + 2)
+    if flags & 0x400: block(words[17], 20)
+    if flags & 0x800:
+        block(words[18], 512)
+        block(words[19], 256)
+        _, segment, offset, length = struct.unpack_from("<4H", info, 80)
+        block(segment * 16 + offset, length)
+    if flags & 0x1000:
+        address, pitch, _, height = struct.unpack_from("<QIII", info, 88)
+        block(address, pitch * height)
+        if info[109] == 0:
+            palette, colors = struct.unpack_from("<IH", info, 110)
+            block(palette, colors * 3)
+    expected = bytearray(cap // page_size // 8)
+    for page in pages: expected[page // 8] |= 1 << (page % 8)
+    actual = dump_ram(stream, symbols["managed"], len(expected), artifacts / f"{mode}-managed-pages.bin")
+    allocated = dump_ram(stream, symbols["allocated"], len(expected), artifacts / f"{mode}-allocated-pages.bin")
+    if actual != expected or managed_count != len(pages):
+        raise RuntimeError("Physical allocator failed to reserve boot/kernel memory")
+    directory = struct.unpack("<1024I", dump_ram(stream, directory_address, 4096,
+                                                artifacts / f"{mode}-page-directory.bin"))
+    table_count = (limit + (1 << 22) - 1) >> 22
+    storage = re.search(r"rum_storage_ok mapped=(\d+) used=(\d+) allocations=(\d+) files=(\d+) bytes=(\d+)", serial_text)
+    if not storage:
+        raise RuntimeError("Missing heap/filesystem boot report")
+    heap_mapped, heap_used, heap_allocations, file_count, file_bytes = map(int, storage.groups())
+    if not 0 < heap_mapped <= 4 * 1024 * 1024 or heap_mapped % 4096:
+        raise RuntimeError("Invalid heap virtual window")
+    heap_index = 256
+    populated = set(range(table_count)) | {heap_index}
+    if (any(entry for index, entry in enumerate(directory) if index not in populated) or
+            any(directory[index] & ~0x20 & 0xFFF != 3 for index in populated)):
+        raise RuntimeError("Unexpected page directory entries")
+    frames = {directory_address, *(directory[index] & 0xFFFFF000 for index in populated)}
+    if len(frames) != len(populated) + 1 or any(frame // 4096 not in pages for frame in frames):
+        raise RuntimeError("Page tables overlap or use reserved frames")
+    structure_count = len(frames)
+    heap_table = struct.unpack("<1024I", dump_ram(stream, directory[heap_index] & 0xFFFFF000, 4096,
+                                                 artifacts / f"{mode}-heap-table.bin"))
+    heap_frames = []
+    heap_dump = bytearray()
+    for slot, entry in enumerate(heap_table):
+        if slot >= heap_mapped // 4096:
+            if entry:
+                raise RuntimeError("Heap maps pages beyond its committed size")
+            continue
+        physical = entry & 0xFFFFF000
+        if entry & ~0x60 & 0xFFF != 3 or physical in frames or physical // 4096 not in pages:
+            raise RuntimeError("Heap mappings overlap, use reserved RAM, or have wrong permissions")
+        frames.add(physical)
+        heap_frames.append(physical)
+        heap_dump.extend(dump_ram(stream, physical, 4096, artifacts / f"{mode}-heap-page-{slot}.bin"))
+    owned = bytearray(len(expected))
+    for frame in frames: owned[frame // 4096 // 8] |= 1 << (frame // 4096 % 8)
+    if allocated != owned or free != managed_count - len(frames):
+        raise RuntimeError("Page table/heap physical frame accounting incorrect")
+    # Read the tables in one contiguous span rather than hundreds of monitor calls.
+    table_frames = [entry & 0xFFFFF000 for entry in directory[:table_count]]
+    low, high = min(table_frames), max(table_frames) + 4096
+    raw_tables = dump_ram(stream, low, high - low, artifacts / f"{mode}-page-tables.bin")
+    for index, frame in enumerate(table_frames):
+        table = struct.unpack_from("<1024I", raw_tables, frame - low)
+        for slot, entry in enumerate(table):
+            physical = (index * 1024 + slot) * 4096
+            if physical == 0 or physical >= limit:
+                if entry:
+                    raise RuntimeError("Null guard or end of RAM is mapped")
+                continue
+            readonly = any(symbols[start] <= physical < symbols[end] for start, end in
+                           (("__text_start", "__text_end"), ("__rodata_start", "__rodata_end")))
+            expected_entry = physical | (1 if readonly else 3) | (0x10 if 0xA0000 <= physical < 0x100000 else 0)
+            if entry & ~0x60 != expected_entry:
+                raise RuntimeError(f"Wrong mapping/protection for {physical:#x}: {entry:#x}")
+    # Independently walk real i386 heap headers and RAM file nodes.
+    heap_base, offset, previous = 0x40000000, 0, 0
+    live_blocks, used = {}, 0
+    previous_free = False
+    while offset < len(heap_dump):
+        size, prev, following = struct.unpack_from("<III", heap_dump, offset)
+        is_free = heap_dump[offset + 12]
+        end = offset + 16 + size
+        if (size % 16 or end > len(heap_dump) or prev != previous or is_free not in (0, 1) or
+                following != (heap_base + end if end < len(heap_dump) else 0) or
+                (is_free and previous_free)):
+            raise RuntimeError("Heap headers, alignment or coalescing are inconsistent")
+        if not is_free:
+            live_blocks[heap_base + offset + 16] = size
+            used += size
+        previous, previous_free, offset = heap_base + offset, is_free, end
+    if used != heap_used or len(live_blocks) != heap_allocations:
+        raise RuntimeError("Heap accounting disagrees with its live blocks")
+
+    def heap_bytes(address, length):
+        offset = address - heap_base
+        if offset < 0 or offset + length > len(heap_dump):
+            raise RuntimeError("RAM file points outside the heap")
+        return heap_dump[offset:offset + length]
+
+    node = struct.unpack("<I", dump_ram(stream, symbols["ramfs_first"], 4,
+                                       artifacts / f"{mode}-ramfs-root.bin"))[0]
+    loaded, owners = {}, set()
+    while node:
+        if node in owners or live_blocks.get(node, 0) < 76:
+            raise RuntimeError("RAM filesystem list is invalid")
+        owners.add(node)
+        following, size, address = struct.unpack_from("<III", heap_bytes(node, 76))
+        name = bytes(heap_bytes(node + 12, 64)).split(b"\0", 1)[0].decode("ascii")
+        if name in loaded:
+            raise RuntimeError("Duplicate RAM filename")
+        if size:
+            if address in owners or live_blocks.get(address, 0) < size:
+                raise RuntimeError("RAM file payload has no live heap allocation")
+            owners.add(address)
+        elif address:
+            raise RuntimeError("Empty RAM file owns unexpected data")
+        loaded[name] = bytes(heap_bytes(address, size)) if size else b""
+        node = following
+    assets = {path.name: path.read_bytes() for path in (project / "assets/ramfs").iterdir()}
+    if (loaded != assets or len(loaded) != file_count or sum(map(len, loaded.values())) != file_bytes or
+            owners != set(live_blocks)):
+        raise RuntimeError("Embedded RAM files differ from assets or leak heap allocations")
+    report = {"usable_pages": usable, "managed_pages": managed_count, "free_pages": free,
+              "identity_limit": limit, "page_table_frames": structure_count,
+              "heap_pages": len(heap_frames), "heap_used_bytes": used, "files": file_count}
+    (artifacts / f"{mode}-memory.json").write_text(json.dumps(report, indent=2) + "\n")
 
 
 def cpu_tables_test(stream, symbols, artifacts, mode, live=False):
@@ -132,12 +331,16 @@ def guest_keyboard(stream, serial):
             time.sleep(0.02)
 
     def type_text(text):
-        special = {" ": "spc", "\n": "ret", "\t": "tab", "\b": "backspace"}
+        special = {" ": "spc", "\n": "ret", "\t": "tab", "\b": "backspace", ".": "dot", "/": "slash", "-": "minus"}
         for character in text:
             if character in special:
                 send(special[character])
             elif character == "!":
                 send("shift", "1")
+            elif character == "_":
+                send("shift", "minus")
+            elif "A" <= character <= "Z":
+                send("shift", character.lower())
             elif "a" <= character <= "z" or character.isdigit():
                 send(character)
             else:
@@ -221,9 +424,14 @@ def shell_test(stream, symbols, artifacts, mode, serial):
            "  help         Show this list.\r\n"
            "  clear        Clear the console.\r\n"
            "  about        About rum.\r\n"
-           "  echo <text>  Print text.\r\n> ")
+           "  echo <text>  Print text.\r\n"
+           "  ls           List RAM files.\r\n"
+           "  cat <name>   Read a file.\r\n"
+           "  write <name> [text]  Create or replace a file.\r\n"
+           "  rm <name>    Remove a file.\r\n"
+           "  mem          Show heap and file usage.\r\n> ")
     type_text("about\n")
-    expect("rum OS v0.1.0 (unreleased)\r\n"
+    expect("rum OS v0.1.0\r\n"
            "An island of our own. A hobby kernel in C and x86 assembly.\r\n"
            "32-bit x86 | GRUB Multiboot | PIC, PIT and PS/2\r\n> ")
     type_text("echx\bo rum is alive!\n")
@@ -263,7 +471,7 @@ def shell_test(stream, symbols, artifacts, mode, serial):
     memory = dump_ram(stream, 0xB8000, 4000, artifacts / f"{mode}-shell-vga.bin")
     rows = [memory[y*160:(y+1)*160:2].decode("ascii").rstrip() for y in range(25)]
     screen = "\n".join(rows)
-    for text in ("Commands:", "echo <text>", "rum OS v0.1.0 (unreleased)", "rum has a shell!", "uptime:"):
+    for text in ("Commands:", "echo <text>", "rum OS v0.1.0", "rum has a shell!", "uptime:"):
         if text not in screen:
             raise RuntimeError(f"Missing shell VGA text {text!r}")
     (artifacts / f"{mode}-shell-screen.txt").write_text(screen + "\n")
@@ -277,6 +485,29 @@ FAULT_CASES = {
     "gp": (13, 0x18, "General protection fault"),
     "pf": (14, 0, "Page fault"),
 }
+
+PAGING_FAULTS = {
+    "null": (0, 0, "paging_null_instruction"),
+    "text": (3, "__text_start", "paging_text_instruction"),
+    "rodata": (3, "paging_readonly_word", "paging_rodata_instruction"),
+    "unmapped": (0, 0x40000000, "paging_unmapped_instruction"),
+    "readonly": (3, 0x40000000, "paging_readonly_instruction"),
+}
+
+
+def paging_fault_test(symbols, case, serial_text, registers):
+    fields = {name: int(value, 16) for name, value in re.findall(r"\b([a-z0-9]+)=0x([0-9a-f]{8})", serial_text)}
+    error, address, instruction = PAGING_FAULTS[case]
+    if isinstance(address, str): address = symbols[address]
+    for name, expected in (("vector", 14), ("error", error), ("cr2", address), ("eip", symbols[instruction])):
+        if fields.get(name) != expected:
+            raise RuntimeError(f"Production paging fault has incorrect {name}: {fields.get(name)}, expected {expected:#x}")
+    cr0 = re.search(r"\bCR0=([0-9a-fA-F]+)", registers)
+    if not cr0 or int(cr0[1], 16) & 0x80010000 != 0x80010000:
+        raise RuntimeError("Production paging fault lost PG/WP")
+    eip = re.search(r"\bEIP=([0-9a-fA-F]+)", registers)
+    if not eip or not symbols["cpu_halt"] <= int(eip[1], 16) < symbols["cpu_halt"] + 4:
+        raise RuntimeError("Paging fault did not halt")
 
 
 def fault_report_test(stream, symbols, artifacts, mode, fault, serial_text, screen, registers):
@@ -306,16 +537,82 @@ def fault_report_test(stream, symbols, artifacts, mode, fault, serial_text, scre
         raise RuntimeError("Fault did not reach cpu_halt")
 
 
-def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False):
-    serial = artifacts / f"{mode}-serial.log"
+def storage_shell_test(stream, symbols, artifacts, mode, serial, project):
+    qmp_command(stream, "cont")
+    _, expect, type_text = guest_keyboard(stream, serial)
+    assets = {path.name: path.read_bytes() for path in sorted((project / "assets/ramfs").iterdir())}
+    start = len(serial.read_bytes())
+    type_text("ls\n")
+    expect("\r\n> ")
+    for name in assets:
+        if (name + "  ").encode() not in serial.read_bytes()[start:]:
+            raise RuntimeError(f"Embedded file missing from ls output: {name}")
+    if assets:
+        name = "welcome.txt" if "welcome.txt" in assets else next(iter(assets))
+        type_text(f"cat {name}\n")
+        text = bytes(byte if byte in (10, 9) or 32 <= byte <= 126 else 46 for byte in assets[name])
+        if not text.endswith(b"\n"): text += b"\n"
+        expect(text.replace(b"\n", b"\r\n").decode() + "> ")
+    # Make space for two temporary files even with a full embedded filesystem.
+    for name in list(assets)[:max(0, len(assets) - 62)]:
+        type_text(f"rm {name}\n")
+        expect("\r\n> ")
+        del assets[name]
+    def unused_name(base):
+        name, index = base, 0
+        while name in assets:
+            index += 1
+            name = f"{base}-{index}"
+        return name
+    notes, empty = unused_name("notes.txt"), unused_name("empty")
+    type_text(f"write {notes} hello from rum\ncat {notes}\n")
+    expect("\r\nhello from rum\r\n> ")
+    type_text(f"write {notes} changed\ncat /{notes}\n")
+    expect("\r\nchanged\r\n> ")
+    type_text(f"write {empty}\ncat {empty}\n")
+    expect(f"cat {empty}\r\n\r\n> ")
+    type_text(f"rm {notes}\ncat {notes}\n")
+    expect(f"File not found: {notes}\r\n> ")
+    type_text(f"rm {empty}\n")
+    type_text("write bad/name no\n")
+    expect("Cannot write file: invalid name, limit reached, or out of memory.\r\n> ")
+    type_text("cat\nrm\nls x\nmem x\n")
+    expect("Usage: mem\r\n> ")
+    for expected in ("Usage: cat <name>", "Usage: rm <name>", "Usage: ls"):
+        if expected.encode() not in serial.read_bytes():
+            raise RuntimeError(f"Missing file command usage error: {expected}")
+    # Leave a readable storage demonstration on the VGA console.
+    type_text(f"clear\nls\nwrite {notes} hello from rum\ncat {notes}\nmem\n")
+    expect("\r\n> ")
+    count = len(assets) + 1
+    if f"RAM files: {count} files, ".encode() not in serial.read_bytes()[-300:]:
+        raise RuntimeError("Filesystem usage failed to count newly written file")
+    stop_at_idle(stream)
+    memory = dump_ram(stream, 0xB8000, 4000, artifacts / f"{mode}-storage-vga.bin")
+    screen = "\n".join(memory[y*160:(y+1)*160:2].decode("ascii").rstrip() for y in range(25))
+    for expected in ("hello from rum", "Heap:", f"RAM files: {count} files", "uptime:"):
+        if expected not in screen:
+            raise RuntimeError(f"Missing storage VGA text: {expected}")
+    (artifacts / f"{mode}-storage-screen.txt").write_text(screen + "\n")
+    qmp_command(stream, "screendump", {"filename": str(artifacts / f"{mode}-storage.ppm")})
+    timer_test(stream, symbols, artifacts, mode)
+
+
+def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False):
+    serial_artifact = artifacts / f"{mode}-serial.log"
     vga_dump = artifacts / f"{mode}-vga.bin"
     screenshot = artifacts / f"{mode}.ppm"
-    serial.write_text("")
-    image = project / ("build/tests/irq.elf" if irq_test else
+    image = project / ("build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
                        f"build/tests/fault-{fault}.elf" if fault else "build/rum.elf")
     symbols = elf_symbols(image)
-    marker = "rum_irq_test_ok" if irq_test else "rum_panic_halted" if fault else "rum_boot_ok"
+    marker = ("rum_storage_test_ok" if storage else "rum_paging_test_ok" if paging == "ok" else "rum_panic_halted" if paging else
+              "rum_irq_test_ok" if irq_test else "rum_panic_halted" if fault else "rum_boot_ok")
+    normal = not fault and not irq_test and not paging and not storage
     with tempfile.TemporaryDirectory(prefix="rum-qmp-") as temporary:
+        # Keep the live writer/readers on one filesystem. DrvFs can return
+        # ENODATA when a WSL guest creates/truncates a log on the Windows drive.
+        serial = Path(temporary) / "serial.log"
+        serial.write_text("")
         monitor = str(Path(temporary) / "qmp.sock")
         # Windows QEMU uses a loopback TCP monitor; Linux can use a Unix socket.
         port = None
@@ -327,8 +624,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False):
         else:
             monitor_spec = f"unix:{monitor},server=on,wait=off"
         image_args = (["-boot", "d", "-cdrom", str(project / "build/rum.iso")]
-                      if mode == "iso" else ["-kernel", str(image)])
-        args = [qemu, "-machine", "pc", "-accel", "tcg", "-m", "64M", "-display", "none",
+                      if mode == "iso" or iso else ["-kernel", str(image)])
+        args = [qemu, "-machine", "pc", "-accel", "tcg", "-m", f"{ram}M", "-display", "none",
                 "-serial", f"file:{serial}", "-qmp", monitor_spec,
                 "-no-reboot", "-no-shutdown", *image_args]
         process = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
@@ -336,6 +633,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False):
         try:
             deadline = time.monotonic() + 20
             while marker not in serial.read_text(errors="replace"):
+                if any(marker in serial.read_text(errors="replace") for marker in ("rum_paging_test_failed", "rum_storage_test_failed")):
+                    raise RuntimeError(serial.read_text(errors="replace"))
                 if process.poll() is not None:
                     raise RuntimeError(f"QEMU exited: {process.stderr.read().decode(errors='replace')}")
                 if time.monotonic() >= deadline:
@@ -353,12 +652,13 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False):
                     status = qmp_command(stream, "query-status")
                     if not status["running"]:
                         raise RuntimeError(f"Guest unexpectedly stopped: {status}")
-                    if not fault and not irq_test:
+                    if normal:
                         stop_at_idle(stream)
                     else:
                         qmp_command(stream, "stop")
-                    registers = cpu_tables_test(stream, symbols, artifacts, mode, live=not fault and not irq_test)
-                    if not fault and not irq_test:
+                    registers = cpu_tables_test(stream, symbols, artifacts, mode, live=normal)
+                    if normal:
+                        physical_memory_test(stream, symbols, artifacts, mode, registers, serial.read_text(), project)
                         timer_test(stream, symbols, artifacts, mode)
                     memory = dump_ram(stream, 0xB8000, 4000, vga_dump)
                     qmp_command(stream, "screendump", {"filename": str(screenshot)})
@@ -366,26 +666,39 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False):
                             for y in range(25)]
                     screen = "\n".join(rows)
                     (artifacts / f"{mode}-screen.txt").write_text(screen + "\n")
-                    expected_text = (("rum IRQ return and spurious interrupt tests passed.",) if irq_test else
+                    expected_text = (("rum heap and RAM filesystem tests passed.",) if storage else
+                                     ("rum physical allocator and paging tests passed.",) if paging == "ok" else
+                                     ("rum kernel panic", "Page fault", "CPU halted.") if paging else
+                                     ("rum IRQ return and spurious interrupt tests passed.",) if irq_test else
                                      ("rum kernel panic", FAULT_CASES[fault][2], "CPU halted.") if fault
                                      else ("rum OS v0.1.0", "Hello, kernel world!", "[ok] Multiboot handoff",
                                            "[ok] Kernel GDT and segments", "[ok] IDT and CPU exception handlers",
                                            "[ok] PIT timer at 100 Hz", "[ok] PS/2 keyboard (US layout)",
+                                           "[ok] Multiboot memory map", "[ok] Physical page allocator",
+                                           "[ok] Paging (4 KiB pages, null guard)",
+                                           "[ok] Kernel heap (16-byte alignment)",
+                                           "[ok] RAM filesystem and embedded files",
                                            "uptime:", "Close QEMU to return"))
                     for expected in expected_text:
                         if expected not in screen:
                             raise RuntimeError(f"Missing VGA text {expected!r} ({mode})")
-                    if fault:
+                    if paging and paging != "ok":
+                        paging_fault_test(symbols, paging, serial.read_text(), registers)
+                    elif fault:
                         fault_report_test(stream, symbols, artifacts, mode, fault,
                                           serial.read_text(), screen, registers)
-                    elif not irq_test:
+                    elif normal and interactive:
                         keyboard_test(stream, symbols, artifacts, mode, serial)
                         shell_test(stream, symbols, artifacts, mode, serial)
+                        storage_shell_test(stream, symbols, artifacts, mode, serial, project)
                     qmp_command(stream, "quit")
             print(f"PASS: {mode}, GDT/IDT/segments, " +
-                  ("real exception, saved registers, error code, EIP, stack, VGA/serial panic, halt" if fault
+                  ("production heap/RAM files, alignment, reuse, realloc, limits, physical OOM rollback" if storage else
+                   "production paging, aliases/remap, frame accounting, init/runtime OOM recovery" if paging == "ok"
+                   else "production page tables, real #PF, error/EIP/CR2, PG/WP, panic/halt" if paging
+                   else "real exception, saved registers, error code, EIP, stack, VGA/serial panic, halt" if fault
                    else "IRQ return, saved registers/flags, spurious IRQ7/IRQ15" if irq_test
-                   else "Multiboot, VGA/serial, PIT, PS/2 editing/scrolling, PIC, help/clear/about/echo"))
+                   else f"{ram} MiB RAM, Multiboot/physical/paging/heap/embedded files, PIT/PS2/PIC/shell"))
         finally:
             if process.poll() is None:
                 process.terminate()
@@ -394,6 +707,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False):
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
+            serial_artifact.write_bytes(serial.read_bytes())
 
 
 def main():
@@ -408,6 +722,14 @@ def main():
     for fault in FAULT_CASES:
         boot_test(args.qemu, project, f"fault-{fault}", artifacts, fault=fault)
     boot_test(args.qemu, project, "irq", artifacts, irq_test=True)
+    boot_test(args.qemu, project, "paging-ok", artifacts, paging="ok")
+    for case in PAGING_FAULTS:
+        boot_test(args.qemu, project, f"paging-{case}", artifacts, paging=case)
+    for ram in (16, 64):
+        boot_test(args.qemu, project, f"storage-{ram}", artifacts, storage=True, ram=ram)
+    for ram in (16, 256, 1152):
+        boot_test(args.qemu, project, f"ram-{ram}", artifacts, ram=ram, interactive=False)
+    boot_test(args.qemu, project, "iso-ram-16", artifacts, ram=16, interactive=False, iso=True)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,4 @@
+Welcome to rum.
+An island of our own.
+Files live in RAM; changes disappear when rum restarts.
+Try: ls, cat readme.txt, write notes.txt hello from rum

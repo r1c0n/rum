@@ -1,5 +1,5 @@
-/* This replaces kernel.c only in isolated test ELFs. Production rum never
-   deliberately faults or enables paging in this milestone. */
+/* Isolated CPU-register fixtures. The original #PF fixture keeps its tiny
+   table layout; paging-kernel.c tests the separate production memory path. */
 #include <stdint.h>
 #include <rum/cpu.h>
 #include <rum/interrupts.h>

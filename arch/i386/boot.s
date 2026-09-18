@@ -38,7 +38,7 @@ _start:
     call kernel_main
     add $16, %esp
 
-    /* Device IRQ handling comes next; leave interrupts disabled. */
+    /* The normal kernel never returns. Halt if startup fails. */
     jmp cpu_halt
 .size _start, . - _start
 

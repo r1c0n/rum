@@ -10,12 +10,14 @@ Version numbers change when we plan a release, rather than after each milestone.
    and PS/2 keyboard input with text echo. See [device interrupts](interrupts.md).
 4. **Complete:** small command loop with `help`, `clear`, `about`, and `echo`,
    bounded line editing, and VGA/serial output. See [the shell](shell.md).
-5. Use Multiboot's memory map to build a physical page allocator and paging.
-6. Add a heap, then a small RAM filesystem and embedded files.
+5. **Complete:** Multiboot memory map, physical page allocator, and protected
+   4 KiB paging with kernel map/unmap APIs. See [memory management](memory.md).
+6. **Complete:** page-backed kernel heap, mutable RAM filesystem, build-embedded
+   files, and shell commands to list/read/write/remove them. See [storage](storage.md).
 7. Make something fun: ASCII Snake or a tiny text adventure.
 
-Next: milestone 5. Use Multiboot's memory map to build a physical page allocator
-and paging.
+Next: milestone 7. Make something fun with the console, keyboard and RAM files:
+ASCII Snake or a tiny text adventure.
 
 Keep each milestone bootable in QEMU. Serial logs and `make test` should keep
 working as the kernel grows. Add targeted tests when new hardware behavior needs them.
