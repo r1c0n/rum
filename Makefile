@@ -11,6 +11,7 @@ CFLAGS := -std=gnu11 -ffreestanding -O2 -g -Wall -Wextra -Werror \
           -Wstrict-prototypes -Wmissing-prototypes -fno-stack-protector \
           -fno-pie -fno-builtin -fno-asynchronous-unwind-tables -msoft-float -mno-mmx -mno-sse -mno-sse2
 LAYOUT_HEADERS := include/rum/memory_layout.h include/rum/process_limits.h
+ABI_HEADERS := $(wildcard include/rum/abi/*.h)
 LINKER_SCRIPT := build/arch/i386/linker.ld
 LDFLAGS := -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie \
            -Wl,--build-id=none -Wl,-Map,build/rum.map
@@ -199,7 +200,7 @@ build/tests/snake-test: tests/snake-test.c kernel/snake_model.c include/rum/snak
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude tests/snake-test.c kernel/snake_model.c -o $@
 
-build/tests/layout-test: tests/layout-test.c $(LAYOUT_HEADERS)
+build/tests/layout-test: tests/layout-test.c $(LAYOUT_HEADERS) $(ABI_HEADERS)
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude $< -o $@
 
@@ -207,7 +208,11 @@ build/tests/frame-test: tests/frame-test.c include/rum/interrupts.h include/rum/
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude $< -o $@
 
-test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test
+build/tests/abi-test: tests/abi-test.c $(ABI_HEADERS) $(LAYOUT_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude $< -o $@
+
+test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
 	./build/tests/console-test
 	./build/tests/memory-test
 	./build/tests/keyboard-test
@@ -217,6 +222,7 @@ test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard
 	./build/tests/snake-test
 	./build/tests/layout-test
 	./build/tests/frame-test
+	./build/tests/abi-test
 	python3 tests/embed-test.py
 
 doctor:
