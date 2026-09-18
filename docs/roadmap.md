@@ -77,27 +77,35 @@ preservation exists. Isolated ring-3 fixtures verify repeated PIT delivery,
 TSS stack switching, `iret` restoration, and actual x87/MMX/SSE/I/O faults.
 Paging tests verify writable supervisor CPU tables under child CR3s.
 [CPU entry and policy](exceptions.md) documents the interfaces and tests.
-User mappings, task ownership, and recoverable user faults remain later work.
+User mappings, process-owned user contexts, and recoverable user faults remain
+later work.
 
 ### P4. Kernel contexts, stacks, and waiting
 
-- [ ] Introduce a current-task record, saved kernel context, and a kernel idle context.
-- [ ] Allocate private kernel stacks and prove context switches using ring-0 test tasks.
-- [ ] Define runnable, blocked, and exited states with wait/wakeup operations that
+- [x] Introduce a current-task record, saved kernel context, and a kernel idle context.
+- [x] Allocate private kernel stacks and prove context switches using ring-0 test tasks.
+- [x] Define runnable, blocked, and exited states with wait/wakeup operations that
   cannot lose an event between checking a queue and sleeping.
-- [ ] Keep short interrupt-protected updates separate from blocking or device waits.
-- [ ] Defer freeing an exited task's active stack and address space until execution
+- [x] Keep short interrupt-protected updates separate from blocking or device waits.
+- [x] Defer freeing an exited task's active stack and address space until execution
   has switched to a surviving kernel context.
 
-This supplies the recovery path needed when a user program exits or faults,
-and the blocking path needed for console reads and parent waits. Handlers should
-queue events and wake tasks; they must not allocate, block, or reclaim the
-currently executing task. Preserve the existing interrupt-safe idle behavior.
+Cooperative kernel tasks now own private 16 KiB page-backed stacks and may own
+an inactive paging context transferred at successful creation. Switching updates
+CR3, current-task bookkeeping and TSS.ESP0 before restoring kernel execution.
+The boot shell waits on timer/keyboard events; a private idle context preserves
+the existing `sti; hlt` sleep boundary. IRQ handlers only publish wakeups.
 
-If kernel stacks get guard pages, add an independent double-fault stack/entry
-path at the same time so overflow does not depend on the failed stack. Test
-stack switching, event delivery at sleep boundaries, idle wakeups, and deferred
-cleanup before adding user contexts. General timer preemption can come later.
+Wait attachment and event-sequence checking are atomic with respect to IRQs.
+Exit switches away before a surviving context releases the old stack and owned
+directory. Tests cover actual register/stack/CR3 switching, idle and broadcast
+wakeups, sleep boundaries, limits, failed setup and repeated cleanup.
+[Kernel tasks](tasks.md) documents the contracts and ownership rules.
+
+Stacks currently use contiguous PMM pages in the supervisor identity window
+without guards. Add an independent double-fault stack/entry path together with
+any future kernel stack guard pages. User contexts, parent exit statuses and
+general timer preemption remain later work.
 
 ### P5. User ABI and build foundation
 

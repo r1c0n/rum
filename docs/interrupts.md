@@ -27,16 +27,25 @@ clear.
 
 PIT channel 0 uses binary mode 2 with a divisor of 11932. Its nominal
 1,193,182 Hz input produces approximately 100 interrupts per second.
-IRQ0 increments an aligned, volatile 32-bit tick counter.
+IRQ0 increments an aligned, volatile 32-bit tick counter and signals the
+foreground work event. Accepted keyboard characters signal the same event.
 
 The foreground loop displays `ticks / TIMER_HZ` in the bottom VGA row once
 per second and uses ticks to advance Snake. Scrolling is limited to the other
 24 rows. The uptime counter wraps after roughly 497 days.
 
-The loop disables interrupts while checking ticks and queued input. It restores
-flags before processing work. When idle, `sti; hlt` enables interrupts and
-sleeps using STI's interrupt shadow, closing the gap between checking for work
-and waiting for an IRQ.
+The loop snapshots the work-event sequence while checking ticks and queued
+input with interrupts disabled. It restores flags before processing or waiting.
+`task_wait` checks the snapshot and attaches the blocked context atomically,
+so an event between checking and waiting cannot be lost. The scheduler selects
+the private idle context when nothing is runnable. Idle checks runnable state
+with IF clear and sleeps with `sti; hlt`, using STI's interrupt shadow to close
+the sleep boundary. See [Kernel tasks](tasks.md).
+
+IRQ handlers may signal events and make blocked tasks runnable. They never
+switch stacks, allocate tasks, block or reclaim exited contexts. Actual
+scheduling happens after IRQ return; `irq_in_handler` enforces those task-API
+restrictions.
 
 ## PS/2 keyboard
 

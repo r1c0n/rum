@@ -52,6 +52,7 @@ void interrupt_dispatch(struct exception_frame *frame);
 void irq_register(uint8_t irq, void (*handler)(void));
 void irq_dispatch(const struct exception_frame *frame);
 uint32_t irq_spurious_count(void);
+bool irq_in_handler(void);
 _Noreturn void exception_dispatch(const struct exception_frame *frame);
 
 #endif

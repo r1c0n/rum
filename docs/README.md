@@ -7,6 +7,7 @@
 | [Snake](snake.md) | Controls, scoring, and game implementation |
 | [CPU exceptions](exceptions.md) | GDT/TSS, shared interrupt frames, user CPU policy, and panic diagnostics |
 | [Device interrupts](interrupts.md) | PIC, PIT, keyboard driver, and idle loop |
+| [Kernel tasks](tasks.md) | Cooperative contexts, private stacks, event waits, and deferred cleanup |
 | [Memory management](memory.md) | Physical pages, paging contexts, and shared kernel mappings |
 | [Memory layout and ownership](memory-layout.md) | Shared ranges, stack reservations, process limits, and cleanup rules |
 | [Heap and RAM files](storage.md) | Allocation APIs, file ownership, and embedded assets |
@@ -24,11 +25,13 @@
 4. The physical allocator reserves occupied memory. Paging creates the identity
    window, protects kernel code and constants, and leaves page zero unmapped.
 5. The heap maps its first page, and the filesystem copies embedded files into RAM.
-6. The kernel unmasks the timer and available keyboard IRQs, enables interrupts,
+6. The task system registers boot and allocates the private idle stack.
+7. The kernel unmasks the timer and available keyboard IRQs, enables interrupts,
    and enters the foreground loop.
 
 The foreground loop handles queued keyboard input, shell commands, Snake
-movement, and uptime. It sleeps with `sti; hlt` while idle. IRQ handlers update
+movement, and uptime. It waits on timer/keyboard events when no work is pending;
+the idle context sleeps with `sti; hlt`. IRQ handlers update
 counters or queue input; they do not run commands, allocate memory, or draw.
 
 ## Tests
@@ -38,6 +41,8 @@ the kernel's console, memory routines and layout, keyboard decoder, shell, alloc
 heap, filesystem, and Snake rules. QEMU tests check both GRUB and direct ELF
 boots, live device input, isolated CPU-fault and allocation-failure cases, and
 ring-3 timer returns and CPU-policy enforcement in dedicated test kernels.
+Kernel-task fixtures check actual stack/CR3 switching, wait boundaries and
+repeated cleanup at 16 and 64 MiB RAM.
 
 Test artifacts are written to `build/test-artifacts/`. The implementation guides
 describe the checks relevant to each subsystem.

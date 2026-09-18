@@ -24,6 +24,7 @@ static void entry(uint64_t address, uint64_t length, uint32_t type, uint32_t ext
 static void assert_unready(void)
 {
     assert(pmm_allocate_page() == 0);
+    assert(pmm_allocate_contiguous(4) == 0 && !pmm_free_contiguous(0x100000, 4));
     assert(pmm_stats().free_pages == 0);
     assert(!pmm_free_page(0x100000));
 }
@@ -63,6 +64,27 @@ int main(void)
     assert(pmm_allocate_page() == pages[5]);
     for (uint32_t i = 0; i < count; ++i) assert(pmm_free_page(pages[i]));
     assert(pmm_stats().free_pages == count);
+
+    uint32_t before = pmm_stats().free_pages;
+    assert(!pmm_allocate_contiguous(0) && !pmm_allocate_contiguous(UINT32_MAX));
+    uint32_t stack = pmm_allocate_contiguous(4);
+    assert(stack && pmm_stats().free_pages == before - 4);
+    for (unsigned i = 0; i < 4; ++i) assert(pmm_is_allocated(stack + i * PAGE_SIZE));
+    assert(!pmm_free_contiguous(stack + 1, 4) && !pmm_free_contiguous(stack, UINT32_MAX));
+    assert(!pmm_free_contiguous(stack, 5) && !pmm_free_contiguous(stack, 0));
+    assert(pmm_stats().free_pages == before - 4); /* Failed release changes nothing. */
+    assert(pmm_free_contiguous(stack, 4) && !pmm_free_contiguous(stack, 4));
+    assert(pmm_stats().free_pages == before);
+
+    /* A large total free count does not imply one contiguous run. */
+    count = 0;
+    while ((physical = pmm_allocate_page())) pages[count++] = physical;
+    for (uint32_t i = 0; i < count; i += 2) assert(pmm_free_page(pages[i]));
+    before = pmm_stats().free_pages;
+    assert(before > 4 && !pmm_allocate_contiguous(4));
+    assert(pmm_stats().free_pages == before);
+    for (uint32_t i = 1; i < count; i += 2) assert(pmm_free_page(pages[i]));
+    assert(pmm_allocate_contiguous(4) == stack && pmm_free_contiguous(stack, 4));
 
     reset();
     entry(0x100001, PAGE_SIZE * 3, 1, 0);
