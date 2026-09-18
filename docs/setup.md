@@ -67,15 +67,22 @@ make CROSS_PREFIX=i686-elf-
 
 ```sh
 make                 # Build build/rum.elf and build/rum.iso
+make user            # Build and validate separate user ELF assets
 make run             # Boot the ISO through GRUB
 make run-kernel      # Boot the ELF through QEMU's Multiboot loader
 make test            # Run host and QEMU tests
 make test-host       # Run host tests only
+make test-user       # Check user ELF assets and malformed inputs
 make clean           # Remove build/
 ```
 
 QEMU starts with 64 MiB of RAM. Serial output appears in the launching terminal.
 Close the QEMU window or press `Ctrl+C` in that terminal to stop it.
+
+Normal builds also produce stripped assets in `build/user/ramfs/` and symbol-rich
+executables/maps in `build/user/debug/`. Use `.\rum.ps1 user` in PowerShell to
+build those separately. See [User ABI and executables](user-abi.md) for the
+runtime and loading contract. They cannot yet be launched by the kernel shell.
 
 ## Debugging
 
