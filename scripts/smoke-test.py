@@ -667,6 +667,80 @@ def fault_report_test(stream, symbols, artifacts, mode, fault, serial_text, scre
         raise RuntimeError("Fault did not reach cpu_halt")
 
 
+def panic_diagnostics_test(stream, symbols, artifacts, mode, serial_text, registers, owned=False):
+    fields = {name: int(value, 16) for name, value in
+              re.findall(r"\bdiag_([a-z0-9]+)=0x([0-9a-f]{8})", serial_text)}
+    controls = {name: int(value, 16) for name, value in re.findall(r"\b(CR[03])=([0-9a-fA-F]+)", registers)}
+    tss = dump_ram(stream, symbols["rum_tss"], 104, artifacts / f"{mode}-panic-tss.bin")
+    if fields.get("cr3") != controls.get("CR3") or fields.get("esp0") != struct.unpack_from("<I", tss, 4)[0]:
+        raise RuntimeError("Panic diagnostics disagree with hardware CR3/TSS")
+    if not owned:
+        return
+    raw = dump_ram(stream, symbols["task_fault_expected"], 48, artifacts / f"{mode}-expected-owners.bin")
+    names = ("task", "cr3", "esp0", "base", "top", "free", "managed", "dirs", "tables", "stacks", "heapalloc", "heapused")
+    expected = dict(zip(names, struct.unpack("<12I", raw)))
+    for name, value in expected.items():
+        if fields.get(name) != value:
+            raise RuntimeError(f"Panic changed owned resource {name}: {fields.get(name)} != {value}")
+    if not expected["base"] <= fields["kesp"] < expected["top"] or \
+            expected["top"] != expected["esp0"] or expected["top"] - expected["base"] != 16384 or \
+            fields["recordcr3"] != fields["cr3"] or fields["activecr3"] != fields["cr3"]:
+        raise RuntimeError("Worker panic lost the active stack, task record or registered CR3")
+    for name, value in {"task": 3, "live": 3, "stacks": 8, "owneddirs": 1, "dirs": 2,
+                        "created": 1, "exited": 0, "reaped": 0, "switches": 1}.items():
+        if fields.get(name) != value:
+            raise RuntimeError(f"Unexpected worker ownership/lifecycle {name}: {fields.get(name)}")
+    allocated = dump_ram(stream, symbols["allocated"], 32768, artifacts / f"{mode}-panic-allocated.bin")
+    managed = dump_ram(stream, symbols["managed"], 32768, artifacts / f"{mode}-panic-managed.bin")
+    kernel_cr3 = fields["kernelcr3"]
+    directory = struct.unpack("<1024I", dump_ram(stream, fields["cr3"], 4096, artifacts / f"{mode}-worker-directory.bin"))
+    kernel = struct.unpack("<1024I", dump_ram(stream, kernel_cr3, 4096, artifacts / f"{mode}-kernel-directory.bin"))
+    if fields["cr3"] == kernel_cr3 or any(directory[512:]) or any(kernel[512:]) or \
+            any((left & ~0x60) != (right & ~0x60) for left, right in zip(directory, kernel)):
+        raise RuntimeError("Worker directory lost private ownership or shared supervisor mappings")
+    tables = {entry & 0xFFFFF000 for entry in kernel if entry & 1}
+    if len(tables) != fields["tables"] or any(entry & ~0x60 & 0xFFF != 3 for entry in kernel if entry & 1):
+        raise RuntimeError("Shared table count/permissions disagree with diagnostics")
+    frames = {fields["cr3"], kernel_cr3, *tables}
+    if len(frames) != len(tables) + 2:
+        raise RuntimeError("Private/shared page structures overlap")
+    heap = struct.unpack("<1024I", dump_ram(stream, kernel[256] & 0xFFFFF000, 4096,
+                                           artifacts / f"{mode}-panic-heap-table.bin"))
+    heap_frames = [entry & 0xFFFFF000 for entry in heap if entry & 1]
+    if any(entry & ~0x60 & 0xFFF != 3 for entry in heap if entry & 1):
+        raise RuntimeError("Panic heap mappings lost supervisor/write permissions")
+    idle = struct.unpack("<I", dump_ram(stream, symbols["task_idle_stack_base"], 4,
+                                        artifacts / f"{mode}-panic-idle-stack.bin"))[0]
+    private = [*heap_frames, *range(idle, idle + 16384, 4096), *range(expected["base"], expected["top"], 4096)]
+    for frame in private:
+        if frame in frames:
+            raise RuntimeError("Panic owners overlap")
+        frames.add(frame)
+    claimed = bytearray(32768)
+    for frame in frames:
+        page = frame // 4096
+        if frame % 4096 or not managed[page // 8] & (1 << (page % 8)):
+            raise RuntimeError("Panic owner uses an unmanaged/unaligned frame")
+        claimed[page // 8] |= 1 << (page % 8)
+    if allocated != claimed or fields["free"] != fields["managed"] - len(frames):
+        raise RuntimeError("Panic physical ledger leaked or freed an owned frame")
+    # Inspect real PTEs under the worker's CR3, including mutable CPU storage
+    # and protected kernel sections. All these resources stay supervisor-only.
+    protected = [(address, True) for address in frames]
+    protected += [(symbols[name], True) for name in ("rum_gdt", "rum_tss", "idt", "__boot_stack_bottom")]
+    protected += [(symbols[name], False) for name in ("__text_start", "__rodata_start")]
+    cached = {}
+    for address, writable in protected:
+        index = address >> 22
+        if index not in cached:
+            cached[index] = struct.unpack("<1024I", dump_ram(stream, directory[index] & 0xFFFFF000, 4096,
+                                                           artifacts / f"{mode}-identity-table-{index}.bin"))
+        entry = cached[index][(address >> 12) & 1023]
+        if entry & ~0x60 != (address & 0xFFFFF000) | (3 if writable else 1):
+            raise RuntimeError(f"Worker resource mapping has incorrect permissions: {address:#x}, {entry:#x}")
+    (artifacts / f"{mode}-panic-ownership.json").write_text(json.dumps(fields, indent=2) + "\n")
+
+
 def storage_shell_test(stream, symbols, artifacts, mode, serial, project):
     qmp_command(stream, "cont")
     _, expect, type_text = guest_keyboard(stream, serial)
@@ -850,11 +924,13 @@ def snake_test(stream, symbols, artifacts, mode, serial):
     timer_test(stream, symbols, artifacts, mode)
 
 
-def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False, cpu=None, tasks=False, user_abi=None):
+def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False, cpu=None, tasks=False, user_abi=None, task_fault=False):
+    if task_fault:
+        fault = "ud"
     serial_artifact = artifacts / f"{mode}-serial.log"
     vga_dump = artifacts / f"{mode}-vga.bin"
     screenshot = artifacts / f"{mode}.ppm"
-    image = project / (f"build/tests/abi-{user_abi}.elf" if user_abi else "build/tests/task.elf" if tasks else f"build/tests/cpu-{cpu}.elf" if cpu else "build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
+    image = project / ("build/tests/task-fault.elf" if task_fault else f"build/tests/abi-{user_abi}.elf" if user_abi else "build/tests/task.elf" if tasks else f"build/tests/cpu-{cpu}.elf" if cpu else "build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
                        f"build/tests/fault-{fault}.elf" if fault else "build/rum.elf")
     symbols = elf_symbols(image)
     boot_layout_test(symbols)
@@ -944,12 +1020,14 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                             raise RuntimeError(f"Missing VGA text {expected!r} ({mode})")
                     if paging and paging != "ok":
                         paging_fault_test(symbols, paging, serial.read_text(), registers)
+                        panic_diagnostics_test(stream, symbols, artifacts, mode, serial.read_text(), registers)
                     elif paging == "ok":
                         if "rum_paging_spaces_ok" not in serial.read_text():
                             raise RuntimeError("Missing production paging-context checks")
                     elif fault:
                         fault_report_test(stream, symbols, artifacts, mode, fault,
                                           serial.read_text(), screen, registers)
+                        panic_diagnostics_test(stream, symbols, artifacts, mode, serial.read_text(), registers, owned=task_fault)
                     elif normal and interactive:
                         keyboard_test(stream, symbols, artifacts, mode, serial)
                         shell_test(stream, symbols, artifacts, mode, serial)
@@ -993,6 +1071,7 @@ def main():
         boot_test(args.qemu, project, f"cpu-{case}", artifacts, cpu=case)
     for ram in (16, 64):
         boot_test(args.qemu, project, f"tasks-{ram}", artifacts, tasks=True, ram=ram)
+        boot_test(args.qemu, project, f"task-fault-{ram}", artifacts, task_fault=True, ram=ram)
     for case in ("args", "limits", "hello"):
         boot_test(args.qemu, project, f"abi-{case}", artifacts, user_abi=case)
     boot_test(args.qemu, project, "paging-ok", artifacts, paging="ok")

@@ -103,6 +103,7 @@ void diagnostics_panic(void)
     field(serial_writestring, "diag_cr3", snapshot.cr3);
     field(serial_writestring, "diag_recordcr3", task ? task->directory : 0);
     field(serial_writestring, "diag_activecr3", snapshot.paging.active_directory);
+    field(serial_writestring, "diag_kernelcr3", snapshot.paging.kernel_directory);
     field(serial_writestring, "diag_kesp", snapshot.kernel_esp);
     field(serial_writestring, "diag_esp0", snapshot.esp0);
     field(serial_writestring, "diag_base", task ? task->stack_base : 0);
@@ -118,5 +119,10 @@ void diagnostics_panic(void)
     field(serial_writestring, "diag_created", snapshot.tasks.created);
     field(serial_writestring, "diag_exited", snapshot.tasks.exited);
     field(serial_writestring, "diag_reaped", snapshot.tasks.reaped);
+    field(serial_writestring, "diag_switches", snapshot.tasks.switches);
+    field(serial_writestring, "diag_heapalloc", snapshot.heap.allocations);
+    field(serial_writestring, "diag_heapused", snapshot.heap.used_bytes);
+    field(serial_writestring, "diag_files", snapshot.files.files);
+    field(serial_writestring, "diag_bytes", snapshot.files.bytes);
     serial_writestring("\n");
 }

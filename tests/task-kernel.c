@@ -1,4 +1,5 @@
 #include <rum/cpu.h>
+#include <rum/diagnostics.h>
 #include <rum/gdt.h>
 #include <rum/heap.h>
 #include <rum/interrupts.h>
@@ -23,6 +24,7 @@ static task_id workers[2];
 static struct task_event broadcast;
 static volatile uint32_t waiters_ready, waiters_done, idle_irqs;
 static uint32_t short_runs;
+static bool require_idle_ticks;
 
 static void check(bool condition, const char *name)
 {
@@ -62,6 +64,14 @@ static void context_check(void)
     struct paging_statistics paging = paging_stats();
     check(found && paging.active_directory == cr3 && paging.directory_pages == paging.spaces &&
           pmm_stats().free_pages == before, "snapshot hardware/ownership and no allocations");
+    struct kernel_diagnostics diagnostics;
+    check(diagnostics_capture(&diagnostics) && diagnostics.tasks.current == info.id &&
+          diagnostics.cr3 == cr3 && diagnostics.esp0 == info.stack_top &&
+          diagnostics.kernel_esp >= info.stack_base && diagnostics.kernel_esp < info.stack_top &&
+          diagnostics.physical.free_pages == before && pmm_stats().free_pages == before &&
+          (diagnostics.flags & 0x600) == 0x200, "complete diagnostics preserve context without allocation");
+    __asm__ volatile ("pushfl; popl %0" : "=r"(flags));
+    check((flags & 0x600) == 0x200, "diagnostics restore IF/DF before output");
 }
 
 void task_test_worker(void *argument)
@@ -94,7 +104,7 @@ static void tick(void)
     check(pmm_stats().free_pages == before, "IRQ owns no task allocation");
     ++irq_checks;
     if (task_current_id() == 2) ++idle_irqs;
-    if (irq_target && irq_checks >= irq_target) {
+    if (irq_target && (require_idle_ticks ? idle_irqs >= 3 : irq_checks >= irq_target)) {
         task_event_signal(&timed);
         task_event_signal(&broadcast);
     }
@@ -118,15 +128,17 @@ static void waiter(void *argument)
     task_event_signal(&done);
 }
 
-static uint32_t consume_pages(void)
+static uint32_t consume_until(uint32_t remaining)
 {
     uint32_t head = 0, page;
-    while ((page = pmm_allocate_page())) {
+    while (pmm_stats().free_pages > remaining && (page = pmm_allocate_page())) {
         *(uint32_t *)(uintptr_t)page = head;
         head = page;
     }
     return head;
 }
+
+static uint32_t consume_pages(void) { return consume_until(0); }
 
 static void release_pages(uint32_t head)
 {
@@ -135,6 +147,58 @@ static void release_pages(uint32_t head)
         check(pmm_free_page(head), "release exhaustion chain");
         head = next;
     }
+}
+
+static void allocation_boundaries(uint32_t baseline)
+{
+    /* Repeat each insufficient contiguous-stack budget. Failed creation cannot
+       publish a task or claim the caller's private directory/metadata. */
+    for (unsigned round = 0; round < 3; ++round) {
+        for (uint32_t remaining = 0; remaining < RUM_KERNEL_STACK_SIZE / RUM_PAGE_SIZE; ++remaining) {
+            struct paging_space *candidate = paging_space_create();
+            uint32_t directory = paging_directory_address(candidate);
+            check(candidate && directory, "allocation-boundary directory");
+            struct heap_statistics heap = heap_stats();
+            struct task_snapshot before, after;
+            check(task_snapshot_read(&before), "allocation-boundary initial owners");
+            uint32_t held = consume_until(remaining);
+            check(!task_create(short_worker, NULL, candidate) &&
+                  pmm_stats().free_pages == remaining && paging_directory_address(candidate) == directory &&
+                  heap_stats().used_bytes == heap.used_bytes && heap_stats().allocations == heap.allocations,
+                  "insufficient stack budget retains caller resources");
+            check(task_snapshot_read(&after) && after.count == before.count &&
+                  after.stack_pages == before.stack_pages && after.directory_pages == before.directory_pages &&
+                  after.created == before.created && after.exited == before.exited && after.reaped == before.reaped,
+                  "failed creation leaves task ownership/lifecycle unchanged");
+            release_pages(held);
+            check(paging_space_destroy(candidate) && pmm_stats().free_pages == baseline,
+                  "repeated allocation failure returns all private frames");
+        }
+    }
+    struct paging_space *candidate = paging_space_create();
+    uint32_t block = pmm_allocate_contiguous(8);
+    check(candidate && block, "fragmentation fixture resources");
+    uint32_t held = consume_pages();
+    for (uint32_t i = 0; i < 8; i += 2)
+        check(pmm_free_page(block + i * RUM_PAGE_SIZE), "scatter four free frames");
+    uint32_t directory = paging_directory_address(candidate);
+    check(pmm_stats().free_pages == 4 && !task_create(short_worker, NULL, candidate) &&
+          pmm_stats().free_pages == 4 && paging_directory_address(candidate) == directory,
+          "four fragmented pages cannot become a contiguous task stack");
+    for (uint32_t i = 0; i < 4; ++i) check(pmm_allocate_page() != 0, "reclaim fragmented frames");
+    check(pmm_stats().free_pages == 0 && pmm_free_contiguous(block, 4), "make exactly one stack available");
+    task_id worker = task_create(short_worker, NULL, candidate);
+    check(worker && pmm_stats().free_pages == 0, "exact four-page budget publishes worker");
+    struct task_information info;
+    check(task_query(worker, &info) && info.stack_base == block && info.directory == directory &&
+          info.owns_stack && info.owns_space, "successful creation transfers stack/directory ownership");
+    while (task_query(worker, &info)) check(task_yield(), "execute exact-budget worker");
+    (void)task_reap();
+    check(pmm_stats().free_pages == 5 && !paging_directory_address(candidate),
+          "worker reaper releases four stack pages plus private directory");
+    check(pmm_free_contiguous(block + 4 * RUM_PAGE_SIZE, 4), "release retained fragmentation pages");
+    release_pages(held);
+    check(pmm_stats().free_pages == baseline, "fragmentation fixture leaves no private frames");
 }
 
 void kernel_main(uint32_t magic, uint32_t information)
@@ -185,16 +249,7 @@ void kernel_main(uint32_t magic, uint32_t information)
     check(pmm_stats().free_pages == baseline && heap_stats().used_bytes < heap_used,
           "deferred stack/directory/metadata cleanup");
 
-    /* Failed creation leaves an owned-space candidate with its caller. */
-    struct paging_space *candidate = paging_space_create();
-    check(candidate, "failure fixture directory");
-    uint32_t candidate_directory = paging_directory_address(candidate);
-    consumed = consume_pages();
-    check(!task_create(short_worker, NULL, candidate) && pmm_stats().free_pages == 0 &&
-          paging_directory_address(candidate) == candidate_directory, "stack OOM retains caller directory");
-    release_pages(consumed);
-    check(paging_space_destroy(candidate) && pmm_stats().free_pages == baseline,
-          "caller cleanup after failed task setup");
+    allocation_boundaries(baseline);
 
     /* Exercise the bounded registry repeatedly, including borrowed kernel spaces.
        Old IDs must never refer to a later occupant of the same slot. */
@@ -214,7 +269,7 @@ void kernel_main(uint32_t magic, uint32_t information)
         check(!task_query(previous_id, &info) && pmm_stats().free_pages == baseline,
               "borrowed directory survives repeated stack cleanup");
     }
-    check(short_runs == 8 * RUM_PROCESS_LIMIT, "all bounded tasks executed");
+    check(short_runs == 8 * RUM_PROCESS_LIMIT + 1, "all bounded and exact-budget tasks executed");
 
     /* Signal between the predicate check and sleep: wait must return immediately. */
     uint32_t sequence = task_event_sequence(&timed);
@@ -229,12 +284,14 @@ void kernel_main(uint32_t magic, uint32_t information)
     irq_register(0, tick);
     pic_unmask(0);
     sequence = task_event_sequence(&timed);
+    require_idle_ticks = true;
     irq_target = irq_checks + 3;
     check(task_wait(&timed, sequence), "idle context wakes from real PIT IRQ");
     check(irq_checks >= 3 && task_current_id() == 1, "idle wake restores boot context");
     check(idle_irqs >= 3, "PIT actually entered the dedicated idle context");
     context_check();
     irq_target = 0;
+    require_idle_ticks = false;
 
     task_id waiting_ids[3];
     for (unsigned i = 0; i < 3; ++i) {
@@ -257,13 +314,17 @@ void kernel_main(uint32_t magic, uint32_t information)
 
     /* The worker exits while boot is blocked, forcing reclamation from idle
        rather than returning directly to the boot stack. */
-    candidate = paging_space_create();
+    struct paging_space *candidate = paging_space_create();
     task_id exiting = task_create(short_worker, NULL, candidate);
     check(candidate && exiting, "exit-to-idle task with private CR3");
     sequence = task_event_sequence(&timed);
     irq_target = irq_checks + 3;
     check(task_wait(&timed, sequence), "idle survives owned-context exit");
     irq_target = 0;
+    check(task_snapshot_read(&snapshot) && snapshot.count == 2 && snapshot.stack_pages == 4 &&
+          !snapshot.directory_pages && snapshot.created == snapshot.exited &&
+          snapshot.created == snapshot.reaped && snapshot.switches > snapshot.created &&
+          paging_stats().directory_pages == 1, "final ownership and lifecycle ledger");
     check(!task_query(exiting, &info) && pmm_stats().free_pages == baseline,
           "idle reclaims inactive stack and private address space");
     for (unsigned i = 0; i < 32; ++i) {
