@@ -80,6 +80,28 @@ void kernel_main(uint32_t magic, uint32_t information)
           !paging_map_page(PAGE_SIZE, first, PAGING_WRITABLE) &&
           !paging_map_page(PAGING_DYNAMIC_BASE, (uintptr_t)__kernel_start, PAGING_WRITABLE) &&
           !paging_unmap_page(PAGE_SIZE, NULL), "reject invalid mappings");
+    const uint32_t reserved[] = {
+        RUM_KERNEL_STACK_BASE, RUM_KERNEL_STACK_END - PAGE_SIZE,
+        RUM_USER_BASE, RUM_USER_PROGRAM_END - PAGE_SIZE,
+        RUM_USER_STACK_WINDOW_BASE, RUM_USER_STACK_GUARD_BASE, RUM_USER_STACK_BASE,
+        RUM_USER_STACK_TOP - PAGE_SIZE, RUM_USER_END, 0xFFFFF000u
+    };
+    for (size_t i = 0; i < sizeof reserved / sizeof reserved[0]; ++i) {
+        translated = 0xDEADBEEF;
+        check(!paging_map_page(reserved[i], first, PAGING_WRITABLE) &&
+              !paging_unmap_page(reserved[i], &translated) && translated == 0xDEADBEEF &&
+              !paging_translate(reserved[i], NULL), "preserve reserved stack/user windows");
+    }
+    check(pmm_stats().free_pages == before - 2, "rejected ranges allocate no tables");
+    uint32_t last_alias = RUM_KERNEL_STACK_BASE - PAGE_SIZE;
+    check(paging_map_page(last_alias, first, PAGING_WRITABLE), "map last kernel alias page");
+    check(*(volatile uint32_t *)(uintptr_t)last_alias == 0x11223344 &&
+          paging_translate(last_alias + PAGE_SIZE - 1, &translated) &&
+          translated == first + PAGE_SIZE - 1, "last kernel alias translation");
+    check(pmm_stats().free_pages == before - 3, "boundary table accounted");
+    check(paging_unmap_page(last_alias, &translated) && translated == first &&
+          !paging_translate(last_alias, NULL) && pmm_stats().free_pages == before - 2,
+          "boundary cleanup keeps caller's frame");
     check(paging_map_page(PAGING_DYNAMIC_BASE, first, PAGING_WRITABLE), "map writable alias");
     check(paging_map_page(PAGING_DYNAMIC_BASE + PAGE_SIZE, second, 0), "map readonly alias");
     check(pmm_stats().free_pages == before - 3, "one shared page table");

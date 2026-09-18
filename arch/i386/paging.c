@@ -86,7 +86,7 @@ uint32_t paging_directory_address(void)
 
 bool paging_map_page(uint32_t virtual, uint32_t physical, uint32_t flags)
 {
-    if (!enabled || virtual < PAGING_DYNAMIC_BASE || virtual % PAGE_SIZE ||
+    if (!enabled || !memory_kernel_mapping_range(virtual, PAGE_SIZE) || virtual % PAGE_SIZE ||
         flags & ~PAGING_WRITABLE) return false;
     uint32_t saved = cpu_interrupt_save();
     bool success = false;
@@ -114,7 +114,8 @@ bool paging_map_page(uint32_t virtual, uint32_t physical, uint32_t flags)
 
 bool paging_unmap_page(uint32_t virtual, uint32_t *physical)
 {
-    if (!enabled || virtual < PAGING_DYNAMIC_BASE || virtual % PAGE_SIZE) return false;
+    if (!enabled || !memory_kernel_mapping_range(virtual, PAGE_SIZE) || virtual % PAGE_SIZE)
+        return false;
     uint32_t saved = cpu_interrupt_save();
     bool success = false;
     uint32_t index = virtual >> 22;

@@ -8,6 +8,7 @@
 | [CPU exceptions](exceptions.md) | GDT, IDT, exception frames, and panic diagnostics |
 | [Device interrupts](interrupts.md) | PIC, PIT, keyboard driver, and idle loop |
 | [Memory management](memory.md) | Multiboot memory map, physical pages, and paging |
+| [Memory layout and ownership](memory-layout.md) | Shared ranges, stack reservations, process limits, and cleanup rules |
 | [Heap and RAM files](storage.md) | Allocation APIs, file ownership, and embedded assets |
 | [0.2.0 roadmap](roadmap.md) | Kernel prerequisites, user processes, syscalls, and persistent storage |
 
@@ -32,7 +33,7 @@ counters or queue input; they do not run commands, allocate memory, or draw.
 ## Tests
 
 Run `make test` in Ubuntu or `.\rum.ps1 test` in PowerShell. Host tests exercise
-the kernel's console, memory routines, keyboard decoder, shell, allocator,
+the kernel's console, memory routines and layout, keyboard decoder, shell, allocator,
 heap, filesystem, and Snake rules. QEMU tests check both GRUB and direct ELF
 boots, live device input, and isolated CPU-fault and allocation-failure cases.
 
