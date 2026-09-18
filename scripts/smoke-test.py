@@ -540,7 +540,7 @@ def shell_test(stream, symbols, artifacts, mode, serial):
            "  diag         Show task and memory diagnostics.\r\n"
            "  snake        Play ASCII Snake.\r\n> ")
     type_text("about\n")
-    expect("rum OS v0.1.0\r\n"
+    expect("rum OS v0.2.0\r\n"
            "An island of our own. A hobby kernel in C and x86 assembly.\r\n"
            "32-bit x86 | GRUB Multiboot | PIC, PIT and PS/2\r\n> ")
     start = len(serial.read_bytes())
@@ -599,7 +599,7 @@ def shell_test(stream, symbols, artifacts, mode, serial):
     memory = dump_ram(stream, 0xB8000, 4000, artifacts / f"{mode}-shell-vga.bin")
     rows = [memory[y*160:(y+1)*160:2].decode("ascii").rstrip() for y in range(25)]
     screen = "\n".join(rows)
-    for text in ("Commands:", "echo <text>", "rum OS v0.1.0", "rum has a shell!", "uptime:"):
+    for text in ("Commands:", "echo <text>", "rum OS v0.2.0", "rum has a shell!", "uptime:"):
         if text not in screen:
             raise RuntimeError(f"Missing shell VGA text {text!r}")
     (artifacts / f"{mode}-shell-screen.txt").write_text(screen + "\n")
@@ -1007,7 +1007,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                                      ("rum kernel panic", "Page fault", "CPU halted.") if paging else
                                      ("rum IRQ return and spurious interrupt tests passed.",) if irq_test else
                                      ("rum kernel panic", FAULT_CASES[fault][2], "CPU halted.") if fault
-                                     else ("rum OS v0.1.0", "Hello, kernel world!", "[ok] Multiboot handoff",
+                                     else ("rum OS v0.2.0", "Hello, kernel world!", "[ok] Multiboot handoff",
                                            "[ok] Kernel GDT and segments", "[ok] IDT and CPU exception handlers",
                                            "[ok] PIT timer at 100 Hz", "[ok] PS/2 keyboard (US layout)",
                                            "[ok] Multiboot memory map", "[ok] Physical page allocator",

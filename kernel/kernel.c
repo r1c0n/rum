@@ -115,7 +115,7 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     terminal_set_color(VGA_WHITE, VGA_BLACK);
     print("  An island of our own.\n");
     terminal_set_color(VGA_LIGHT_GREY, VGA_BLACK);
-    print("  rum OS v0.1.0 | 32-bit x86\n");
+    print("  rum OS v0.2.0 | 32-bit x86\n");
     print("  Hello, kernel world!\n");
     terminal_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
     print("  [ok] Multiboot handoff\n");

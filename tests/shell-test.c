@@ -190,7 +190,7 @@ int main(void)
     for (const char **name = (const char *[]){"help ", "clear ", "about ", "echo <text>", NULL}; *name; ++name)
         assert(strstr(output, *name));
     receive("about\n");
-    assert(strstr(output, "rum OS v0.1.0\r\n"));
+    assert(strstr(output, "rum OS v0.2.0\r\n"));
     assert_status();
     reset();
     receive("ls\ncat welcome.txt\nwrite notes.txt hello  from rum\ncat /notes.txt\nmem\n");
