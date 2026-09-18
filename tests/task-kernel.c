@@ -20,6 +20,9 @@ static struct task_event done, timed;
 static volatile uint32_t finished, irq_checks, irq_target;
 static uint32_t worker_runs[2];
 static task_id workers[2];
+static struct task_event broadcast;
+static volatile uint32_t waiters_ready, waiters_done, idle_irqs;
+static uint32_t short_runs;
 
 static void check(bool condition, const char *name)
 {
@@ -72,7 +75,29 @@ static void tick(void)
           "IRQ cannot allocate, block, switch or reap tasks");
     check(pmm_stats().free_pages == before, "IRQ owns no task allocation");
     ++irq_checks;
-    if (irq_target && irq_checks >= irq_target) task_event_signal(&timed);
+    if (task_current_id() == 2) ++idle_irqs;
+    if (irq_target && irq_checks >= irq_target) {
+        task_event_signal(&timed);
+        task_event_signal(&broadcast);
+    }
+}
+
+static void short_worker(void *argument)
+{
+    (void)argument;
+    context_check();
+    ++short_runs;
+}
+
+static void waiter(void *argument)
+{
+    (void)argument;
+    uint32_t sequence = task_event_sequence(&broadcast);
+    ++waiters_ready;
+    check(task_wait(&broadcast, sequence), "attach broadcast waiter");
+    context_check();
+    ++waiters_done;
+    task_event_signal(&done);
 }
 
 static uint32_t consume_pages(void)
@@ -138,6 +163,37 @@ void kernel_main(uint32_t magic, uint32_t information)
     check(pmm_stats().free_pages == baseline && heap_stats().used_bytes < heap_used,
           "deferred stack/directory/metadata cleanup");
 
+    /* Failed creation leaves an owned-space candidate with its caller. */
+    struct paging_space *candidate = paging_space_create();
+    check(candidate, "failure fixture directory");
+    uint32_t candidate_directory = paging_directory_address(candidate);
+    consumed = consume_pages();
+    check(!task_create(short_worker, NULL, candidate) && pmm_stats().free_pages == 0 &&
+          paging_directory_address(candidate) == candidate_directory, "stack OOM retains caller directory");
+    release_pages(consumed);
+    check(paging_space_destroy(candidate) && pmm_stats().free_pages == baseline,
+          "caller cleanup after failed task setup");
+
+    /* Exercise the bounded registry repeatedly, including borrowed kernel spaces.
+       Old IDs must never refer to a later occupant of the same slot. */
+    task_id previous_id = 0;
+    for (unsigned round = 0; round < 8; ++round) {
+        task_id ids[RUM_PROCESS_LIMIT];
+        for (unsigned i = 0; i < RUM_PROCESS_LIMIT; ++i) {
+            ids[i] = task_create(short_worker, NULL, NULL);
+            check(ids[i] && ids[i] != previous_id && !task_query(previous_id, &info), "fresh task IDs");
+        }
+        uint32_t free = pmm_stats().free_pages;
+        check(!task_create(short_worker, NULL, NULL) && pmm_stats().free_pages == free,
+              "task limit allocates no additional stack");
+        while (task_query(ids[RUM_PROCESS_LIMIT - 1], &info)) check(task_yield(), "run bounded task group");
+        (void)task_reap();
+        previous_id = ids[0];
+        check(!task_query(previous_id, &info) && pmm_stats().free_pages == baseline,
+              "borrowed directory survives repeated stack cleanup");
+    }
+    check(short_runs == 8 * RUM_PROCESS_LIMIT, "all bounded tasks executed");
+
     /* Signal between the predicate check and sleep: wait must return immediately. */
     uint32_t sequence = task_event_sequence(&timed);
     task_event_signal(&timed);
@@ -154,7 +210,46 @@ void kernel_main(uint32_t magic, uint32_t information)
     irq_target = irq_checks + 3;
     check(task_wait(&timed, sequence), "idle context wakes from real PIT IRQ");
     check(irq_checks >= 3 && task_current_id() == 1, "idle wake restores boot context");
+    check(idle_irqs >= 3, "PIT actually entered the dedicated idle context");
     context_check();
+    irq_target = 0;
+
+    task_id waiting_ids[3];
+    for (unsigned i = 0; i < 3; ++i) {
+        waiting_ids[i] = task_create(waiter, NULL, NULL);
+        check(waiting_ids[i], "create broadcast waiters");
+    }
+    while (waiters_ready != 3) check(task_yield(), "run waiters to blocking boundary");
+    for (unsigned i = 0; i < 3; ++i)
+        check(task_query(waiting_ids[i], &info) && info.state == TASK_BLOCKED, "waiter state is blocked");
+    sequence = task_event_sequence(&timed);
+    irq_target = irq_checks + 3;
+    check(task_wait(&timed, sequence), "IRQ wakes all broadcast waiters");
+    irq_target = 0;
+    while (waiters_done != 3) {
+        sequence = task_event_sequence(&done);
+        if (waiters_done != 3) check(task_wait(&done, sequence), "wait for resumed broadcast tasks");
+    }
+    (void)task_reap();
+    check(pmm_stats().free_pages == baseline, "broadcast waiters leave no stacks");
+
+    /* The worker exits while boot is blocked, forcing reclamation from idle
+       rather than returning directly to the boot stack. */
+    candidate = paging_space_create();
+    task_id exiting = task_create(short_worker, NULL, candidate);
+    check(candidate && exiting, "exit-to-idle task with private CR3");
+    sequence = task_event_sequence(&timed);
+    irq_target = irq_checks + 3;
+    check(task_wait(&timed, sequence), "idle survives owned-context exit");
+    irq_target = 0;
+    check(!task_query(exiting, &info) && pmm_stats().free_pages == baseline,
+          "idle reclaims inactive stack and private address space");
+    for (unsigned i = 0; i < 32; ++i) {
+        sequence = task_event_sequence(&timed);
+        irq_target = irq_checks + 1;
+        check(task_wait(&timed, sequence), "repeated IRQ at sleep boundary");
+        context_check();
+    }
     irq_target = 0;
     (void)cpu_interrupt_save();
     check(!task_wait(&timed, timed.sequence) && !task_yield() &&
