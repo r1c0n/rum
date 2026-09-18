@@ -2,6 +2,7 @@
 #define RUM_TERMINAL_H
 
 #include <stddef.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 enum vga_color {
@@ -18,5 +19,9 @@ void terminal_set_color(enum vga_color foreground, enum vga_color background);
 void terminal_putchar(char c);
 void terminal_write(const char *text, size_t length);
 void terminal_writestring(const char *text);
+/* Draw inside the 80x24 console without moving its cursor or changing its color. */
+bool terminal_put_at(size_t x, size_t y, char character,
+                     enum vga_color foreground, enum vga_color background);
+void terminal_cursor_visible(bool visible);
 
 #endif

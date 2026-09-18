@@ -54,8 +54,9 @@ make CROSS_PREFIX=i686-elf-
    copies build-embedded assets into mutable heap allocations.
 9. After printing boot checks, rum unmasks IRQ0 and (if initialization succeeded)
    IRQ1, then enables CPU interrupts. IRQs return after acknowledging the PIC.
-10. The foreground loop feeds queued keys into the shell, runs completed command
-   lines, and refreshes uptime. It sleeps with
+10. The foreground loop feeds queued keys into the shell or active Snake game,
+   runs completed command lines, advances timed movement, and refreshes uptime.
+   It sleeps with
    `sti; hlt` when no work is pending; hardware interrupts wake it again.
 
 The tutorial's essential build and boot approach is preserved. rum adds separate
@@ -71,6 +72,7 @@ Milestone 5 adds the memory map, page allocator, and paging described in
 [memory.md](memory.md).
 Milestone 6 adds the page-backed heap, RAM filesystem and embedded files described
 in [storage.md](storage.md).
+Milestone 7 adds the ASCII Snake game described in [snake.md](snake.md).
 
 References: [Bare Bones](https://wiki.osdev.org/Bare_Bones),
 [GCC Cross-Compiler](https://wiki.osdev.org/GCC_Cross-Compiler),

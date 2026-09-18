@@ -8,10 +8,15 @@
 #include <rum/serial.h>
 #include <rum/shell.h>
 #include <rum/terminal.h>
+#include <rum/snake.h>
+#include <rum/snake_model.h>
+#include "page-backend.h"
 
 static volatile uint16_t *const screen = (volatile uint16_t *)0xB8000;
 static char output[16384];
 static size_t output_length;
+static uint32_t ticks;
+uint32_t timer_ticks(void) { return ticks; }
 
 /* Capture COM1 output; exercise the real shell and real VGA driver. */
 void serial_putchar(char character)
@@ -49,6 +54,107 @@ static void assert_status(void)
     const char *text = "uptime: 7s";
     for (size_t x = 0; text[x]; ++x)
         assert((char)screen[24 * 80 + x] == text[x]);
+}
+
+static void assert_head(unsigned x, unsigned y)
+{
+    assert((char)screen[(5 + y) * 80 + 20 + x] == '@');
+    assert_status();
+}
+
+static void step(enum snake_direction direction, struct snake_model *reference)
+{
+    char key = direction == SNAKE_UP ? 'w' : direction == SNAKE_RIGHT ? 'd' :
+               direction == SNAKE_DOWN ? 's' : 'a';
+    shell_receive(key);
+    (void)snake_model_turn(reference, direction);
+    ticks += SNAKE_STEP_TICKS;
+    shell_tick(ticks);
+    enum snake_event event = snake_model_step(reference);
+    assert(event == SNAKE_MOVED || event == SNAKE_ATE);
+    struct snake_cell head = snake_model_cell(reference, 0);
+    assert_head(head.x, head.y);
+}
+
+static void snake_checks(void)
+{
+    reset();
+    receive("snake x\n");
+    assert(strstr(output, "Usage: snake\r\n> ") && !snake_active());
+    struct heap_statistics before = heap_stats();
+    ticks = 0;
+    receive("snake\n");
+    assert(snake_active() && strstr(output, "rum_snake_started\r\n"));
+    assert(heap_stats().allocations == before.allocations + 1);
+    assert_head(20, 8);
+    assert(!shell_tick_due(14) && shell_tick_due(15));
+    ticks = 15; shell_tick(ticks); assert_head(21, 8);
+    receive("P");
+    uint16_t paused[24 * 80]; memcpy(paused, (const void *)screen, sizeof paused);
+    ticks += 5000; shell_tick(ticks);
+    assert(!shell_tick_due(ticks) && !memcmp(paused, (const void *)screen, sizeof paused));
+    receive("R"); assert_head(20, 8);
+    receive("wa"); ticks += 15; shell_tick(ticks); assert_head(20, 7);
+    receive("q");
+    assert(!snake_active() && heap_stats().allocations == before.allocations &&
+           strstr(output, "rum_snake_quit\r\n> "));
+    receive("echo returned\n"); assert(strstr(output, "\r\nreturned\r\n> "));
+
+    /* Unsigned tick subtraction keeps movement correct across PIT wraparound. */
+    ticks = UINT32_MAX - 7; receive("snake\n");
+    assert(!shell_tick_due(6) && shell_tick_due(7));
+    ticks = 7; shell_tick(ticks); assert_head(21, 8);
+    receive("q"); assert(!snake_active());
+
+    assert(ramfs_put("snake.score", "bad", 3));
+    ticks = 200; receive("snake\n");
+    struct snake_model reference;
+    snake_model_reset(&reference, ticks ^ 0x72756Du);
+    struct snake_cell target = reference.food;
+    if (target.y == 8 && target.x < 20) {
+        step(SNAKE_UP, &reference);
+        while (snake_model_cell(&reference, 0).x != target.x) step(SNAKE_LEFT, &reference);
+        step(SNAKE_DOWN, &reference);
+    } else {
+        while (snake_model_cell(&reference, 0).y != target.y)
+            step(target.y < 8 ? SNAKE_UP : SNAKE_DOWN, &reference);
+        while (snake_model_cell(&reference, 0).x != target.x)
+            step(target.x < 20 ? SNAKE_LEFT : SNAKE_RIGHT, &reference);
+    }
+    assert(snake_model_score(&reference) == 1);
+    receive("q");
+    const unsigned char *data; size_t size;
+    assert(ramfs_read("snake.score", &data, &size) && size == 2 && !memcmp(data, "1\n", 2));
+    assert(strstr(output, "Snake score: 1 | best: 1"));
+
+    /* Exhaust remaining mapped space and disallow new frames to test launch OOM. */
+    test_page_budget(0);
+    void *held = NULL, *chunk;
+    while ((chunk = kmalloc(128))) { *(void **)chunk = held; held = chunk; }
+    size_t allocations = heap_stats().allocations;
+    receive("snake\n");
+    assert(!snake_active() && heap_stats().allocations == allocations &&
+           strstr(output, "Cannot start Snake: out of memory."));
+    while (held) { void *next = *(void **)held; assert(kfree(held)); held = next; }
+    test_page_budget(-1);
+
+    assert(ramfs_remove("snake.score"));
+    for (unsigned i = 0; ramfs_stats().files < RAMFS_MAX_FILES; ++i) {
+        char name[16]; snprintf(name, sizeof name, "slot%u", i);
+        assert(ramfs_put(name, NULL, 0));
+    }
+    before = heap_stats();
+    receive("snake\nq");
+    assert(!snake_active() && heap_stats().allocations == before.allocations &&
+           ramfs_stats().files == RAMFS_MAX_FILES && !ramfs_read("snake.score", NULL, NULL));
+    assert(strstr(output, "RAM file could not be saved."));
+    for (unsigned i = 0; i < RAMFS_MAX_FILES - 2; ++i) {
+        char name[16]; snprintf(name, sizeof name, "slot%u", i);
+        assert(ramfs_remove(name));
+    }
+    receive("snake\nq");
+    assert(ramfs_read("snake.score", &data, &size) && size == 2 && data[0] == '1');
+    assert_status();
 }
 
 int main(void)
@@ -146,7 +252,8 @@ int main(void)
     for (unsigned i = 0; i < 32; ++i)
         receive("echo scroll\n");
     assert_status();
+    snake_checks();
     assert(munmap(mapping, 4096) == 0);
-    puts("PASS: shell commands, RAM file read/write/remove/list, heap usage, whitespace, editing, line limit, clear/status, scrolling");
+    puts("PASS: shell/files/editing/clear/status, Snake play/pause/restart/quit, tick wrap, scores, launch/save OOM and allocation cleanup");
     return 0;
 }

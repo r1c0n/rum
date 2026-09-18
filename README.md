@@ -8,7 +8,8 @@ rum starts with the [OSDev Bare Bones tutorial](https://wiki.osdev.org/Bare_Bone
 and GRUB using Multiboot v1. The first build targets QEMU's BIOS PC and VGA text
 mode. It now handles PIC interrupts, a PIT timer, PS/2 keyboard input, and a
 small command loop, physical page allocation, protected paging, a kernel heap,
-and a mutable RAM filesystem with embedded boot files.
+and a mutable RAM filesystem with embedded boot files. It also plays ASCII Snake
+using the console, PS/2 keyboard, PIT timer, heap and RAM score file.
 Version `0.1.0` remains unreleased; roadmap progress does not bump the version.
 
 ## Run from PowerShell
@@ -70,11 +71,15 @@ keyboard/mouse input with `Ctrl+Alt+G` in its default GTK/SDL interface.
 | `write <name> [text]` | Create/replace a file, for example `write notes.txt hello` |
 | `rm <name>` | Remove a file |
 | `mem` | Show heap and RAM file usage |
+| `snake` | Play ASCII Snake with WASD; P pauses, R restarts, Q quits |
 
 Commands are lowercase. Empty lines return a prompt, and unknown commands show
 a message. See [the command loop](docs/shell.md) for input rules and limits.
 Files start from `assets/ramfs/` and changes are temporary. Add assets and rebuild
 to embed more boot files. See [heap and RAM files](docs/storage.md).
+Type `snake` to play on a 40x16 board. Eat `*`, avoid the walls and your body,
+and use Q to return to the shell. Best scores are temporary and saved in
+`snake.score` for the current boot. See [Snake](docs/snake.md).
 
 ## Source layout
 
@@ -91,6 +96,8 @@ boot/grub/grub.cfg    GRUB boot menu
 include/rum/          Kernel headers and x86 port I/O helpers
 kernel/kernel.c      Boot checks, keyboard dispatch, uptime, interrupt-safe idle
 kernel/shell.c       Line editing, built-ins, RAM file commands and usage reports
+kernel/snake_model.c Pure Snake rules, body ring, food, turns and collisions
+kernel/snake.c       Timed game, positioned ASCII display, controls and RAM score
 kernel/terminal.c    VGA text, cursor, scrolling, reserved status row
 kernel/timer.c       PIT channel 0 periodic timer on IRQ0
 kernel/keyboard.c    PS/2 controller initialization and IRQ1 character queue
@@ -150,6 +157,9 @@ Heap tests exercise real allocation, fragmentation, resizing, limits and physica
 OOM rollback at 16 and 64 MiB. File tests include exact binary bytes, empty/max-size
 files, failed atomic writes, and build embedding. Normal boots inspect the live
 heap mappings/headers/file nodes and compare every embedded byte to the assets.
+Snake tests cover game rules, full-board victory, pause/restart/quit, wraparound
+timing, failure recovery and allocation cleanup. QEMU tests steer to food using
+real PS/2 keys, verify PIT-driven movement, save scores and return to the shell.
 
 ## Debug
 

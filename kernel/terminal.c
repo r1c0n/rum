@@ -118,3 +118,18 @@ void terminal_writestring(const char *text)
     while (*text)
         terminal_putchar(*text++);
 }
+
+bool terminal_put_at(size_t x, size_t y, char character,
+                     enum vga_color foreground, enum vga_color background)
+{
+    if (x >= VGA_WIDTH || y >= TEXT_HEIGHT) return false;
+    uint8_t attribute = (uint8_t)((unsigned)foreground | (unsigned)background << 4);
+    buffer[y * VGA_WIDTH + x] = (uint16_t)(unsigned char)character | (uint16_t)attribute << 8;
+    return true;
+}
+
+void terminal_cursor_visible(bool visible)
+{
+    outb(0x3D4, 0x0A);
+    outb(0x3D5, visible ? 14 : 14 | 0x20);
+}

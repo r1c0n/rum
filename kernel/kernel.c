@@ -144,10 +144,11 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     uint32_t displayed = 0;
     for (;;) {
         uint32_t flags = cpu_interrupt_save();
-        uint32_t seconds = timer_ticks() / TIMER_HZ;
+        uint32_t ticks = timer_ticks();
+        uint32_t seconds = ticks / TIMER_HZ;
         char character;
         bool available = keyboard_read(&character);
-        if (seconds != displayed || available) {
+        if (seconds != displayed || available || shell_tick_due(ticks)) {
             cpu_interrupt_restore(flags);
             if (seconds != displayed) {
                 displayed = seconds;
@@ -155,6 +156,8 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
             }
             if (available)
                 shell_receive(character);
+            /* Input may have started/resumed a game after this tick snapshot. */
+            shell_tick(timer_ticks());
         } else {
             cpu_idle();
         }

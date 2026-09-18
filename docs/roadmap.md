@@ -14,10 +14,11 @@ Version numbers change when we plan a release, rather than after each milestone.
    4 KiB paging with kernel map/unmap APIs. See [memory management](memory.md).
 6. **Complete:** page-backed kernel heap, mutable RAM filesystem, build-embedded
    files, and shell commands to list/read/write/remove them. See [storage](storage.md).
-7. Make something fun: ASCII Snake or a tiny text adventure.
+7. **Complete:** ASCII Snake with timed movement, food, collisions, pause/restart,
+   RAM best score, and return to the shell. See [Snake](snake.md).
 
-Next: milestone 7. Make something fun with the console, keyboard and RAM files:
-ASCII Snake or a tiny text adventure.
+The seven initial milestones are complete. Keep `0.1.0` unreleased until we
+explicitly plan the first release; further work can have its own roadmap.
 
 Keep each milestone bootable in QEMU. Serial logs and `make test` should keep
 working as the kernel grows. Add targeted tests when new hardware behavior needs them.

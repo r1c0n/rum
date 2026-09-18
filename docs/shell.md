@@ -15,6 +15,7 @@ QEMU, and enter `help` at the `> ` prompt.
 | `write <name> [text]` | Create/replace a file, or create an empty file without text |
 | `rm <name>` | Remove a RAM file |
 | `mem` | Show heap and RAM filesystem usage |
+| `snake` | Play ASCII Snake; Q returns to the shell |
 
 `clear` preserves the bottom uptime row and current text color. On COM1 it also
 emits ANSI erase/home sequences for serial terminals that support them. Serial
@@ -25,7 +26,7 @@ log files retain those escape bytes and the earlier output.
 Command names are lowercase and matched exactly. Leading spaces are ignored;
 spaces between the command name and its arguments are skipped. `echo` preserves
 spaces within and after its text. Without text, `echo` prints a blank line.
-`help`, `clear`, `about`, `ls` and `mem` accept no arguments and show
+`help`, `clear`, `about`, `ls`, `mem` and `snake` accept no arguments and show
 `Usage: <command>` if given any. `cat` and `rm` require exactly one filename;
 `write` requires a filename and treats the remaining text literally. Blank or
 whitespace-only lines return a prompt. Unknown commands
@@ -51,6 +52,8 @@ the main loop refreshes uptime and uses its existing interrupt-safe idle path.
 Editing uses fixed storage. File commands use the page-backed heap and RAM
 filesystem, without a host C library. See [heap and RAM files](storage.md) for
 filename limits, ownership and embedding. Edits disappear on reboot.
+During Snake, keys go to the game and PIT ticks drive movement. Q frees game
+state and restores a fresh prompt. See [Snake](snake.md) for controls and checks.
 
 `./rum.ps1 test` / `make test` check the real shell and VGA driver with captured
 serial output. Cases cover commands, exact name matching, whitespace, usage

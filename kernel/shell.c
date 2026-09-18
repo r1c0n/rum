@@ -4,6 +4,7 @@
 #include <rum/ramfs.h>
 #include <rum/serial.h>
 #include <rum/shell.h>
+#include <rum/snake.h>
 #include <rum/terminal.h>
 
 static char line[SHELL_LINE_CAPACITY];
@@ -87,7 +88,8 @@ static void execute(void)
               "  cat <name>   Read a file.\n"
               "  write <name> [text]  Create or replace a file.\n"
               "  rm <name>    Remove a file.\n"
-              "  mem          Show heap and file usage.\n");
+              "  mem          Show heap and file usage.\n"
+              "  snake        Play ASCII Snake.\n");
     } else if (equal(command, "clear")) {
         if (*arguments) {
             print("Usage: clear\n");
@@ -143,6 +145,9 @@ static void execute(void)
         print("Heap: "); number(heap.mapped_bytes); print(" bytes mapped, ");
         number(heap.used_bytes); print(" bytes used, "); number(heap.allocations); print(" allocations\n");
         print("RAM files: "); number(files.files); print(" files, "); number(files.bytes); print(" bytes\n");
+    } else if (equal(command, "snake")) {
+        if (*arguments) { print("Usage: snake\n"); return; }
+        (void)snake_start(timer_ticks());
     } else {
         print("Unknown command: ");
         print(command);
@@ -159,11 +164,18 @@ void shell_initialize(void)
 
 void shell_receive(char character)
 {
+    if (snake_active()) {
+        snake_receive(character, timer_ticks());
+        if (!snake_active()) shell_initialize();
+        return;
+    }
     if (character == '\n') {
         line[length] = '\0';
         print("\n");
         execute();
-        shell_initialize();
+        length = 0;
+        line[0] = '\0';
+        if (!snake_active()) shell_initialize();
     } else if (character == '\b') {
         if (length) {
             --length;
@@ -180,3 +192,6 @@ void shell_receive(char character)
         serial_putchar(character);
     }
 }
+
+bool shell_tick_due(uint32_t ticks) { return snake_tick_due(ticks); }
+void shell_tick(uint32_t ticks) { snake_tick(ticks); }

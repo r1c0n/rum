@@ -65,6 +65,20 @@ int main(void)
         terminal_putchar('\n');
     assert(character(24 * 80) == 'u'); /* Scrolling must preserve the status. */
 
+    terminal_initialize();
+    terminal_status("uptime: 7s");
+    terminal_set_color(VGA_LIGHT_CYAN, VGA_BLACK);
+    terminal_putchar('A');
+    assert(terminal_put_at(79, 23, 'X', VGA_YELLOW, VGA_BLACK));
+    assert(screen[23 * 80 + 79] == 0x0E58);
+    assert(!terminal_put_at(80, 0, 'Z', VGA_WHITE, VGA_BLACK));
+    assert(!terminal_put_at(0, 24, 'Z', VGA_WHITE, VGA_BLACK));
+    assert(!terminal_put_at(SIZE_MAX, SIZE_MAX, 'Z', VGA_WHITE, VGA_BLACK));
+    terminal_putchar('B');
+    assert(screen[0] == 0x0B41 && screen[1] == 0x0B42);
+    assert(character(24 * 80) == 'u');
+    terminal_cursor_visible(false);
+    terminal_cursor_visible(true);
     assert(munmap(mapping, 4096) == 0);
     puts("PASS: console newlines, wrapping, colors, tabs, backspace, scrolling");
     return 0;

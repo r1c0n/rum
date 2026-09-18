@@ -62,6 +62,18 @@ def dump_ram(stream, address, length, path):
     return data
 
 
+def dump_virtual(stream, address, length, path):
+    response = qmp_command(stream, "human-monitor-command", {
+        "command-line": f'memsave {address:#x} {length} "{path.as_posix()}"'
+    })
+    if response.strip():
+        raise RuntimeError(f"Virtual memory dump failed: {response}")
+    data = path.read_bytes()
+    if len(data) != length:
+        raise RuntimeError("Incomplete virtual memory dump")
+    return data
+
+
 def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_text, project):
     match = re.search(r"rum_memory_ok info=(\d+) usable=(\d+) managed=(\d+) free=(\d+) limit=(\d+) directory=(\d+)", serial_text)
     if not match:
@@ -429,7 +441,8 @@ def shell_test(stream, symbols, artifacts, mode, serial):
            "  cat <name>   Read a file.\r\n"
            "  write <name> [text]  Create or replace a file.\r\n"
            "  rm <name>    Remove a file.\r\n"
-           "  mem          Show heap and file usage.\r\n> ")
+           "  mem          Show heap and file usage.\r\n"
+           "  snake        Play ASCII Snake.\r\n> ")
     type_text("about\n")
     expect("rum OS v0.1.0\r\n"
            "An island of our own. A hobby kernel in C and x86 assembly.\r\n"
@@ -598,6 +611,128 @@ def storage_shell_test(stream, symbols, artifacts, mode, serial, project):
     timer_test(stream, symbols, artifacts, mode)
 
 
+def snake_test(stream, symbols, artifacts, mode, serial):
+    qmp_command(stream, "cont")
+    send, expect, type_text = guest_keyboard(stream, serial)
+    type_text("snake x\n")
+    expect("Usage: snake\r\n> ")
+    type_text("write snake.score 0\n")
+    expect("\r\n> ")
+    stop_at_idle(stream)
+
+    def allocations(label):
+        mapped = struct.unpack("<I", dump_ram(stream, symbols["heap_mapped"], 4,
+                               artifacts / f"{mode}-snake-heap-size.bin"))[0]
+        heap = dump_virtual(stream, 0x40000000, mapped, artifacts / f"{mode}-snake-heap-{label}.bin")
+        offset, count = 0, 0
+        while offset < mapped:
+            size = struct.unpack_from("<I", heap, offset)[0]
+            if heap[offset + 12] == 0: count += 1
+            end = offset + 16 + size
+            if end > mapped or end <= offset: raise RuntimeError("Invalid game heap headers")
+            offset = end
+        return count
+
+    def board():
+        memory = dump_ram(stream, 0xB8000, 4000, artifacts / f"{mode}-snake-vga.bin")
+        rows = [memory[y*160:(y+1)*160:2].decode("ascii") for y in range(25)]
+        if not rows[24].startswith("uptime: "):
+            raise RuntimeError("Snake overwrote uptime")
+        if not all(rows[y][19:61] == "#" * 42 for y in (4, 21)):
+            raise RuntimeError("Snake horizontal borders are broken")
+        if not all(rows[y][19] == rows[y][60] == "#" for y in range(5, 21)):
+            raise RuntimeError("Snake vertical borders are broken")
+        grid = [row[20:60] for row in rows[5:21]]
+        def locate(character):
+            return [(x, y) for y, row in enumerate(grid) for x, cell in enumerate(row) if cell == character]
+        heads, food, body = locate("@"), locate("*"), locate("o")
+        match = re.search(r"score:\s+(\d+)\s+best:\s+(\d+)", rows[2])
+        if not match or len(heads) != 1 or len(food) != 1:
+            raise RuntimeError("Snake head/food/score is missing")
+        score, best = map(int, match.groups())
+        if len(body) + 1 != score + 3 or set(heads + body) & set(food):
+            raise RuntimeError("Snake length or food placement is inconsistent")
+        return heads[0], food[0], score, best, rows, memory
+
+    baseline = allocations("before")
+    qmp_command(stream, "cont")
+    type_text("snake\np")
+    expect("rum_snake_paused\r\n")
+    stop_at_idle(stream)
+    head, target, initial_score, _, rows, frozen = board()
+    if "Paused." not in rows[22] or allocations("playing") != baseline + 1:
+        raise RuntimeError("Snake pause or state allocation failed")
+    timer_test(stream, symbols, artifacts, mode)
+    stop_at_idle(stream)
+    if board()[-1][:24*160] != frozen[:24*160]:
+        raise RuntimeError("Paused Snake moved while PIT ticks advanced")
+
+    def move(key, expected):
+        qmp_command(stream, "cont")
+        send(key)  # Queue a direction while paused, then take one real PIT step.
+        send("p")
+        time.sleep(0.11)
+        send("p")
+        expect("rum_snake_paused\r\n")
+        stop_at_idle(stream)
+        actual = board()[0]
+        if actual != expected:
+            raise RuntimeError(f"Snake keyboard/timer move mismatch: {actual}, expected {expected}")
+        return actual
+
+    # Approach food vertically first to avoid the initial body to the left.
+    x, y = head
+    if target[1] == y and target[0] < x:
+        detour = -1 if y else 1
+        x, y = move("w" if detour < 0 else "s", (x, y + detour))
+        while x != target[0]: x, y = move("a", (x - 1, y))
+        x, y = move("s" if detour < 0 else "w", target)
+    else:
+        while y != target[1]:
+            delta = -1 if target[1] < y else 1
+            x, y = move("w" if delta < 0 else "s", (x, y + delta))
+        while x != target[0]:
+            delta = -1 if target[0] < x else 1
+            x, y = move("a" if delta < 0 else "d", (x + delta, y))
+    _, _, score, best, rows, _ = board()
+    if score != initial_score + 1 or best != score:
+        raise RuntimeError("Eating food did not grow the snake/update best score")
+    (artifacts / f"{mode}-snake-screen.txt").write_text("\n".join(row.rstrip() for row in rows) + "\n")
+    qmp_command(stream, "screendump", {"filename": str(artifacts / f"{mode}-snake.ppm")})
+    qmp_command(stream, "cont")
+    send("q")
+    expect("rum_snake_quit\r\n> ")
+    type_text("cat snake.score\n")
+    expect(f"cat snake.score\r\n{score}\r\n> ")
+    stop_at_idle(stream)
+    if allocations("after") != baseline:
+        raise RuntimeError("Snake quit leaked a heap allocation")
+
+    # A wall collision stays in the game; restart/quit must recover normally.
+    qmp_command(stream, "cont")
+    type_text("snake\n")
+    deadline = time.monotonic() + 6
+    while not serial.read_bytes().endswith(b"rum_snake_game_over\r\n"):
+        if time.monotonic() > deadline: raise RuntimeError("Snake never collided with the wall")
+        time.sleep(0.05)
+    stop_at_idle(stream)
+    if "Game over." not in board()[4][22]: raise RuntimeError("Game-over message missing")
+    qmp_command(stream, "cont")
+    send("r")
+    send("p")
+    expect("rum_snake_paused\r\n")
+    stop_at_idle(stream)
+    if board()[2] != 0: raise RuntimeError("Restart did not reset Snake score")
+    qmp_command(stream, "cont")
+    send("q")
+    expect("rum_snake_quit\r\n> ")
+    type_text("echo back on rum\n")
+    expect("\r\nback on rum\r\n> ")
+    stop_at_idle(stream)
+    if allocations("restarted-quit") != baseline: raise RuntimeError("Restart/quit leaked allocations")
+    timer_test(stream, symbols, artifacts, mode)
+
+
 def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False):
     serial_artifact = artifacts / f"{mode}-serial.log"
     vga_dump = artifacts / f"{mode}-vga.bin"
@@ -691,6 +826,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                         keyboard_test(stream, symbols, artifacts, mode, serial)
                         shell_test(stream, symbols, artifacts, mode, serial)
                         storage_shell_test(stream, symbols, artifacts, mode, serial, project)
+                        snake_test(stream, symbols, artifacts, mode, serial)
                     qmp_command(stream, "quit")
             print(f"PASS: {mode}, GDT/IDT/segments, " +
                   ("production heap/RAM files, alignment, reuse, realloc, limits, physical OOM rollback" if storage else
@@ -698,7 +834,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                    else "production page tables, real #PF, error/EIP/CR2, PG/WP, panic/halt" if paging
                    else "real exception, saved registers, error code, EIP, stack, VGA/serial panic, halt" if fault
                    else "IRQ return, saved registers/flags, spurious IRQ7/IRQ15" if irq_test
-                   else f"{ram} MiB RAM, Multiboot/physical/paging/heap/embedded files, PIT/PS2/PIC/shell"))
+                   else f"{ram} MiB RAM, Multiboot/physical/paging/heap/embedded files, PIT/PS2/PIC/shell/Snake"))
         finally:
             if process.poll() is None:
                 process.terminate()
