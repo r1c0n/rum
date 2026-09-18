@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('doctor', 'setup', 'build', 'run', 'run-kernel', 'test', 'debug', 'panic', 'clean')]
+    [ValidateSet('doctor', 'setup', 'build', 'user', 'run', 'run-kernel', 'test', 'debug', 'panic', 'clean')]
     [string]$Action = 'run',
     [string]$Distro = 'Ubuntu'
 )

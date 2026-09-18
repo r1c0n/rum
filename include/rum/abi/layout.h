@@ -8,6 +8,7 @@
 #define RUM_ABI_PROGRAM_END      0xBFC00000
 #define RUM_ABI_STACK_TOP        0xC0000000
 #define RUM_ABI_STACK_SIZE       0x00010000
+#define RUM_ABI_MEMORY_BYTES     0x01000000 /* Program mappings plus user stack. */
 #define RUM_ABI_STACK_BASE       (RUM_ABI_STACK_TOP - RUM_ABI_STACK_SIZE)
 
 /* At first entry, ESP is 16-byte aligned and points at a 32-bit argc followed

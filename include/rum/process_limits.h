@@ -3,11 +3,12 @@
 
 #include <rum/memory_layout.h>
 #include <rum/abi/process.h>
+#include <rum/abi/layout.h>
 
 /* Initial process policy for the forthcoming userspace implementation. These
    caps become runtime checks when the corresponding resources are introduced. */
 #define RUM_PROCESS_LIMIT          16
-#define RUM_PROCESS_USER_BYTES     0x01000000 /* Includes program and user stack. */
+#define RUM_PROCESS_USER_BYTES     RUM_ABI_MEMORY_BYTES
 #define RUM_PROCESS_ARGUMENT_LIMIT RUM_ABI_ARGUMENT_LIMIT
 #define RUM_PROCESS_ARGUMENT_BYTES RUM_ABI_ARGUMENT_BYTES
 #define RUM_PROCESS_FILE_LIMIT     32         /* Includes standard streams. */

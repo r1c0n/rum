@@ -3,6 +3,7 @@
 CROSS_PREFIX ?= $(CURDIR)/.tools/cross/bin/i686-elf-
 CC := $(CROSS_PREFIX)gcc
 AS := $(CROSS_PREFIX)as
+OBJCOPY := $(CROSS_PREFIX)objcopy
 QEMU ?= qemu-system-i386
 HOST_CC ?= gcc
 
@@ -33,10 +34,64 @@ STORAGE_HOST_SOURCES := kernel/heap.c kernel/ramfs.c kernel/memory.c tests/page-
 STORAGE_HOST_HEADERS := include/rum/heap.h include/rum/ramfs.h include/rum/embedded.h include/rum/paging.h include/rum/pmm.h include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
 SNAKE_HOST_SOURCES := kernel/snake.c kernel/snake_model.c
 SNAKE_HOST_HEADERS := include/rum/snake.h include/rum/snake_model.h include/rum/timer.h
+USER_PROGRAMS := hello
+USER_CPPFLAGS := -Iuser/include -Iinclude
+USER_CFLAGS := -std=gnu11 -ffreestanding -O2 -g -Wall -Wextra -Werror \
+               -Wstrict-prototypes -Wmissing-prototypes -fno-stack-protector \
+               -fno-pie -fno-pic -fno-builtin -fno-asynchronous-unwind-tables \
+               -msoft-float -mno-mmx -mno-sse -mno-sse2
+USER_RUNTIME := build/user/lib/start.o build/user/lib/syscall-entry.o build/user/lib/syscall.o
+USER_DEBUG := $(addprefix build/user/debug/,$(addsuffix .elf,$(USER_PROGRAMS)))
+USER_ASSETS := $(addprefix build/user/ramfs/,$(addsuffix .elf,$(USER_PROGRAMS)))
+USER_DEPENDENCIES := $(USER_RUNTIME:.o=.d) $(addprefix build/user/programs/,$(addsuffix .d,$(USER_PROGRAMS)))
 
-.PHONY: all check iso run run-kernel debug panic test test-host doctor toolchain clean FORCE
+.PHONY: all check iso user test-user run run-kernel debug panic test test-host doctor toolchain clean FORCE
 .SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) build/tests/paging-spaces.o
-all: iso
+.SECONDARY: $(USER_DEBUG) $(USER_RUNTIME) $(addprefix build/user/programs/,$(addsuffix .o,$(USER_PROGRAMS)))
+all: user iso
+
+# Userspace has its own startup, include path, flags, objects and linker script.
+build/user/linker.ld: user/linker.ld $(ABI_HEADERS) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) -E -P -undef -x c -D__ASSEMBLER__ $< -o $@
+
+build/user/%.o: user/%.c Makefile
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+
+build/user/lib/start.o: user/lib/start.s $(ABI_HEADERS) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
+
+build/user/lib/syscall-entry.o: user/lib/syscall.s $(ABI_HEADERS) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
+
+build/user/debug/%.elf: build/user/programs/%.o $(USER_RUNTIME) build/user/linker.ld
+	@mkdir -p $(@D)
+	$(CC) -T build/user/linker.ld -nostdlib -static -no-pie \
+	    -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 \
+	    -Wl,-Map,$(@:.elf=.map) $(filter %.o,$^) -lgcc -o $@
+
+build/tools/check-user-elf: scripts/check-user-elf.c $(ABI_HEADERS) $(LAYOUT_HEADERS) include/rum/ramfs.h
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude $< -o $@
+
+build/user/ramfs/%.elf: build/user/debug/%.elf build/tools/check-user-elf
+	@mkdir -p $(@D)
+	$(OBJCOPY) --strip-all $< $@.tmp
+	build/tools/check-user-elf $@.tmp $<
+	mv -- $@.tmp $@
+
+# Validate the future combined boot assets without embedding unlaunchable
+# programs into the current kernel. Keep symbols in build/user/debug/ only.
+build/user/embedded-files.c: FORCE $(USER_ASSETS) scripts/embed-files.py $(wildcard assets/ramfs/*)
+	python3 scripts/embed-files.py assets/ramfs $@ --extra-directory build/user/ramfs
+
+user: $(USER_ASSETS) build/user/embedded-files.c
+
+test-user: user
+	python3 tests/user-elf-test.py --cross-prefix $(CROSS_PREFIX)
 
 build/arch/i386/gdt.o: arch/i386/gdt.c Makefile
 	@mkdir -p $(@D)
@@ -103,7 +158,7 @@ debug: iso
 panic: build/tests/fault-ud.elf
 	$(QEMU) -m 64M -kernel $< -serial stdio -no-reboot -no-shutdown
 
-test: test-host iso $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PAGING_KERNELS) build/tests/storage.elf build/tests/task.elf
+test: test-host test-user iso $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PAGING_KERNELS) build/tests/storage.elf build/tests/task.elf
 	python3 scripts/smoke-test.py --qemu $(QEMU)
 
 build/tests/irq.elf: build/tests/irq-kernel.o build/tests/irq-probe.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
@@ -235,6 +290,6 @@ clean:
 	rm -rf -- build
 
 # The compiler writes these alongside objects; never try to rebuild them alone.
-$(DEPENDENCIES) $(TEST_DEPENDENCIES): ;
+$(DEPENDENCIES) $(TEST_DEPENDENCIES) $(USER_DEPENDENCIES): ;
 
--include $(DEPENDENCIES) $(TEST_DEPENDENCIES)
+-include $(DEPENDENCIES) $(TEST_DEPENDENCIES) $(USER_DEPENDENCIES)

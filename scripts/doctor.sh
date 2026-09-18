@@ -3,7 +3,7 @@ set -uo pipefail
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 export PATH="$project_dir/.tools/cross/bin:$PATH"
 missing=0
-for tool in i686-elf-gcc i686-elf-as i686-elf-ld make grub-file grub-mkrescue xorriso mcopy python3 qemu-system-i386; do
+for tool in i686-elf-gcc i686-elf-as i686-elf-ld i686-elf-objcopy i686-elf-nm i686-elf-readelf make grub-file grub-mkrescue xorriso mcopy python3 qemu-system-i386; do
     if location=$(command -v "$tool"); then
         printf '[ok]      %-20s %s\n' "$tool" "$location"
     else
