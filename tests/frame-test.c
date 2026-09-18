@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <rum/gdt.h>
@@ -28,15 +29,25 @@ int main(void)
     assert(exception_frame_esp(&user.core) == user.esp);
     assert(exception_frame_ss(&user.core) == USER_DATA_SELECTOR);
     /* Garbage resembling privileged kernel flags/registers must disappear. */
-    user.core.eflags = 0xFFFFFFFF;
-    user.core.eax = user.core.ebx = user.core.saved_esp = 0xFFFFFFFF;
+    memset(&user, 0xFF, sizeof user);
     cpu_user_frame_initialize(&user, 0x80001000, 0xBFFFFFF0);
     assert(user.core.eflags == 0x202);
     assert(user.core.eax == 0 && user.core.ebx == 0 && user.core.saved_esp == 0);
+    assert(user.core.ecx == 0 && user.core.edx == 0 && user.core.esi == 0 &&
+           user.core.edi == 0 && user.core.ebp == 0 && user.core.vector == 0 && user.core.error == 0);
     assert(user.core.cs == USER_CODE_SELECTOR && user.ss == USER_DATA_SELECTOR);
     assert(user.core.ds == USER_DATA_SELECTOR && user.core.es == USER_DATA_SELECTOR);
     assert(user.core.fs == USER_DATA_SELECTOR && user.core.gs == USER_DATA_SELECTOR);
     assert(user.core.eip == 0x80001000 && user.esp == 0xBFFFFFF0);
+    /* The longer privilege-change frame must fit exactly too. Helpers mask
+       selector padding instead of exposing undefined upper bits. */
+    struct exception_user_frame *boundary = (void *)(pages + page_size - sizeof *boundary);
+    *boundary = user;
+    boundary->core.cs |= 0xABCD0000;
+    boundary->ss |= 0x98760000;
+    assert(exception_frame_from_user(&boundary->core));
+    assert(exception_frame_esp(&boundary->core) == user.esp);
+    assert(exception_frame_ss(&boundary->core) == USER_DATA_SELECTOR);
     assert(munmap(pages, page_size * 2) == 0);
     puts("PASS: interrupt frame lengths and privilege-change stack access");
     return 0;

@@ -14,6 +14,7 @@ The shell reads a command line from the PS/2 keyboard and runs it on Enter.
 | `write <name> [text]` | Create or replace a file; omit text for an empty file |
 | `rm <name>` | Remove a RAM file |
 | `mem` | Show heap and filesystem usage |
+| `diag` | Inspect tasks, paging, kernel stacks and memory usage |
 | `snake` | Play ASCII Snake |
 
 For example:
@@ -34,7 +35,7 @@ before arguments are skipped. `echo` preserves spaces within and after its
 text; without text it prints a blank line. `write` treats the text after the
 filename the same way.
 
-`help`, `clear`, `about`, `ls`, `mem`, and `snake` accept no arguments. `cat`
+`help`, `clear`, `about`, `ls`, `mem`, `diag`, and `snake` accept no arguments. `cat`
 and `rm` require one filename. Incorrect arguments display a usage message.
 Blank lines return a prompt, and unknown commands suggest `help`.
 
@@ -63,6 +64,10 @@ queues characters, and the PIT continues counting while commands run.
 Line editing uses a fixed 256-byte buffer. File commands use the kernel heap
 and RAM filesystem. Timed game updates use `shell_tick_due` and `shell_tick`
 in the same foreground loop.
+
+`diag` captures kernel state without allocation and prints it after restoring
+interrupts. See [kernel diagnostics](diagnostics.md) for ownership counts and
+the difference between current and interrupted stack pointers in panic logs.
 
 ## Tests
 

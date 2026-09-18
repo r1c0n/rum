@@ -114,6 +114,21 @@ struct paging_space *paging_kernel_space(void)
     return enabled ? &kernel_space : NULL;
 }
 
+struct paging_statistics paging_stats(void)
+{
+    uint32_t saved = cpu_interrupt_save();
+    struct paging_statistics stats = {0};
+    if (enabled) {
+        stats.spaces = stats.directory_pages = private_spaces + 1;
+        stats.kernel_directory = kernel_space.directory_physical;
+        stats.active_directory = active_space->directory_physical;
+        for (uint32_t i = 0; i < KERNEL_ENTRIES; ++i)
+            if (directory(&kernel_space)[i] & PRESENT) ++stats.shared_table_pages;
+    }
+    cpu_interrupt_restore(saved);
+    return stats;
+}
+
 struct paging_space *paging_active_space(void)
 {
     return enabled ? active_space : NULL;

@@ -136,16 +136,27 @@ and build. Production mapping, dispatch and process launching remain later work.
 
 ### P6. Foundation verification and diagnostics
 
-- [ ] Verify host, GRUB, direct ELF, kernel-fault, IRQ, paging, and heap/file checks
+- [x] Verify host, GRUB, direct ELF, kernel-fault, IRQ, paging, and heap/file checks
   after preparation, rerunning relevant checks during each refactor.
-- [ ] Extend CPU-table and frame tests for intentional layout changes while retaining
+- [x] Extend CPU-table and frame tests for intentional layout changes while retaining
   checks for permissions, register restoration, and kernel panic behavior.
-- [ ] Add diagnostics for the active task, CR3, kernel stack, and owned resources.
-- [ ] Add repeatable allocation-failure and context-switch fixtures for the new paths.
+- [x] Add diagnostics for the active task, CR3, kernel stack, and owned resources.
+- [x] Add repeatable allocation-failure and context-switch fixtures for the new paths.
 
 Use memory/frame counts to catch leaks after failed setup and repeated switching.
 Keep fault tests isolated so malformed frames or programs cannot turn the whole
 test run into an unexplained hang. Preserve serial logs and QEMU artifacts.
+
+The `diag` command and panic reports now expose copied task, CR3, kernel-stack
+and resource snapshots. Task fixtures verify ownership through real switching,
+repeat insufficient and fragmented allocation budgets, and recover at the exact
+stack limit. An isolated worker panic preserves its active stack and private
+directory; monitor checks independently audit every claimed physical frame and
+mapping permission. Host frame checks cover both frame lengths and complete
+fresh user-register initialization. The complete host, ELF-validation and
+31-case QEMU suite covers both boot paths, input, Snake, CPU policy, faults,
+paging, heap and files. [Kernel diagnostics](diagnostics.md) records the APIs
+and interpretation of the counts.
 
 ## Planned work
 

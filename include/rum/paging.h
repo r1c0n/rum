@@ -10,6 +10,15 @@
 
 struct paging_space;
 
+struct paging_statistics {
+    uint32_t spaces, directory_pages, shared_table_pages;
+    uint32_t kernel_directory, active_directory;
+};
+
+/* Allocation-free, IRQ-safe snapshot. Shared table frames are counted once,
+   not once per directory; zero before production paging initialization. */
+struct paging_statistics paging_stats(void);
+
 /* Startup only: identity-map RAM window, protect text/rodata, guard page zero. */
 bool paging_initialize(void);
 struct paging_space *paging_kernel_space(void);
