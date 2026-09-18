@@ -3,6 +3,7 @@
 #include <rum/io.h>
 #include <rum/keyboard.h>
 #include <rum/keyboard_decode.h>
+#include <rum/task.h>
 
 #define PS2_DATA 0x60
 #define PS2_STATUS 0x64
@@ -70,6 +71,7 @@ static void keyboard_interrupt(void)
         } else {
             queue[head] = character;
             head = next;
+            task_event_signal(task_work_event());
         }
     }
 }
