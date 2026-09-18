@@ -67,6 +67,7 @@ irq_\line:
     IRQ \line
 .endr
 
+.global interrupt_common
 .type interrupt_common, @function
 interrupt_common:
     cld

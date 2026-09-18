@@ -109,18 +109,30 @@ general timer preemption remain later work.
 
 ### P5. User ABI and build foundation
 
-- [ ] Create shared ABI headers with fixed-width syscall types, error values, and
+- [x] Create shared ABI headers with fixed-width syscall types, error values, and
   bounded argument structures, separate from private kernel headers.
-- [ ] Add a `user/` source tree, separate compile/link rules, a user linker script, startup code,
+- [x] Add a `user/` source tree, separate compile/link rules, a user linker script, startup code,
   and build directories using the existing cross-toolchain.
-- [ ] Define static ELF32 support and the initial stack/argument convention.
-- [ ] Check that executable assets fit the embedding/runtime limits and keep
+- [x] Define static ELF32 support and the initial stack/argument convention.
+- [x] Check that executable assets fit the embedding/runtime limits and keep
   symbol-rich debugging artifacts separately when stripping embedded binaries.
 
-The asset generator and RAM filesystem currently limit each file to 64 KiB.
-Keep initial programs within that limit or deliberately update both layers and
-their tests before embedding larger files. User binaries must not link host
-startup code, a host C library, or kernel implementation objects.
+Public headers in `include/rum/abi/` define the initial syscall register ABI,
+fixed-width values, errors, argument packet and user stack convention.
+`make user` builds a separate static ELF32 `hello` with its own startup/runtime
+and linker script. Only public headers are exposed to the user compiler;
+no host startup, host C library or kernel objects are linked.
+
+Stripped executables in `build/user/ramfs/` are checked against symbol-rich
+copies in `build/user/debug/`. Segment bounds, entry, permissions, page budget
+and unchanged load bytes are verified before publishing assets. The existing
+64 KiB file and 64-file limits apply to the combined source/generated asset set.
+The validation output is not yet linked into the normal kernel.
+
+Host malformed-input tests and isolated ring-3 fixtures verify the actual
+startup and syscall wrappers, maximum arguments, BSS, signed main/exit results
+and partial writes. [User ABI and executables](user-abi.md) documents the format
+and build. Production mapping, dispatch and process launching remain later work.
 
 ### P6. Foundation verification and diagnostics
 
