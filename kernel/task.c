@@ -10,7 +10,7 @@
 #define STACK_PAGES (RUM_KERNEL_STACK_SIZE / RUM_PAGE_SIZE)
 #define BOOT 0u
 #define IDLE 1u
-#define TASK_SLOTS (RUM_PROCESS_LIMIT + 2u)
+#define TASK_SLOTS RUM_TASK_CAPACITY
 
 struct task {
     task_id id;
@@ -26,6 +26,7 @@ static struct task tasks[TASK_SLOTS];
 static struct task *current;
 static task_id next_id = 3;
 static bool ready;
+static uint32_t created, exited, reaped, switches;
 static struct task_event work_event;
 /* Debug symbols also let QEMU checks audit the actual stack owners. */
 volatile uint32_t task_idle_stack_base, task_current_stack_top;
@@ -99,6 +100,7 @@ task_id task_create(void (*entry)(void *), void *argument, struct paging_space *
         .space = owned_space ? owned_space : paging_kernel_space(), .owns_space = owned_space != NULL };
     prepare_stack(slot);
     task_id id = slot->id;
+    ++created;
     cpu_interrupt_restore(saved);
     return id;
 }
@@ -108,23 +110,51 @@ task_id task_current_id(void)
     return ready ? current->id : 0;
 }
 
-bool task_query(task_id id, struct task_information *information)
+static struct task_information information(const struct task *task)
 {
-    if (!ready || !id || !information) return false;
+    return (struct task_information){ .id = task->id, .state = task->state,
+        .stack_base = task->stack_base, .stack_top = task->stack_top, .saved_stack = task->stack,
+        .directory = paging_directory_address(task->space), .owns_space = task->owns_space,
+        .owns_stack = task != &tasks[BOOT] };
+}
+
+bool task_query(task_id id, struct task_information *result)
+{
+    if (!ready || !id || !result) return false;
     uint32_t saved = cpu_interrupt_save();
     bool found = false;
     for (uint32_t i = 0; i < TASK_SLOTS; ++i) {
         const struct task *task = &tasks[i];
         if (task->state != TASK_UNUSED && task->id == id) {
-            *information = (struct task_information){ .id = id, .state = task->state,
-                .stack_base = task->stack_base, .stack_top = task->stack_top, .saved_stack = task->stack,
-                .directory = paging_directory_address(task->space), .owns_space = task->owns_space };
+            *result = information(task);
             found = true;
             break;
         }
     }
     cpu_interrupt_restore(saved);
     return found;
+}
+
+bool task_snapshot_read(struct task_snapshot *snapshot)
+{
+    if (!snapshot) return false;
+    uint32_t saved = cpu_interrupt_save();
+    *snapshot = (struct task_snapshot){0};
+    if (ready) {
+        snapshot->current = current->id;
+        snapshot->created = created; snapshot->exited = exited;
+        snapshot->reaped = reaped; snapshot->switches = switches;
+        for (uint32_t i = 0; i < TASK_SLOTS; ++i) {
+            if (tasks[i].state == TASK_UNUSED) continue;
+            struct task_information item = information(&tasks[i]);
+            snapshot->tasks[snapshot->count++] = item;
+            ++snapshot->states[item.state];
+            if (item.owns_stack) snapshot->stack_pages += STACK_PAGES;
+            if (item.owns_space && item.directory) ++snapshot->directory_pages;
+        }
+    }
+    cpu_interrupt_restore(saved);
+    return ready;
 }
 
 uint32_t task_reap(void)
@@ -137,10 +167,16 @@ uint32_t task_reap(void)
             (task->owns_space && task->space == paging_active_space())) continue;
         /* Kernel-space borrowers share the active directory; only owned
            private directories must be inactive before release. */
-        if (task->owns_space && !paging_space_destroy(task->space)) continue;
-        if (!pmm_free_contiguous(task->stack_base, STACK_PAGES)) cpu_halt();
+        /* Keep owner records and released frames consistent for IRQ snapshots.
+           Reclamation never waits for a device or switches execution. */
         uint32_t saved = cpu_interrupt_save();
+        if (task->owns_space && !paging_space_destroy(task->space)) {
+            cpu_interrupt_restore(saved);
+            continue;
+        }
+        if (!pmm_free_contiguous(task->stack_base, STACK_PAGES)) cpu_halt();
         *task = (struct task){0};
+        ++reaped;
         cpu_interrupt_restore(saved);
         ++count;
     }
@@ -167,6 +203,7 @@ static void schedule(void)
     if (!paging_switch_space(next->space) || !gdt_set_kernel_stack(next->stack_top)) cpu_halt();
     current = next;
     task_current_stack_top = next->stack_top;
+    ++switches;
     kernel_context_switch(&previous->stack, next->stack);
     /* This continuation now belongs to the resumed task, on its own stack. */
     (void)task_reap();
@@ -189,6 +226,7 @@ _Noreturn void task_exit(void)
     (void)cpu_interrupt_save();
     current->waiting = NULL;
     current->state = TASK_EXITED;
+    ++exited;
     schedule();
     cpu_halt(); /* An exited context can never become runnable again. */
 }

@@ -46,6 +46,22 @@ static void context_check(void)
     check(cr3 == info.directory && paging_directory_address(paging_active_space()) == cr3,
           "current task CR3");
     check((flags & 0x600) == 0x200, "kernel context IF/DF");
+    struct task_snapshot snapshot;
+    uint32_t before = pmm_stats().free_pages;
+    check(task_snapshot_read(&snapshot) && snapshot.current == info.id &&
+          snapshot.states[TASK_RUNNING] == 1, "atomic current-task snapshot");
+    bool found = false;
+    for (uint32_t i = 0; i < snapshot.count; ++i) {
+        const struct task_information *item = &snapshot.tasks[i];
+        if (item->id == info.id) found = item->directory == cr3 && item->stack_top == rum_tss.esp0;
+        if (item->owns_stack)
+            for (uint32_t frame = item->stack_base; frame < item->stack_top; frame += RUM_PAGE_SIZE)
+                check(pmm_is_allocated(frame), "snapshot stack frames remain owned");
+        if (item->owns_space) check(pmm_is_allocated(item->directory), "snapshot directory remains owned");
+    }
+    struct paging_statistics paging = paging_stats();
+    check(found && paging.active_directory == cr3 && paging.directory_pages == paging.spaces &&
+          pmm_stats().free_pages == before, "snapshot hardware/ownership and no allocations");
 }
 
 void task_test_worker(void *argument)
@@ -69,6 +85,8 @@ void task_test_worker(void *argument)
 static void tick(void)
 {
     check(irq_in_handler(), "IRQ context marker");
+    struct task_snapshot snapshot;
+    check(task_snapshot_read(&snapshot) && snapshot.current == task_current_id(), "IRQ-safe snapshot");
     uint32_t before = pmm_stats().free_pages;
     check(!task_yield() && !task_wait(&timed, timed.sequence) &&
           !task_create(task_test_entry, NULL, NULL) && task_reap() == 0,
@@ -125,6 +143,10 @@ void kernel_main(uint32_t magic, uint32_t information)
     serial_initialize();
     idt_initialize();
     pic_initialize(); /* Mask/remap BIOS IRQs before enabling IF for task tests. */
+    struct task_snapshot snapshot;
+    memset(&snapshot, 0xFF, sizeof snapshot);
+    check(!task_snapshot_read(NULL) && !task_snapshot_read(&snapshot) && !snapshot.count &&
+          !snapshot.current && !paging_stats().spaces, "uninitialized snapshots fail without stale output");
     check(!task_current_id() && !task_yield() && !task_create(task_test_entry, NULL, NULL),
           "no tasks before initialization");
     check(magic == MULTIBOOT_BOOTLOADER_MAGIC && information, "Multiboot handoff");
