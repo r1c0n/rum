@@ -28,7 +28,7 @@ static bool grow(size_t bytes)
     while (added < growth) {
         uint32_t physical = pmm_allocate_page();
         if (!physical) break;
-        if (!paging_map_page(HEAP_BASE + heap_mapped + added, physical, PAGING_WRITABLE)) {
+        if (!paging_map_page(paging_kernel_space(), HEAP_BASE + heap_mapped + added, physical, PAGING_WRITABLE)) {
             (void)pmm_free_page(physical);
             break;
         }
@@ -38,7 +38,7 @@ static bool grow(size_t bytes)
         while (added) {
             added -= PAGE_SIZE;
             uint32_t physical;
-            if (paging_unmap_page(HEAP_BASE + heap_mapped + added, &physical))
+            if (paging_unmap_page(paging_kernel_space(), HEAP_BASE + heap_mapped + added, &physical))
                 (void)pmm_free_page(physical);
         }
         return false;

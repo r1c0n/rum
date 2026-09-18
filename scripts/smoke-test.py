@@ -519,6 +519,8 @@ PAGING_FAULTS = {
 
 
 def paging_fault_test(symbols, case, serial_text, registers):
+    if case in ("null", "text", "rodata") and "rum_paging_fault_space_ok" not in serial_text:
+        raise RuntimeError("Protected-page fault did not run under a child CR3")
     fields = {name: int(value, 16) for name, value in re.findall(r"\b([a-z0-9]+)=0x([0-9a-f]{8})", serial_text)}
     error, address, instruction = PAGING_FAULTS[case]
     if isinstance(address, str): address = symbols[address]
@@ -830,6 +832,9 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                             raise RuntimeError(f"Missing VGA text {expected!r} ({mode})")
                     if paging and paging != "ok":
                         paging_fault_test(symbols, paging, serial.read_text(), registers)
+                    elif paging == "ok":
+                        if "rum_paging_spaces_ok" not in serial.read_text():
+                            raise RuntimeError("Missing production paging-context checks")
                     elif fault:
                         fault_report_test(stream, symbols, artifacts, mode, fault,
                                           serial.read_text(), screen, registers)
@@ -841,7 +846,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                     qmp_command(stream, "quit")
             print(f"PASS: {mode}, GDT/IDT/segments, " +
                   ("production heap/RAM files, alignment, reuse, realloc, limits, physical OOM rollback" if storage else
-                   "production paging, aliases/remap, frame accounting, init/runtime OOM recovery" if paging == "ok"
+                   "production paging/contexts, shared heap/tables, CR3/IRQ return, lifecycle/limits/OOM recovery" if paging == "ok"
                    else "production page tables, real #PF, error/EIP/CR2, PG/WP, panic/halt" if paging
                    else "real exception, saved registers, error code, EIP, stack, VGA/serial panic, halt" if fault
                    else "IRQ return, saved registers/flags, spurious IRQ7/IRQ15" if irq_test

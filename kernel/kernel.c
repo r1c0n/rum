@@ -93,7 +93,7 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     serial_writestring(" managed="); serial_number(memory.managed_pages);
     serial_writestring(" free="); serial_number(memory.free_pages);
     serial_writestring(" limit="); serial_number(memory.limit);
-    serial_writestring(" directory="); serial_number(paging_directory_address());
+    serial_writestring(" directory="); serial_number(paging_directory_address(paging_kernel_space()));
     serial_writestring("\n");
     struct heap_statistics heap = heap_stats();
     struct ramfs_statistics files = ramfs_stats();

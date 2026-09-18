@@ -24,14 +24,14 @@ FAULT_COMMON := $(filter-out build/kernel/kernel.o,$(OBJECTS)) build/tests/fault
 PAGING_CASES := ok null text rodata unmapped readonly
 PAGING_KERNELS := $(addprefix build/tests/paging-,$(addsuffix .elf,$(PAGING_CASES)))
 PAGING_OBJECTS := $(PAGING_KERNELS:.elf=.o)
-TEST_DEPENDENCIES := $(FAULT_OBJECTS:.o=.d) $(PAGING_OBJECTS:.o=.d) build/tests/irq-kernel.d build/tests/storage-kernel.d build/tests/storage-checks.d
+TEST_DEPENDENCIES := $(FAULT_OBJECTS:.o=.d) $(PAGING_OBJECTS:.o=.d) build/tests/paging-spaces.d build/tests/irq-kernel.d build/tests/storage-kernel.d build/tests/storage-checks.d
 STORAGE_HOST_SOURCES := kernel/heap.c kernel/ramfs.c kernel/memory.c tests/page-backend.c build/embedded-files.c
 STORAGE_HOST_HEADERS := include/rum/heap.h include/rum/ramfs.h include/rum/embedded.h include/rum/paging.h include/rum/pmm.h include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
 SNAKE_HOST_SOURCES := kernel/snake.c kernel/snake_model.c
 SNAKE_HOST_HEADERS := include/rum/snake.h include/rum/snake_model.h include/rum/timer.h
 
 .PHONY: all check iso run run-kernel debug panic test test-host doctor toolchain clean FORCE
-.SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS)
+.SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) build/tests/paging-spaces.o
 all: iso
 
 # Only the boot assembly and linker script need the shared layout preprocessor.
@@ -113,7 +113,7 @@ $(PAGING_OBJECTS): build/tests/paging-%.o: tests/paging-kernel.c
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DRUM_PAGING_CASE=$(PAGING_CASE) -MMD -MP -c $< -o $@
 
-build/tests/paging-%.elf: build/tests/paging-%.o build/tests/paging-trigger.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+build/tests/paging-%.elf: build/tests/paging-%.o build/tests/paging-trigger.o build/tests/paging-spaces.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
 

@@ -10,6 +10,10 @@
 static bool owned[FRAMES];
 static uint32_t mappings[HEAP_LIMIT / PAGE_SIZE], table_frame;
 static int budget = -1;
+struct paging_space { unsigned unused; };
+static struct paging_space host_space;
+
+struct paging_space *paging_kernel_space(void) { return &host_space; }
 
 void test_page_budget(int allocations) { budget = allocations; }
 unsigned test_pages_owned(void)
@@ -46,8 +50,9 @@ bool pmm_free_page(uint32_t physical)
     return true;
 }
 
-bool paging_map_page(uint32_t virtual, uint32_t physical, uint32_t flags)
+bool paging_map_page(struct paging_space *space, uint32_t virtual, uint32_t physical, uint32_t flags)
 {
+    assert(space == &host_space);
     assert(virtual >= HEAP_BASE && virtual < HEAP_BASE + HEAP_LIMIT);
     assert(virtual % PAGE_SIZE == 0 && flags == PAGING_WRITABLE);
     assert(pmm_is_allocated(physical));
@@ -61,8 +66,9 @@ bool paging_map_page(uint32_t virtual, uint32_t physical, uint32_t flags)
     return true;
 }
 
-bool paging_unmap_page(uint32_t virtual, uint32_t *physical)
+bool paging_unmap_page(struct paging_space *space, uint32_t virtual, uint32_t *physical)
 {
+    assert(space == &host_space);
     unsigned slot = (virtual - HEAP_BASE) / PAGE_SIZE;
     assert(slot < HEAP_LIMIT / PAGE_SIZE);
     if (!mappings[slot]) return false;

@@ -36,20 +36,25 @@ allocation and runtime quota enforcement belong to the later implementation.
 
 ### P2. Paging contexts and shared kernel mappings
 
-- [ ] Refactor paging operations to accept an explicit address-space object instead
+- [x] Refactor paging operations to accept an explicit address-space object instead
   of relying on one global directory.
-- [ ] Distinguish the kernel directory from the currently active CR3 and provide
+- [x] Distinguish the kernel directory from the currently active CR3 and provide
   a controlled switch that updates bookkeeping and cached translations.
-- [ ] Keep kernel code, CPU tables, stacks, and heap mappings available in every
+- [x] Keep kernel code, CPU tables, stacks, and heap mappings available in every
   address space, with supervisor-only permissions.
-- [ ] Make later kernel/heap growth visible in all existing address spaces.
+- [x] Make later kernel/heap growth visible in all existing address spaces.
 
-The heap currently grows through APIs tied to a single directory. Sharing its
-existing mappings once is insufficient if new tables or mappings can appear
-later. Define table ownership and propagation before creating process directories;
-process teardown must never reclaim shared kernel frames. Test switching between
-two directories, growing the heap after their creation, and accessing the new
-allocation from both. Preserve the null guard and kernel write protection.
+Paging now uses registered `struct paging_space` handles. New directories borrow
+supervisor-only kernel tables, including the heap and boot stack. Kernel table
+creation and removal propagate to every live space; switching updates CR3 and
+active-space bookkeeping. Destruction releases only an inactive directory and
+its metadata, preserving shared kernel resources.
+
+Tests switch between two directories, grow the heap afterwards, publish and
+retire kernel tables, return from live timer IRQs, and recover from limits and
+allocation failure. Null and code/constant protection are also tested under
+child CR3s. [Address spaces](memory.md#address-spaces) documents the API. Private
+user mappings remain part of the process address-space implementation below.
 
 ### P3. CPU entry and descriptor preparation
 
