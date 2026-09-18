@@ -93,6 +93,9 @@ interrupt_common:
     push %ebx
     call interrupt_dispatch
     mov %ebx, %esp
+    /* A trusted caller may also supply a complete saved frame for first entry. */
+.global interrupt_return
+interrupt_return:
     pop %eax
     mov %ax, %gs
     pop %eax

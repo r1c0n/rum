@@ -3,6 +3,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <rum/gdt.h>
+#include <rum/cpu_policy.h>
 #include <rum/interrupts.h>
 
 int main(void)
@@ -26,6 +27,16 @@ int main(void)
     assert(exception_frame_from_user(&user.core));
     assert(exception_frame_esp(&user.core) == user.esp);
     assert(exception_frame_ss(&user.core) == USER_DATA_SELECTOR);
+    /* Garbage resembling privileged kernel flags/registers must disappear. */
+    user.core.eflags = 0xFFFFFFFF;
+    user.core.eax = user.core.ebx = user.core.saved_esp = 0xFFFFFFFF;
+    cpu_user_frame_initialize(&user, 0x80001000, 0xBFFFFFF0);
+    assert(user.core.eflags == 0x202);
+    assert(user.core.eax == 0 && user.core.ebx == 0 && user.core.saved_esp == 0);
+    assert(user.core.cs == USER_CODE_SELECTOR && user.ss == USER_DATA_SELECTOR);
+    assert(user.core.ds == USER_DATA_SELECTOR && user.core.es == USER_DATA_SELECTOR);
+    assert(user.core.fs == USER_DATA_SELECTOR && user.core.gs == USER_DATA_SELECTOR);
+    assert(user.core.eip == 0x80001000 && user.esp == 0xBFFFFFF0);
     assert(munmap(pages, page_size * 2) == 0);
     puts("PASS: interrupt frame lengths and privilege-change stack access");
     return 0;

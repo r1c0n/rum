@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+void cpu_initialize(void); /* Bootstrap: GDT, TSS, integer-only CPU policy. */
+
 static inline uint32_t cpu_interrupt_save(void)
 {
     uint32_t flags;

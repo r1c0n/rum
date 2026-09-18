@@ -298,6 +298,10 @@ def cpu_tables_test(stream, symbols, artifacts, mode, live=False):
     flags = re.search(r"\bEFL=([0-9a-fA-F]+)", registers)
     if not flags or int(flags[1], 16) & 0x400 or bool(int(flags[1], 16) & 0x200) != live:
         raise RuntimeError("Wrong CPU interrupt/direction flags")
+    cr0 = re.search(r"\bCR0=([0-9a-fA-F]+)", registers)
+    cr4 = re.search(r"\bCR4=([0-9a-fA-F]+)", registers)
+    if not cr0 or not cr4 or int(cr0[1], 16) & 0xE != 0xE or int(cr4[1], 16) & 0x40600:
+        raise RuntimeError("Integer-only CPU policy is not enforced")
     gdt = dump_ram(stream, symbols["rum_gdt"], 48, artifacts / f"{mode}-gdt.bin")
     if gdt[:40] != struct.pack("<QQQQQ", 0, 0x00CF9B000000FFFF, 0x00CF93000000FFFF,
                               0x00CFFB000000FFFF, 0x00CFF3000000FFFF):
@@ -759,17 +763,17 @@ def snake_test(stream, symbols, artifacts, mode, serial):
     timer_test(stream, symbols, artifacts, mode)
 
 
-def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False):
+def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False, cpu=None):
     serial_artifact = artifacts / f"{mode}-serial.log"
     vga_dump = artifacts / f"{mode}-vga.bin"
     screenshot = artifacts / f"{mode}.ppm"
-    image = project / ("build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
+    image = project / (f"build/tests/cpu-{cpu}.elf" if cpu else "build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
                        f"build/tests/fault-{fault}.elf" if fault else "build/rum.elf")
     symbols = elf_symbols(image)
     boot_layout_test(symbols)
-    marker = ("rum_storage_test_ok" if storage else "rum_paging_test_ok" if paging == "ok" else "rum_panic_halted" if paging else
+    marker = ("rum_cpu_test_ok" if cpu else "rum_storage_test_ok" if storage else "rum_paging_test_ok" if paging == "ok" else "rum_panic_halted" if paging else
               "rum_irq_test_ok" if irq_test else "rum_panic_halted" if fault else "rum_boot_ok")
-    normal = not fault and not irq_test and not paging and not storage
+    normal = not fault and not irq_test and not paging and not storage and not cpu
     with tempfile.TemporaryDirectory(prefix="rum-qmp-") as temporary:
         # Keep the live writer/readers on one filesystem. DrvFs can return
         # ENODATA when a WSL guest creates/truncates a log on the Windows drive.
@@ -795,7 +799,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
         try:
             deadline = time.monotonic() + 20
             while marker not in serial.read_text(errors="replace"):
-                if any(marker in serial.read_text(errors="replace") for marker in ("rum_paging_test_failed", "rum_storage_test_failed")):
+                if any(marker in serial.read_text(errors="replace") for marker in ("rum_paging_test_failed", "rum_storage_test_failed", "rum_cpu_test_failed")):
                     raise RuntimeError(serial.read_text(errors="replace"))
                 if process.poll() is not None:
                     raise RuntimeError(f"QEMU exited: {process.stderr.read().decode(errors='replace')}")
@@ -828,7 +832,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                             for y in range(25)]
                     screen = "\n".join(rows)
                     (artifacts / f"{mode}-screen.txt").write_text(screen + "\n")
-                    expected_text = (("rum heap and RAM filesystem tests passed.",) if storage else
+                    expected_text = (("rum user CPU entry and policy tests passed.",) if cpu else
+                                     ("rum heap and RAM filesystem tests passed.",) if storage else
                                      ("rum physical allocator and paging tests passed.",) if paging == "ok" else
                                      ("rum kernel panic", "Page fault", "CPU halted.") if paging else
                                      ("rum IRQ return and spurious interrupt tests passed.",) if irq_test else
@@ -859,7 +864,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                         snake_test(stream, symbols, artifacts, mode, serial)
                     qmp_command(stream, "quit")
             print(f"PASS: {mode}, GDT/IDT/segments, " +
-                  ("production heap/RAM files, alignment, reuse, realloc, limits, physical OOM rollback" if storage else
+                  ("real ring-3 PIT/IRET, TSS stack, user registers/segments/DF, alignment, integer/I/O policy" if cpu else
+                   "production heap/RAM files, alignment, reuse, realloc, limits, physical OOM rollback" if storage else
                    "production paging/contexts, shared heap/tables, CR3/IRQ return, lifecycle/limits/OOM recovery" if paging == "ok"
                    else "production page tables, real #PF, error/EIP/CR2, PG/WP, panic/halt" if paging
                    else "real exception, saved registers, error code, EIP, stack, VGA/serial panic, halt" if fault
@@ -888,6 +894,8 @@ def main():
     for fault in FAULT_CASES:
         boot_test(args.qemu, project, f"fault-{fault}", artifacts, fault=fault)
     boot_test(args.qemu, project, "irq", artifacts, irq_test=True)
+    for case in ("irq", "x87", "mmx", "sse", "io"):
+        boot_test(args.qemu, project, f"cpu-{case}", artifacts, cpu=case)
     boot_test(args.qemu, project, "paging-ok", artifacts, paging="ok")
     for case in PAGING_FAULTS:
         boot_test(args.qemu, project, f"paging-{case}", artifacts, paging=case)

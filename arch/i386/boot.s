@@ -37,7 +37,7 @@ _start:
     push %ebx                   /* Second C argument: boot information address. */
     push %eax                   /* First C argument: Multiboot magic. */
     /* Save the handoff before reloading AX and replace GRUB's segment table. */
-    call gdt_initialize
+    call cpu_initialize
     call kernel_main
     add $16, %esp
 
