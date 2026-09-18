@@ -29,8 +29,11 @@ are aligned to whole page-table spans to keep future shared kernel tables
 separate from private user tables.
 
 Reserving a range does not allocate or map it. Separate directories now borrow
-shared kernel tables; processes, private user mappings, and dedicated stack
-mapping APIs are subsequent work. See [Address spaces](memory.md#address-spaces).
+shared kernel tables. Cooperative tasks allocate unguarded physical stacks
+inside the supervisor identity window; the reserved virtual stack window is
+still unmapped. Processes, private user mappings, and guarded stack mapping
+APIs are subsequent work. See [Address spaces](memory.md#address-spaces) and
+[Kernel tasks](tasks.md).
 
 ## Stack and process limits
 
@@ -45,17 +48,18 @@ mapping APIs are subsequent work. See [Address spaces](memory.md#address-spaces)
 | Argument strings | 4096 bytes total, including terminating NULs |
 | Open file handles per process | 32, including standard streams |
 
-These are policy constants for the forthcoming process implementation. The
-corresponding runtime checks must be added with each subsystem. Allocation
-can fail below any limit when physical RAM or kernel metadata is exhausted.
+The task registry currently permits 16 workers plus permanent boot and idle
+contexts. The remaining process policies become runtime checks with their
+corresponding subsystems. Allocation can fail below any limit when physical
+RAM or kernel metadata is exhausted.
 
-Kernel stack slot `n` starts at
+Future virtual kernel stack slot `n` starts at
 `RUM_KERNEL_STACK_BASE + n * RUM_KERNEL_STACK_STRIDE`. Its first page is
 reserved as a guard, followed by the 16 KiB stack. Slot addresses must be
 unique across live kernel contexts because kernel mappings will be shared.
 Install guards together with the independent double-fault recovery path.
 
-Each process uses a private user stack at `0xbfff0000`–`0xc0000000`, growing
+Each process will use a private user stack at `0xbfff0000`–`0xc0000000`, growing
 downward from `RUM_USER_STACK_TOP`. The page at `0xbffef000` is its guard.
 Other pages in the user-stack window stay reserved and unmapped. These
 virtual addresses can be reused across processes with separate directories.
@@ -75,10 +79,14 @@ without freeing the data page.
 | Heap frames | Kernel heap; kept mapped for reuse after individual allocations are freed |
 | Kernel metadata allocations | Allocating subsystem; release with `kfree` after references are removed |
 | Paging-context directory and metadata | Address space; release only while inactive; borrowed kernel tables remain owned by the kernel |
+| Worker stack frames | Kernel task; four contiguous PMM pages, released after switching away |
+| Idle stack frames | Kernel task system; four PMM pages retained for the kernel lifetime |
+| Task records | Fixed kernel registry; reuse only after exited resources have been reclaimed; IDs are never recycled |
+| Transferred task directory | Kernel task; transfer only on successful setup, release while inactive after exit |
 | Future private user tables | Address space; release while inactive after private mappings are removed |
 | Future private program and user-stack frames | Address space; allocate directly from PMM and release after removing all mappings |
 | Shared kernel table references | Kernel paging; context destruction never frees the referenced tables or kernel data frames |
-| Future kernel stack frames and slot | Kernel context; release only after switching to a surviving stack |
+| Future guarded kernel stack slot | Kernel context; remove mappings and release the slot only after switching away |
 | Future process record and argument copies | Process manager; release after handles, execution state, and memory have been detached |
 | Future file handles | Process handle table; close on exit and failed process construction |
 
