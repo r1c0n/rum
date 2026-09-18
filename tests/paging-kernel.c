@@ -1,9 +1,11 @@
 /* Production PMM/paging code, booted in an isolated test kernel. */
 #include <rum/cpu.h>
 #include <rum/interrupts.h>
+#include <rum/heap.h>
 #include <rum/paging.h>
 #include <rum/serial.h>
 #include <rum/terminal.h>
+#include "paging-spaces.h"
 
 extern const char __kernel_start[], __kernel_end[], __text_start[];
 const uint32_t paging_readonly_word = 0x13579BDFu;
@@ -44,6 +46,20 @@ static void release_pages(uint32_t head)
         check(pmm_free_page(head), "release consumed page");
         head = next;
     }
+}
+#endif
+
+#if RUM_PAGING_CASE >= 1 && RUM_PAGING_CASE <= 3
+static void fault_context(void)
+{
+    check(heap_initialize(), "fault context heap");
+    struct paging_space *space = paging_space_create();
+    check(space && paging_switch_space(space), "fault context switch");
+    uint32_t cr3;
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
+    check(cr3 == paging_directory_address(space) &&
+          cr3 != paging_directory_address(paging_kernel_space()), "fault under child CR3");
+    serial_writestring("rum_paging_fault_space_ok\n");
 }
 #endif
 
@@ -141,20 +157,25 @@ void kernel_main(uint32_t magic, uint32_t information)
     check(pmm_stats().free_pages == before, "all frame accounting recovered");
 #endif
 #if RUM_PAGING_CASE == 0
+    paging_space_checks();
+    before = pmm_stats().free_pages; /* The heap intentionally retains grown pages. */
     consumed = consume_pages(0);
-    check(!pmm_allocate_page() && !paging_map_page(space, PAGING_DYNAMIC_BASE, consumed, PAGING_WRITABLE),
+    check(!pmm_allocate_page() && !paging_map_page(space, RUM_KERNEL_ALIAS_BASE, consumed, PAGING_WRITABLE),
           "runtime table OOM");
-    check(!paging_translate(space, PAGING_DYNAMIC_BASE, NULL), "OOM leaves absent mapping");
+    check(!paging_translate(space, RUM_KERNEL_ALIAS_BASE, NULL), "OOM leaves absent mapping");
     release_pages(consumed);
     check(pmm_stats().free_pages == before, "runtime OOM recovered pages");
     terminal_writestring("rum physical allocator and paging tests passed.\n");
     serial_writestring("rum_paging_test_ok\n");
     cpu_halt();
 #elif RUM_PAGING_CASE == 1
+    fault_context();
     paging_trigger_null();
 #elif RUM_PAGING_CASE == 2
+    fault_context();
     paging_trigger_text();
 #elif RUM_PAGING_CASE == 3
+    fault_context();
     paging_trigger_rodata();
 #elif RUM_PAGING_CASE == 4
     paging_trigger_unmapped();

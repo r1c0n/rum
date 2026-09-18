@@ -1,21 +1,36 @@
 #include <stddef.h>
 #include <rum/cpu.h>
+#include <rum/heap.h>
 #include <rum/memory.h>
 #include <rum/paging.h>
+#include <rum/process_limits.h>
 
 #define PRESENT 1u
 #define CACHE_DISABLE 0x10u
 #define FRAME_MASK 0xFFFFF000u
 #define ENTRIES 1024u
+#define KERNEL_ENTRIES (RUM_USER_BASE / RUM_PAGE_TABLE_SPAN)
 
 extern const char __text_start[], __text_end[], __rodata_start[], __rodata_end[];
 struct paging_space {
     uint32_t directory_physical;
+    struct paging_space *next;
 };
 
 static struct paging_space kernel_space;
 static struct paging_space *active_space;
 static bool enabled;
+static uint32_t private_spaces;
+
+/* Compare pointers before dereferencing: null and unregistered handles fail
+   without touching caller memory. Registry updates run with interrupts off. */
+static bool known_space(const struct paging_space *space)
+{
+    if (!enabled) return false;
+    for (const struct paging_space *item = &kernel_space; item; item = item->next)
+        if (item == space) return true;
+    return false;
+}
 
 static uint32_t *directory(const struct paging_space *space)
 {
@@ -35,6 +50,14 @@ static void invalidate(uint32_t virtual)
 static void reload_directory(const struct paging_space *space)
 {
     __asm__ volatile ("mov %0, %%cr3" : : "r"(space->directory_physical) : "memory");
+}
+
+/* Kernel tables belong to the kernel. Publish new tables, and detach retiring
+   tables, in every directory before changing the active CPU's translation. */
+static void publish_kernel_entry(uint32_t index, uint32_t entry)
+{
+    for (struct paging_space *space = &kernel_space; space; space = space->next)
+        directory(space)[index] = entry;
 }
 
 static bool read_only(uint32_t physical)
@@ -98,13 +121,69 @@ struct paging_space *paging_active_space(void)
 
 uint32_t paging_directory_address(const struct paging_space *space)
 {
-    return enabled && space == &kernel_space ? space->directory_physical : 0;
+    uint32_t saved = cpu_interrupt_save();
+    uint32_t address = known_space(space) ? space->directory_physical : 0;
+    cpu_interrupt_restore(saved);
+    return address;
+}
+
+struct paging_space *paging_space_create(void)
+{
+    uint32_t saved = cpu_interrupt_save();
+    struct paging_space *space = NULL;
+    if (enabled && private_spaces < RUM_PROCESS_LIMIT) {
+        space = kmalloc(sizeof *space);
+        if (space) {
+            uint32_t physical = pmm_allocate_page();
+            if (!physical) {
+                (void)kfree(space);
+                space = NULL;
+            } else {
+                *space = (struct paging_space){ .directory_physical = physical,
+                                               .next = kernel_space.next };
+                memset(directory(space), 0, PAGE_SIZE);
+                memcpy(directory(space), directory(&kernel_space), KERNEL_ENTRIES * sizeof(uint32_t));
+                /* Publish only after initialization succeeds. The upper half
+                   remains unmapped; private user pages are subsequent work. */
+                kernel_space.next = space;
+                ++private_spaces;
+            }
+        }
+    }
+    cpu_interrupt_restore(saved);
+    return space;
+}
+
+bool paging_space_destroy(struct paging_space *space)
+{
+    uint32_t saved = cpu_interrupt_save();
+    bool success = false;
+    if (enabled && space && space != &kernel_space && space != active_space) {
+        struct paging_space *previous = &kernel_space;
+        while (previous->next && previous->next != space) previous = previous->next;
+        if (previous->next) {
+            /* Until private-page ownership exists, refuse unsupported private
+               entries rather than leak them or guess who owns their frames. */
+            bool empty = true;
+            for (uint32_t i = KERNEL_ENTRIES; i < ENTRIES; ++i)
+                if (directory(space)[i]) { empty = false; break; }
+            if (empty) {
+                previous->next = space->next;
+                --private_spaces;
+                (void)pmm_free_page(space->directory_physical);
+                (void)kfree(space);
+                success = true;
+            }
+        }
+    }
+    cpu_interrupt_restore(saved);
+    return success;
 }
 
 bool paging_switch_space(struct paging_space *space)
 {
     uint32_t saved = cpu_interrupt_save();
-    bool success = enabled && space == &kernel_space;
+    bool success = known_space(space);
     if (success) {
         reload_directory(space);
         active_space = space;
@@ -126,7 +205,7 @@ bool paging_map_page(struct paging_space *space, uint32_t virtual, uint32_t phys
             uint32_t frame = pmm_allocate_page();
             if (frame) {
                 memset((void *)(uintptr_t)frame, 0, PAGE_SIZE);
-                directory(space)[index] = frame | PRESENT | PAGING_WRITABLE;
+                publish_kernel_entry(index, frame | PRESENT | PAGING_WRITABLE);
             }
         }
         if (directory(space)[index] & PRESENT) {
@@ -163,7 +242,7 @@ bool paging_unmap_page(struct paging_space *space, uint32_t virtual, uint32_t *p
                 if (entries[i] & PRESENT) { empty = false; break; }
             if (empty) {
                 uint32_t frame = directory(space)[index] & FRAME_MASK;
-                directory(space)[index] = 0;
+                publish_kernel_entry(index, 0);
                 /* Discard cached table references before reusing its frame. */
                 reload_directory(active_space);
                 (void)pmm_free_page(frame);
@@ -176,9 +255,12 @@ bool paging_unmap_page(struct paging_space *space, uint32_t virtual, uint32_t *p
 
 bool paging_translate(const struct paging_space *space, uint32_t virtual, uint32_t *physical)
 {
-    if (!enabled || space != &kernel_space) return false;
     uint32_t saved = cpu_interrupt_save();
     bool success = false;
+    if (!known_space(space)) {
+        cpu_interrupt_restore(saved);
+        return false;
+    }
     uint32_t entry = directory(space)[virtual >> 22];
     if (entry & PRESENT) {
         entry = table(entry)[(virtual >> 12) & 1023];
