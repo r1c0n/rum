@@ -89,6 +89,40 @@ shell input, memory allocation, RAM files, boot checks, CPU faults, and device
 interrupts. QEMU tests exercise the keyboard and timer and save logs, memory
 dumps, and screenshots in `build/test-artifacts/`.
 
+## Packaging
+
+Build the ISO, then bundle it with the README and documentation. The packaging
+script uses Python 3 and needs no additional packages.
+
+On Windows:
+
+```powershell
+.\rum.ps1 build
+python scripts/package.py
+```
+
+On Linux or in WSL:
+
+```sh
+make
+python3 scripts/package.py
+```
+
+This creates `rum.zip` in the repository directory, replacing an existing
+archive. Its contents are:
+
+```text
+rum.iso
+README.md
+docs/
+```
+
+After extracting the archive, boot it with:
+
+```sh
+qemu-system-i386 -m 64M -cdrom rum.iso
+```
+
 ## Source
 
 | Directory | Contents |
