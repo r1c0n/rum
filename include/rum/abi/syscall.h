@@ -14,6 +14,7 @@
 #define RUM_SYS_WRITE  2 /* EBX: handle, ECX: address, EDX: byte count. */
 #define RUM_SYS_GETPID 3 /* No arguments; returns a positive process ID. */
 #define RUM_SYS_COUNT  4
+#define RUM_ABI_PID_MAX 0x7FFFFFFF /* Positive IDs fit the signed result type. */
 
 #define RUM_STDIN  0
 #define RUM_STDOUT 1

@@ -28,6 +28,7 @@ int main(void)
     }
     rum_result_t error = -RUM_EFAULT;
     assert(error < 0 && (uint32_t)error == 0xFFFFFFFEu);
+    assert((rum_result_t)RUM_ABI_PID_MAX > 0);
     assert(sizeof(struct rum_arguments) == 4232 && sizeof(struct rum_elf_header) == 52);
     puts("PASS: fixed-width user ABI, shared layout/limits and maximum argument stack");
     return 0;

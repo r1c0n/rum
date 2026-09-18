@@ -291,7 +291,7 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
     (artifacts / f"{mode}-memory.json").write_text(json.dumps(report, indent=2) + "\n")
 
 
-def cpu_tables_test(stream, symbols, artifacts, mode, live=False):
+def cpu_tables_test(stream, symbols, artifacts, mode, live=False, user_abi=False):
     registers = qmp_command(stream, "human-monitor-command", {"command-line": "info registers"})
     (artifacts / f"{mode}-cpu.txt").write_text(registers)
     for name, expected_base, expected_limit in (("GDT", symbols["rum_gdt"], 47),
@@ -347,9 +347,55 @@ def cpu_tables_test(stream, symbols, artifacts, mode, live=False):
         if ((high << 16 | low) != symbols[target]
                 or (selector, reserved, attributes) != (8, 0, 0x8E)):
             raise RuntimeError(f"Wrong IDT gate {vector}")
-    if any(idt[48 * 8:]):
+    if user_abi:
+        low, selector, reserved, attributes, high = struct.unpack_from("<HHBBH", idt, 128 * 8)
+        if ((high << 16 | low) != symbols["abi_test_syscall"] or
+                (selector, reserved, attributes) != (8, 0, 0xEE)):
+            raise RuntimeError("Wrong fixture user syscall gate")
+    if any(idt[48 * 8:128 * 8]) or any(idt[(129 if user_abi else 128) * 8:]):
         raise RuntimeError("Unexpected IDT gates above the PIC range")
     return registers
+
+
+def user_abi_memory_test(stream, symbols, artifacts, mode, registers, project, case):
+    controls = {name: int(value, 16) for name, value in re.findall(r"\b(CR[034])=([0-9a-fA-F]+)", registers)}
+    if controls.get("CR3") != symbols["abi_directory"] or controls.get("CR0", 0) & 0x80010000 != 0x80010000:
+        raise RuntimeError("Wrong fixture user paging controls")
+    directory = struct.unpack("<1024I", dump_ram(stream, symbols["abi_directory"], 4096,
+                                                 artifacts / f"{mode}-directory.bin"))
+    expected = {0: symbols["abi_kernel_table"] | 3, 512: symbols["abi_program_table"] | 7,
+                767: symbols["abi_stack_table"] | 7}
+    if any(entry & ~0x60 != expected.get(i, 0) for i, entry in enumerate(directory)):
+        raise RuntimeError("Wrong fixture kernel/user directory separation")
+    kernel = struct.unpack("<1024I", dump_ram(stream, symbols["abi_kernel_table"], 4096,
+                                              artifacts / f"{mode}-kernel-table.bin"))
+    if any(entry & ~0x60 != (i * 4096 | 3 if i else 0) for i, entry in enumerate(kernel)):
+        raise RuntimeError("Fixture kernel mapping exposes user access or page zero")
+    program = struct.unpack("<1024I", dump_ram(stream, symbols["abi_program_table"], 4096,
+                                               artifacts / f"{mode}-program-table.bin"))
+    stack = struct.unpack("<1024I", dump_ram(stream, symbols["abi_stack_table"], 4096,
+                                             artifacts / f"{mode}-stack-table.bin"))
+    if any(entry & ~0x60 != (symbols["abi_stack_pages"] + (i - 1008) * 4096 | 7 if i >= 1008 else 0)
+           for i, entry in enumerate(stack)):
+        raise RuntimeError("Wrong fixture stack pages or missing guard")
+    image = (project / ("build/user/ramfs/hello.elf" if case == "hello" else "build/tests/user/abi-probe.elf")).read_bytes()
+    phoff, phnum = struct.unpack_from("<I", image, 28)[0], struct.unpack_from("<H", image, 44)[0]
+    mappings = {}
+    for i in range(phnum):
+        kind, offset, address, _, files, memory, flags, _ = struct.unpack_from("<8I", image, phoff + 32 * i)
+        if kind != 1 or not memory:
+            continue
+        start = (address - 0x80000000) // 4096
+        end = (address - 0x80000000 + memory + 4095) // 4096
+        for slot in range(start, end):
+            mappings[slot] = symbols["abi_program_pages"] + slot * 4096 | (7 if flags & 2 else 5)
+        if not flags & 2:
+            loaded = dump_ram(stream, symbols["abi_program_pages"] + address - 0x80000000, files,
+                              artifacts / f"{mode}-segment-{i}.bin")
+            if loaded != image[offset:offset + files]:
+                raise RuntimeError("Executed user code/constants differ from separate ELF asset")
+    if any(entry & ~0x60 != mappings.get(i, 0) for i, entry in enumerate(program)):
+        raise RuntimeError("Wrong fixture user segment permissions or frames")
 
 
 def timer_test(stream, symbols, artifacts, mode):
@@ -784,17 +830,17 @@ def snake_test(stream, symbols, artifacts, mode, serial):
     timer_test(stream, symbols, artifacts, mode)
 
 
-def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False, cpu=None, tasks=False):
+def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False, cpu=None, tasks=False, user_abi=None):
     serial_artifact = artifacts / f"{mode}-serial.log"
     vga_dump = artifacts / f"{mode}-vga.bin"
     screenshot = artifacts / f"{mode}.ppm"
-    image = project / ("build/tests/task.elf" if tasks else f"build/tests/cpu-{cpu}.elf" if cpu else "build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
+    image = project / (f"build/tests/abi-{user_abi}.elf" if user_abi else "build/tests/task.elf" if tasks else f"build/tests/cpu-{cpu}.elf" if cpu else "build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
                        f"build/tests/fault-{fault}.elf" if fault else "build/rum.elf")
     symbols = elf_symbols(image)
     boot_layout_test(symbols)
-    marker = ("rum_task_test_ok" if tasks else "rum_cpu_test_ok" if cpu else "rum_storage_test_ok" if storage else "rum_paging_test_ok" if paging == "ok" else "rum_panic_halted" if paging else
+    marker = ("rum_abi_test_ok" if user_abi else "rum_task_test_ok" if tasks else "rum_cpu_test_ok" if cpu else "rum_storage_test_ok" if storage else "rum_paging_test_ok" if paging == "ok" else "rum_panic_halted" if paging else
               "rum_irq_test_ok" if irq_test else "rum_panic_halted" if fault else "rum_boot_ok")
-    normal = not fault and not irq_test and not paging and not storage and not cpu and not tasks
+    normal = not fault and not irq_test and not paging and not storage and not cpu and not tasks and not user_abi
     with tempfile.TemporaryDirectory(prefix="rum-qmp-") as temporary:
         # Keep the live writer/readers on one filesystem. DrvFs can return
         # ENODATA when a WSL guest creates/truncates a log on the Windows drive.
@@ -820,7 +866,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
         try:
             deadline = time.monotonic() + 20
             while marker not in serial.read_text(errors="replace"):
-                if any(marker in serial.read_text(errors="replace") for marker in ("rum_paging_test_failed", "rum_storage_test_failed", "rum_cpu_test_failed", "rum_task_test_failed")):
+                if any(marker in serial.read_text(errors="replace") for marker in ("rum_paging_test_failed", "rum_storage_test_failed", "rum_cpu_test_failed", "rum_task_test_failed", "rum_abi_test_failed")):
                     raise RuntimeError(serial.read_text(errors="replace"))
                 if process.poll() is not None:
                     raise RuntimeError(f"QEMU exited: {process.stderr.read().decode(errors='replace')}")
@@ -845,7 +891,9 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                         stop_at_idle(stream)
                     else:
                         qmp_command(stream, "stop")
-                    registers = cpu_tables_test(stream, symbols, artifacts, mode, live=normal)
+                    registers = cpu_tables_test(stream, symbols, artifacts, mode, live=normal, user_abi=bool(user_abi))
+                    if user_abi:
+                        user_abi_memory_test(stream, symbols, artifacts, mode, registers, project, user_abi)
                     if normal:
                         physical_memory_test(stream, symbols, artifacts, mode, registers, serial.read_text(), project)
                         timer_test(stream, symbols, artifacts, mode)
@@ -855,7 +903,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                             for y in range(25)]
                     screen = "\n".join(rows)
                     (artifacts / f"{mode}-screen.txt").write_text(screen + "\n")
-                    expected_text = (("rum kernel contexts and waiting tests passed.",) if tasks else
+                    expected_text = (("rum user ABI and startup tests passed.",) if user_abi else
+                                     ("rum kernel contexts and waiting tests passed.",) if tasks else
                                      ("rum user CPU entry and policy tests passed.",) if cpu else
                                      ("rum heap and RAM filesystem tests passed.",) if storage else
                                      ("rum physical allocator and paging tests passed.",) if paging == "ok" else
@@ -888,7 +937,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                         snake_test(stream, symbols, artifacts, mode, serial)
                     qmp_command(stream, "quit")
             print(f"PASS: {mode}, GDT/IDT/segments, " +
-                  ("private kernel stacks, real context/CR3 switches, waiting/idle/IRQ wakeup, deferred cleanup" if tasks else
+                  ("separate user ELF, real ring-3 startup/int 0x80, arguments/BSS/return, segment permissions" if user_abi else
+                   "private kernel stacks, real context/CR3 switches, waiting/idle/IRQ wakeup, deferred cleanup" if tasks else
                    "real ring-3 PIT/IRET, TSS stack, user registers/segments/DF, alignment, integer/I/O policy" if cpu else
                    "production heap/RAM files, alignment, reuse, realloc, limits, physical OOM rollback" if storage else
                    "production paging/contexts, shared heap/tables, CR3/IRQ return, lifecycle/limits/OOM recovery" if paging == "ok"
@@ -923,6 +973,8 @@ def main():
         boot_test(args.qemu, project, f"cpu-{case}", artifacts, cpu=case)
     for ram in (16, 64):
         boot_test(args.qemu, project, f"tasks-{ram}", artifacts, tasks=True, ram=ram)
+    for case in ("args", "limits", "hello"):
+        boot_test(args.qemu, project, f"abi-{case}", artifacts, user_abi=case)
     boot_test(args.qemu, project, "paging-ok", artifacts, paging="ok")
     for case in PAGING_FAULTS:
         boot_test(args.qemu, project, f"paging-{case}", artifacts, paging=case)

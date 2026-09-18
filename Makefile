@@ -35,7 +35,8 @@ STORAGE_HOST_HEADERS := include/rum/heap.h include/rum/ramfs.h include/rum/embed
 SNAKE_HOST_SOURCES := kernel/snake.c kernel/snake_model.c
 SNAKE_HOST_HEADERS := include/rum/snake.h include/rum/snake_model.h include/rum/timer.h
 USER_PROGRAMS := hello
-USER_CPPFLAGS := -Iuser/include -Iinclude
+USER_CPPFLAGS := -Iuser/include -Ibuild/user/include
+USER_INCLUDE_STAMP := build/user/include/.abi-stamp
 USER_CFLAGS := -std=gnu11 -ffreestanding -O2 -g -Wall -Wextra -Werror \
                -Wstrict-prototypes -Wmissing-prototypes -fno-stack-protector \
                -fno-pie -fno-pic -fno-builtin -fno-asynchronous-unwind-tables \
@@ -44,26 +45,37 @@ USER_RUNTIME := build/user/lib/start.o build/user/lib/syscall-entry.o build/user
 USER_DEBUG := $(addprefix build/user/debug/,$(addsuffix .elf,$(USER_PROGRAMS)))
 USER_ASSETS := $(addprefix build/user/ramfs/,$(addsuffix .elf,$(USER_PROGRAMS)))
 USER_DEPENDENCIES := $(USER_RUNTIME:.o=.d) $(addprefix build/user/programs/,$(addsuffix .d,$(USER_PROGRAMS)))
+ABI_CASES := args limits hello
+ABI_KERNELS := $(addprefix build/tests/abi-,$(addsuffix .elf,$(ABI_CASES)))
+ABI_OBJECTS := $(ABI_KERNELS:.elf=.o)
+ABI_IMAGES := $(addprefix build/tests/abi-image-,$(addsuffix .o,$(ABI_CASES)))
+TEST_DEPENDENCIES += $(ABI_OBJECTS:.o=.d) $(ABI_IMAGES:.o=.d) build/tests/abi-entry.d build/tests/user/probe.d build/tests/user/probe-entry.d
 
 .PHONY: all check iso user test-user run run-kernel debug panic test test-host doctor toolchain clean FORCE
 .SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) build/tests/paging-spaces.o
 .SECONDARY: $(USER_DEBUG) $(USER_RUNTIME) $(addprefix build/user/programs/,$(addsuffix .o,$(USER_PROGRAMS)))
+.SECONDARY: $(ABI_OBJECTS) $(ABI_IMAGES)
 all: user iso
 
 # Userspace has its own startup, include path, flags, objects and linker script.
-build/user/linker.ld: user/linker.ld $(ABI_HEADERS) Makefile
+$(USER_INCLUDE_STAMP): $(ABI_HEADERS) Makefile
+	@mkdir -p $(@D)/rum/abi
+	cp -- $(ABI_HEADERS) $(@D)/rum/abi/
+	touch $@
+
+build/user/linker.ld: user/linker.ld $(USER_INCLUDE_STAMP) Makefile
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) -E -P -undef -x c -D__ASSEMBLER__ $< -o $@
 
-build/user/%.o: user/%.c Makefile
+build/user/%.o: user/%.c $(USER_INCLUDE_STAMP) Makefile
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
 
-build/user/lib/start.o: user/lib/start.s $(ABI_HEADERS) Makefile
+build/user/lib/start.o: user/lib/start.s $(USER_INCLUDE_STAMP) Makefile
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
 
-build/user/lib/syscall-entry.o: user/lib/syscall.s $(ABI_HEADERS) Makefile
+build/user/lib/syscall-entry.o: user/lib/syscall.s $(USER_INCLUDE_STAMP) Makefile
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
 
@@ -89,6 +101,7 @@ build/user/embedded-files.c: FORCE $(USER_ASSETS) scripts/embed-files.py $(wildc
 	python3 scripts/embed-files.py assets/ramfs $@ --extra-directory build/user/ramfs
 
 user: $(USER_ASSETS) build/user/embedded-files.c
+	@$(foreach program,$(USER_PROGRAMS),build/tools/check-user-elf build/user/ramfs/$(program).elf build/user/debug/$(program).elf || exit $$?;)
 
 test-user: user
 	python3 tests/user-elf-test.py --cross-prefix $(CROSS_PREFIX)
@@ -158,7 +171,7 @@ debug: iso
 panic: build/tests/fault-ud.elf
 	$(QEMU) -m 64M -kernel $< -serial stdio -no-reboot -no-shutdown
 
-test: test-host test-user iso $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PAGING_KERNELS) build/tests/storage.elf build/tests/task.elf
+test: test-host test-user iso $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PAGING_KERNELS) build/tests/storage.elf build/tests/task.elf $(ABI_KERNELS)
 	python3 scripts/smoke-test.py --qemu $(QEMU)
 
 build/tests/irq.elf: build/tests/irq-kernel.o build/tests/irq-probe.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
@@ -172,6 +185,47 @@ build/tests/storage.elf: build/tests/storage-kernel.o build/tests/storage-checks
 build/tests/task.elf: build/tests/task-kernel.o build/tests/task-probe.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
+
+# Isolated ring-3 fixtures consume the actual separate user ELF/startup/runtime.
+build/tests/user/probe.o: tests/user-probe.c $(USER_INCLUDE_STAMP) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+
+build/tests/user/probe-entry.o: tests/user-probe-entry.s $(USER_INCLUDE_STAMP) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
+
+build/tests/user/abi-probe.debug.elf: build/tests/user/probe.o build/tests/user/probe-entry.o $(USER_RUNTIME) build/user/linker.ld
+	$(CC) -T build/user/linker.ld -nostdlib -static -no-pie -Wl,--build-id=none \
+	    -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+
+build/tests/user/abi-probe.elf: build/tests/user/abi-probe.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@.tmp
+	build/tools/check-user-elf $@.tmp $<
+	mv -- $@.tmp $@
+
+build/tests/abi-args.o build/tests/abi-image-args.o: USER_CASE=0
+build/tests/abi-limits.o build/tests/abi-image-limits.o: USER_CASE=1
+build/tests/abi-hello.o build/tests/abi-image-hello.o: USER_CASE=2
+
+$(ABI_OBJECTS): build/tests/abi-%.o: tests/abi-kernel.c Makefile
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DRUM_USER_CASE=$(USER_CASE) -MMD -MP -c $< -o $@
+
+build/tests/abi-entry.o: tests/abi-entry.s $(ABI_HEADERS) $(LAYOUT_HEADERS) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
+
+build/tests/abi-image-args.o build/tests/abi-image-limits.o: build/tests/user/abi-probe.elf
+build/tests/abi-image-hello.o: build/user/ramfs/hello.elf
+$(ABI_IMAGES): build/tests/abi-image-%.o: tests/abi-image.s Makefile
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) -x assembler-with-cpp -DRUM_USER_CASE=$(USER_CASE) -MMD -MP -c $< -o $@
+
+build/tests/abi-%.elf: build/tests/abi-%.o build/tests/abi-image-%.o build/tests/abi-entry.o $(filter-out build/arch/i386/interrupt.o build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
+
 build/tests/cpu-irq.o: CPU_CASE=0
 build/tests/cpu-x87.o: CPU_CASE=1
 build/tests/cpu-mmx.o: CPU_CASE=2

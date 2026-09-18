@@ -21,6 +21,11 @@ def check(path, valid, debug_path=None):
     assert (result.returncode == 0) == valid, result.stdout + result.stderr
 
 check(asset, True, debug)
+private_include = subprocess.run(
+    [args.cross_prefix + "gcc", "-ffreestanding", "-Iuser/include", "-Ibuild/user/include",
+     "-x", "c", "-fsyntax-only", "-"], input="#include <rum/heap.h>\n",
+    capture_output=True, text=True, cwd=root)
+assert private_include.returncode != 0, "private kernel headers exposed to user build"
 symbols = subprocess.check_output([args.cross_prefix + "nm", str(debug)], text=True)
 assert all(name in symbols for name in (" _start", " main", " rum_syscall3"))
 assert "kernel_main" not in symbols
@@ -74,4 +79,4 @@ with tempfile.TemporaryDirectory(prefix="rum-user-elf-") as temporary:
     check(bad, True, debug)  # Exact embedding boundary; trailing bytes are unused.
     text_offset = headers[loads[0]][1]
     mutation(text_offset, "B", original[text_offset] ^ 1, compare=True)
-print(f"PASS: static user ELF32, separate debug symbols, unchanged load image and {cases} rejected inputs")
+print(f"PASS: static user ELF32, isolated headers, separate debug symbols, unchanged load image and {cases} rejected inputs")
