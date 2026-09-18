@@ -28,8 +28,9 @@ addresses are rejected before any page table is allocated. Boundary constants
 are aligned to whole page-table spans to keep future shared kernel tables
 separate from private user tables.
 
-Reserving a range does not allocate or map it. Processes, separate address
-spaces, and dedicated stack mapping APIs are subsequent work.
+Reserving a range does not allocate or map it. Separate directories now borrow
+shared kernel tables; processes, private user mappings, and dedicated stack
+mapping APIs are subsequent work. See [Address spaces](memory.md#address-spaces).
 
 ## Stack and process limits
 
@@ -70,12 +71,13 @@ without freeing the data page.
 | --- | --- |
 | Kernel image and boot metadata | Permanently reserved; never returned to PMM |
 | Kernel directory and identity tables | Kernel paging; initialization failure rolls back, successful boot retains them |
-| Dynamic kernel tables | Kernel paging; currently reclaimed when empty; shared-table lifetime will be handled by paging contexts |
+| Dynamic kernel tables | Kernel paging; publish in every directory, detach everywhere before reclaiming an empty table |
 | Heap frames | Kernel heap; kept mapped for reuse after individual allocations are freed |
 | Kernel metadata allocations | Allocating subsystem; release with `kfree` after references are removed |
-| Future process directory and private user tables | Address space; release once inactive, after private mappings are removed |
+| Paging-context directory and metadata | Address space; release only while inactive; borrowed kernel tables remain owned by the kernel |
+| Future private user tables | Address space; release while inactive after private mappings are removed |
 | Future private program and user-stack frames | Address space; allocate directly from PMM and release after removing all mappings |
-| Future shared kernel table references | Kernel paging; process teardown must never free the referenced tables or kernel data frames |
+| Shared kernel table references | Kernel paging; context destruction never frees the referenced tables or kernel data frames |
 | Future kernel stack frames and slot | Kernel context; release only after switching to a surviving stack |
 | Future process record and argument copies | Process manager; release after handles, execution state, and memory have been detached |
 | Future file handles | Process handle table; close on exit and failed process construction |
@@ -114,6 +116,11 @@ reservations from general mappings. QEMU paging tests exercise the production
 API at the last permitted page and reserved ranges, checking translation,
 table accounting, caller frame ownership, and rollback. Every boot fixture
 also checks the linked kernel and boot-stack addresses and sizes.
+
+Paging-context tests cover shared heap growth, new kernel tables, active CR3
+bookkeeping, interrupt return under child directories, lifecycle limits, and
+allocation-failure cleanup. They distinguish retained heap pages from leaked
+directory frames and live metadata.
 
 Before these changes, commit `6985f698` passed the seven C host tests, embedded
 file generator tests, and all 19 QEMU cases. The 64 MiB GRUB boot reported

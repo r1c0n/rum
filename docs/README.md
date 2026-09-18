@@ -7,7 +7,7 @@
 | [Snake](snake.md) | Controls, scoring, and game implementation |
 | [CPU exceptions](exceptions.md) | GDT, IDT, exception frames, and panic diagnostics |
 | [Device interrupts](interrupts.md) | PIC, PIT, keyboard driver, and idle loop |
-| [Memory management](memory.md) | Multiboot memory map, physical pages, and paging |
+| [Memory management](memory.md) | Physical pages, paging contexts, and shared kernel mappings |
 | [Memory layout and ownership](memory-layout.md) | Shared ranges, stack reservations, process limits, and cleanup rules |
 | [Heap and RAM files](storage.md) | Allocation APIs, file ownership, and embedded assets |
 | [0.2.0 roadmap](roadmap.md) | Kernel prerequisites, user processes, syscalls, and persistent storage |
