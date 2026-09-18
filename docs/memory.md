@@ -66,6 +66,11 @@ Invalid boot maps or paging failures are reported before the kernel halts.
 
 ## Mapping API
 
+Paging operations take an explicit `struct paging_space *`. The permanent
+kernel space is returned by `paging_kernel_space()`; `paging_active_space()`
+identifies the directory currently loaded in CR3. `paging_switch_space()`
+preserves interrupt flags and reloads CR3 to discard cached translations.
+
 The API accepts aligned virtual addresses from `0x40000000` up to, but excluding,
 `0x7fc00000`, allocated physical frames, and writable or read-only permissions. The
 [heap](storage.md#heap) reserves `0x40000000`–`0x403fffff`; other callers must
@@ -86,9 +91,10 @@ they do not provide isolation from other kernel code.
 
 ```c
 uint32_t frame = pmm_allocate_page();
-if (frame && paging_map_page(RUM_KERNEL_ALIAS_BASE, frame, PAGING_WRITABLE)) {
+struct paging_space *space = paging_kernel_space();
+if (frame && paging_map_page(space, RUM_KERNEL_ALIAS_BASE, frame, PAGING_WRITABLE)) {
     *(volatile uint32_t *)RUM_KERNEL_ALIAS_BASE = 42;
-    paging_unmap_page(RUM_KERNEL_ALIAS_BASE, NULL);
+    paging_unmap_page(space, RUM_KERNEL_ALIAS_BASE, NULL);
     pmm_free_page(frame);
 } else if (frame) {
     pmm_free_page(frame);
