@@ -95,6 +95,14 @@ halt; only workers may exit. Event signaling never runs an entry inside an IRQ.
 
 ## Tests
 
+`task_snapshot_read` copies every occupied record, state counts, owned
+stack/directory page counts and lifecycle counters under interrupt protection.
+It performs no allocation and is safe from device IRQs. Before initialization,
+it returns false with a zeroed result. Reclamation keeps resource release and
+record clearing in the same protected operation, so snapshots cannot show an
+owner whose frames have already been freed. See [kernel diagnostics](diagnostics.md)
+for the `diag` command and panic reporting.
+
 `build/tests/task.elf` links the production scheduler, switch assembly, PMM,
 paging, TSS, timer and PIC. At 16 and 64 MiB RAM it checks:
 
@@ -106,6 +114,13 @@ paging, TSS, timer and PIC. At 16 and 64 MiB RAM it checks:
   real PIT delivery during idle, and repeated IRQ sleep boundaries.
 - Reclamation after exiting to boot or idle, and rejection of IRQ-context
   and IF-clear operations.
+- Repeated insufficient stack budgets, fragmented free pages, success with an
+  exact contiguous budget, and unchanged ownership after failed creation.
+- Allocation-free task/resource snapshots across switches and from timer IRQs.
+
+`build/tests/task-fault.elf` triggers a real invalid-opcode exception from an
+owned worker context. QEMU checks the original register report, current task,
+CR3/TSS, stack bounds, protected mappings and every claimed physical frame.
 
 Normal boot checks independently audit PMM ownership of the idle pages and
 verify the CPU's ESP and TSS stack against boot/idle bounds. Interactive shell,

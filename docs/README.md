@@ -8,6 +8,7 @@
 | [CPU exceptions](exceptions.md) | GDT/TSS, shared interrupt frames, user CPU policy, and panic diagnostics |
 | [Device interrupts](interrupts.md) | PIC, PIT, keyboard driver, and idle loop |
 | [Kernel tasks](tasks.md) | Cooperative contexts, private stacks, event waits, and deferred cleanup |
+| [Kernel diagnostics](diagnostics.md) | Task, CR3, stack and resource snapshots, allocation boundaries and owned-context panics |
 | [User ABI and executables](user-abi.md) | Shared syscall/argument contracts, static ELF32 builds, and startup tests |
 | [Memory management](memory.md) | Physical pages, paging contexts, and shared kernel mappings |
 | [Memory layout and ownership](memory-layout.md) | Shared ranges, stack reservations, process limits, and cleanup rules |
@@ -44,6 +45,8 @@ boots, live device input, isolated CPU-fault and allocation-failure cases, and
 ring-3 timer returns and CPU-policy enforcement in dedicated test kernels.
 Kernel-task fixtures check actual stack/CR3 switching, wait boundaries and
 repeated cleanup at 16 and 64 MiB RAM.
+Diagnostics fixtures cover exact and fragmented allocation budgets and a kernel
+panic on an owned worker stack under a private CR3, with independent PMM checks.
 User fixtures execute separate ELF32 assets to check startup, arguments, BSS,
 syscall wrappers and return values through a test-only dispatcher.
 

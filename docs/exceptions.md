@@ -117,6 +117,14 @@ isolation or fault recovery. The normal kernel remains in ring 0.
 The host frame test puts a short kernel frame against an inaccessible page to
 catch accidental reads of a user tail, and verifies fresh user-frame initialization.
 
+Panic output also identifies the active task, hardware CR3, TSS.ESP0 and kernel
+stack bounds. The complete resource ledger goes to serial to keep the saved
+registers visible on VGA. An additional owned-worker fault fixture verifies
+this output under production paging and a real context switch. The host frame
+test places both frame lengths against an inaccessible page and poisons all
+registers before fresh user-frame initialization.
+See [kernel diagnostics](diagnostics.md) for the reporting API and checks.
+
 ## References
 
 - [Intel Software Developer Manuals](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html)
