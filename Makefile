@@ -9,32 +9,47 @@ HOST_CC ?= gcc
 CPPFLAGS := -Iinclude
 CFLAGS := -std=gnu11 -ffreestanding -O2 -g -Wall -Wextra -Werror \
           -Wstrict-prototypes -Wmissing-prototypes -fno-stack-protector \
-          -fno-pie -fno-builtin -fno-asynchronous-unwind-tables -mno-mmx -mno-sse -mno-sse2
+          -fno-pie -fno-builtin -fno-asynchronous-unwind-tables -msoft-float -mno-mmx -mno-sse -mno-sse2
 LAYOUT_HEADERS := include/rum/memory_layout.h include/rum/process_limits.h
 LINKER_SCRIPT := build/arch/i386/linker.ld
 LDFLAGS := -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie \
            -Wl,--build-id=none -Wl,-Map,build/rum.map
-SOURCES := kernel/kernel.c kernel/terminal.c kernel/serial.c kernel/memory.c kernel/timer.c kernel/keyboard.c kernel/keyboard_decode.c kernel/shell.c kernel/snake.c kernel/snake_model.c kernel/pmm.c kernel/heap.c kernel/ramfs.c arch/i386/exceptions.c arch/i386/pic.c arch/i386/irq.c arch/i386/paging.c
-ASM_SOURCES := arch/i386/boot.s arch/i386/gdt.s arch/i386/interrupts.s
-OBJECTS := $(ASM_SOURCES:%.s=build/%.o) $(SOURCES:%.c=build/%.o) build/generated/embedded-files.o
-DEPENDENCIES := $(SOURCES:%.c=build/%.d) build/arch/i386/boot.d build/generated/embedded-files.d
+SOURCES := kernel/kernel.c kernel/terminal.c kernel/serial.c kernel/memory.c kernel/timer.c kernel/keyboard.c kernel/keyboard_decode.c kernel/shell.c kernel/snake.c kernel/snake_model.c kernel/pmm.c kernel/heap.c kernel/ramfs.c arch/i386/cpu.c arch/i386/gdt.c arch/i386/interrupt.c arch/i386/exceptions.c arch/i386/pic.c arch/i386/irq.c arch/i386/paging.c
+ASM_SOURCES := arch/i386/boot.s arch/i386/interrupts.s
+OBJECTS := $(ASM_SOURCES:%.s=build/%.o) build/arch/i386/gdt-load.o $(SOURCES:%.c=build/%.o) build/generated/embedded-files.o
+DEPENDENCIES := $(SOURCES:%.c=build/%.d) build/arch/i386/boot.d build/arch/i386/interrupts.d build/arch/i386/gdt-load.d build/generated/embedded-files.d
 FAULT_KERNELS := build/tests/fault-de.elf build/tests/fault-ud.elf build/tests/fault-gp.elf build/tests/fault-pf.elf
 FAULT_OBJECTS := $(FAULT_KERNELS:.elf=.o)
 FAULT_COMMON := $(filter-out build/kernel/kernel.o,$(OBJECTS)) build/tests/fault-trigger.o
 PAGING_CASES := ok null text rodata unmapped readonly
 PAGING_KERNELS := $(addprefix build/tests/paging-,$(addsuffix .elf,$(PAGING_CASES)))
 PAGING_OBJECTS := $(PAGING_KERNELS:.elf=.o)
-TEST_DEPENDENCIES := $(FAULT_OBJECTS:.o=.d) $(PAGING_OBJECTS:.o=.d) build/tests/paging-spaces.d build/tests/irq-kernel.d build/tests/storage-kernel.d build/tests/storage-checks.d
+CPU_CASES := irq x87 mmx sse io
+CPU_KERNELS := $(addprefix build/tests/cpu-,$(addsuffix .elf,$(CPU_CASES)))
+CPU_OBJECTS := $(CPU_KERNELS:.elf=.o)
+TEST_DEPENDENCIES := $(FAULT_OBJECTS:.o=.d) $(PAGING_OBJECTS:.o=.d) $(CPU_OBJECTS:.o=.d) build/tests/cpu-probe.d build/tests/paging-spaces.d build/tests/irq-kernel.d build/tests/storage-kernel.d build/tests/storage-checks.d
 STORAGE_HOST_SOURCES := kernel/heap.c kernel/ramfs.c kernel/memory.c tests/page-backend.c build/embedded-files.c
 STORAGE_HOST_HEADERS := include/rum/heap.h include/rum/ramfs.h include/rum/embedded.h include/rum/paging.h include/rum/pmm.h include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
 SNAKE_HOST_SOURCES := kernel/snake.c kernel/snake_model.c
 SNAKE_HOST_HEADERS := include/rum/snake.h include/rum/snake_model.h include/rum/timer.h
 
 .PHONY: all check iso run run-kernel debug panic test test-host doctor toolchain clean FORCE
-.SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) build/tests/paging-spaces.o
+.SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) build/tests/paging-spaces.o
 all: iso
 
-# Only the boot assembly and linker script need the shared layout preprocessor.
+build/arch/i386/gdt.o: arch/i386/gdt.c Makefile
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
+
+build/arch/i386/gdt-load.o: arch/i386/gdt.s include/rum/cpu_layout.h
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
+
+build/arch/i386/interrupts.o: arch/i386/interrupts.s include/rum/cpu_layout.h
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
+
+# The boot assembly and linker script share the memory layout constants.
 build/arch/i386/boot.o: arch/i386/boot.s include/rum/memory_layout.h
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
@@ -47,7 +62,7 @@ build/%.o: %.s
 	@mkdir -p $(@D)
 	$(AS) $< -o $@
 
-build/%.o: %.c
+build/%.o: %.c Makefile
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
@@ -56,7 +71,7 @@ FORCE:
 build/embedded-files.c: FORCE scripts/embed-files.py $(wildcard assets/ramfs/*)
 	python3 scripts/embed-files.py assets/ramfs $@
 
-build/generated/embedded-files.o: build/embedded-files.c
+build/generated/embedded-files.o: build/embedded-files.c Makefile
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
@@ -87,7 +102,7 @@ debug: iso
 panic: build/tests/fault-ud.elf
 	$(QEMU) -m 64M -kernel $< -serial stdio -no-reboot -no-shutdown
 
-test: test-host iso $(FAULT_KERNELS) build/tests/irq.elf $(PAGING_KERNELS) build/tests/storage.elf
+test: test-host iso $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PAGING_KERNELS) build/tests/storage.elf
 	python3 scripts/smoke-test.py --qemu $(QEMU)
 
 build/tests/irq.elf: build/tests/irq-kernel.o build/tests/irq-probe.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
@@ -95,6 +110,25 @@ build/tests/irq.elf: build/tests/irq-kernel.o build/tests/irq-probe.o $(filter-o
 	grub-file --is-x86-multiboot $@
 
 build/tests/storage.elf: build/tests/storage-kernel.o build/tests/storage-checks.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
+
+build/tests/cpu-irq.o: CPU_CASE=0
+build/tests/cpu-x87.o: CPU_CASE=1
+build/tests/cpu-mmx.o: CPU_CASE=2
+build/tests/cpu-sse.o: CPU_CASE=3
+build/tests/cpu-io.o: CPU_CASE=4
+
+build/tests/cpu-probe.o: tests/cpu-probe.s include/rum/memory_layout.h
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
+
+$(CPU_OBJECTS): build/tests/cpu-%.o: tests/cpu-kernel.c Makefile
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DRUM_CPU_CASE=$(CPU_CASE) -MMD -MP -c $< -o $@
+
+# The observer replaces only C dispatch; entry/return, tables and PIC are real.
+build/tests/cpu-%.elf: build/tests/cpu-%.o build/tests/cpu-probe.o $(filter-out build/arch/i386/interrupt.o build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
 
@@ -109,7 +143,7 @@ build/tests/paging-trigger.o: tests/paging-trigger.s
 	@mkdir -p $(@D)
 	$(AS) $< -o $@
 
-$(PAGING_OBJECTS): build/tests/paging-%.o: tests/paging-kernel.c
+$(PAGING_OBJECTS): build/tests/paging-%.o: tests/paging-kernel.c Makefile
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DRUM_PAGING_CASE=$(PAGING_CASE) -MMD -MP -c $< -o $@
 
@@ -126,7 +160,7 @@ build/tests/fault-trigger.o: tests/fault-trigger.s
 	@mkdir -p $(@D)
 	$(AS) $< -o $@
 
-$(FAULT_OBJECTS): build/tests/fault-%.o: tests/fault-kernel.c
+$(FAULT_OBJECTS): build/tests/fault-%.o: tests/fault-kernel.c Makefile
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DRUM_FAULT_CASE=$(FAULT_CASE) -MMD -MP -c $< -o $@
 
@@ -166,7 +200,11 @@ build/tests/layout-test: tests/layout-test.c $(LAYOUT_HEADERS)
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude $< -o $@
 
-test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test
+build/tests/frame-test: tests/frame-test.c include/rum/interrupts.h include/rum/gdt.h include/rum/cpu_layout.h include/rum/cpu_policy.h
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude $< -o $@
+
+test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test
 	./build/tests/console-test
 	./build/tests/memory-test
 	./build/tests/keyboard-test
@@ -175,6 +213,7 @@ test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard
 	./build/tests/storage-test
 	./build/tests/snake-test
 	./build/tests/layout-test
+	./build/tests/frame-test
 	python3 tests/embed-test.py
 
 doctor:

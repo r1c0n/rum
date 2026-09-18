@@ -10,9 +10,11 @@ and connects through master IRQ2. Initialization masks all sources. The kernel
 registers handlers before unmasking IRQ0 and IRQ1, leaving the master mask at
 `0xfc` and the slave at `0xff`. IRQ1 stays masked if keyboard setup fails.
 
-IRQ stubs build the same ring-0 frame used for exceptions. Common assembly
+IRQ and exception stubs share the same [frame prefix](exceptions.md#handler-path).
+Ring-3 entries also carry the CPU-saved user ESP and SS. Common assembly
 clears DF, saves general and segment registers, loads kernel data selectors,
-aligns the stack, and calls `irq_dispatch`. It restores the frame and returns
+aligns the stack, and calls `interrupt_dispatch`, which routes device vectors
+to `irq_dispatch`. It restores the frame and returns
 with `iret`, including the interrupted flags. Handlers run with IF clear.
 
 Dispatch calls the registered handler and sends an end-of-interrupt command
@@ -65,6 +67,8 @@ IRQ handlers do not echo, edit, or draw.
 Host tests cover decoding, modifiers, and console behavior. An isolated IRQ
 kernel uses software interrupts with known registers and DF set to check frame
 restoration and spurious IRQ handling.
+User CPU fixtures also check repeated real timer delivery through a TSS stack
+switch and `iret` back to ring 3, including segments, stack, flags and C alignment.
 
 Normal QEMU boots check live PIT ticks and inject input into the emulated PS/2
 device. Tests cover modifiers, ignored keys, editing, scrolling, timer delivery,

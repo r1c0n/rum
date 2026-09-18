@@ -1,5 +1,6 @@
 /* Exercise the production paging registry and shared tables in QEMU. */
 #include <rum/cpu.h>
+#include <rum/gdt.h>
 #include <rum/heap.h>
 #include <rum/interrupts.h>
 #include <rum/paging.h>
@@ -15,6 +16,7 @@
 #define IF 0x200u
 
 extern const char __kernel_start[], __text_start[], __rodata_start[];
+extern const char __boot_stack_top[];
 
 static void check(bool condition, const char *name)
 {
@@ -71,6 +73,11 @@ static void shared_tables(struct paging_space *space)
         check(!(table[(readonly[i] >> 12) & 1023] & PAGING_WRITABLE), "context kernel protection");
     }
     uint32_t physical;
+    const uintptr_t writable_cpu[] = {(uintptr_t)rum_gdt, (uintptr_t)&rum_tss};
+    for (size_t i = 0; i < sizeof writable_cpu / sizeof writable_cpu[0]; ++i) {
+        const uint32_t *table = (void *)(uintptr_t)(entries[writable_cpu[i] >> 22] & FRAME_MASK);
+        check(table[(writable_cpu[i] >> 12) & 1023] & PAGING_WRITABLE, "shared writable GDT/TSS");
+    }
     check(paging_translate(space, (uintptr_t)__kernel_start, &physical) &&
           physical == (uintptr_t)__kernel_start, "shared kernel identity");
 }
@@ -166,6 +173,12 @@ void paging_space_checks(void)
     cpu_interrupt_enable();
     for (unsigned i = 0; i < 2; ++i) {
         switch_to(i ? second : first);
+        volatile uint8_t *access = &rum_gdt[TSS_SELECTOR >> 3].access;
+        *access = *access; /* Real write with CR0.WP set under a child CR3. */
+        uint32_t previous = flags();
+        check(gdt_set_kernel_stack((uintptr_t)__boot_stack_top) &&
+              rum_tss.esp0 == (uintptr_t)__boot_stack_top && ((flags() ^ previous) & IF) == 0,
+              "writable shared TSS and stack update preserves IF");
         uint32_t start = timer_ticks();
         while (timer_ticks() == start) __asm__ volatile ("hlt" : : : "memory");
     }

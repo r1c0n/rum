@@ -58,22 +58,26 @@ user mappings remain part of the process address-space implementation below.
 
 ### P3. CPU entry and descriptor preparation
 
-- [ ] Put mutable GDT/TSS storage in writable kernel memory and define their layouts
+- [x] Put mutable GDT/TSS storage in writable kernel memory and define their layouts
   with size/offset assertions.
-- [ ] Refactor common interrupt entry/return code while preserving the current
+- [x] Refactor common interrupt entry/return code while preserving the current
   register, segment, direction-flag, stack-alignment, and EOI guarantees.
-- [ ] Define how frames distinguish ring-0 entries from entries carrying user SS/ESP.
-- [ ] Specify initial user EFLAGS and port-I/O permissions, and an FPU/SIMD policy.
+- [x] Define how frames distinguish ring-0 entries from entries carrying user SS/ESP.
+- [x] Specify initial user EFLAGS and port-I/O permissions, and an FPU/SIMD policy.
 
-The GDT currently lives in read-only data. Loading a TSS with `ltr` updates its
-descriptor's busy flag, so writable descriptor storage must be ready first.
-See [Intel's system programming manual](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366821.pdf),
-sections 6.2 and 9.8.4.
+The writable GDT now contains kernel/user segments and a loaded 32-bit TSS.
+The TSS holds the kernel entry stack and denies user port I/O. One assembly
+path preserves and restores registers, segments and flags for interrupt entry
+from either privilege level. Frame helpers distinguish the short kernel frame
+from the user frame carrying ESP and SS.
 
-Start user programs with interrupts enabled and IOPL zero; do not carry kernel
-flags into an unchecked user frame. Keep the first user ABI integer-only and
-reject unsupported floating-point/SIMD use until context preservation exists.
-Compile flags alone do not enforce that policy on loaded programs.
+Fresh user frames start with EFLAGS `0x202`, zeroed registers and user selectors.
+Hardware controls enforce the integer-only policy until extended CPU-state
+preservation exists. Isolated ring-3 fixtures verify repeated PIT delivery,
+TSS stack switching, `iret` restoration, and actual x87/MMX/SSE/I/O faults.
+Paging tests verify writable supervisor CPU tables under child CR3s.
+[CPU entry and policy](exceptions.md) documents the interfaces and tests.
+User mappings, task ownership, and recoverable user faults remain later work.
 
 ### P4. Kernel contexts, stacks, and waiting
 
@@ -143,11 +147,11 @@ use the same user virtual address without sharing private data.
 
 ### 2. Ring 3 and exception handling
 
-- [ ] Add user code/data descriptors and a TSS to the GDT.
+- [ ] Connect the prepared user descriptors and TSS to process-owned contexts.
 - [ ] Provide a kernel stack for entry from each process and keep port I/O privileged.
-- [ ] Load the TSS and update its ring-0 stack pointer when the current task changes.
+- [ ] Update the loaded TSS's ring-0 stack pointer when the current task changes.
 - [ ] Enter user mode with `iret` and preserve timer/keyboard delivery.
-- [ ] Handle privilege-changing interrupt frames, including saved user ESP and SS.
+- [ ] Integrate the prepared user SS/ESP frames with process return and fault handling.
 - [ ] Separate user faults from kernel panics.
 
 A user null access, kernel-memory access, or privileged instruction must terminate

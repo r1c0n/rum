@@ -1,4 +1,4 @@
-/* Install the IDT and report fatal ring-0 CPU exceptions. */
+/* Install the IDT and report fatal CPU exceptions. */
 #include <stdbool.h>
 #include <rum/cpu.h>
 #include <rum/interrupts.h>
@@ -96,9 +96,10 @@ _Noreturn void exception_dispatch(const struct exception_frame *frame)
     write("\n  "); value("ecx", frame->ecx); write("  "); value("edx", frame->edx);
     write("\n  "); value("esi", frame->esi); write("  "); value("edi", frame->edi);
     write("\n  "); value("ebp", frame->ebp); write("  ");
-    /* PUSHAD saves ESP at the normalized vector/error pair. Five words lead
-       from that address to the ring-0 stack pointer before the exception. */
-    value("esp", frame->saved_esp + 5 * sizeof(uint32_t));
+    value("esp", exception_frame_esp(frame));
+    if (exception_frame_from_user(frame)) {
+        write("  "); value("ss", exception_frame_ss(frame));
+    }
     write("\n  "); value("ds", frame->ds); write("  "); value("es", frame->es);
     write("\n  "); value("fs", frame->fs); write("  "); value("gs", frame->gs);
     if (frame->vector == 14) {
