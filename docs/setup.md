@@ -1,79 +1,106 @@
-# Build environment
+# Setup
 
-rum builds under Ubuntu 24.04 on WSL 2. The source stays on the Windows drive;
-the compiler build uses Linux storage in `/tmp` for speed and filesystem semantics.
-The installed cross-compiler is in the project's `.tools/cross` directory.
+rum builds with an `i686-elf` cross-compiler under Ubuntu 24.04 on WSL 2.
+The toolchain is installed in `.tools/cross/` inside the repository. Both that
+directory and `build/` are generated and excluded from Git.
 
-## Fresh setup
+## PowerShell
 
-In Ubuntu, inside the rum project:
+Install WSL 2 with an Ubuntu distribution named `Ubuntu`, and install Windows
+QEMU with `qemu-system-i386.exe` or `qemu-system-x86_64.exe` on `PATH`.
+From the repository directory:
+
+```powershell
+.\rum.ps1 setup
+.\rum.ps1 doctor
+.\rum.ps1 run
+```
+
+Setup installs Ubuntu packages using `sudo`, builds the cross-compiler, and
+checks the tools. The launcher uses WSL for builds and Windows QEMU for the
+interactive run, debug, and panic actions. The test action runs QEMU in WSL.
+Use `-Distro <name>` if your Ubuntu distribution has a different name.
+
+If PowerShell blocks script execution, invoke the launcher with a policy
+override for that process:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\rum.ps1 run
+```
+
+## Manual setup in Ubuntu
+
+Open an Ubuntu terminal in the repository and run:
 
 ```sh
 sudo bash scripts/install-deps.sh
 bash scripts/build-toolchain.sh
 make doctor
-make test
+make run
 ```
 
-The script builds GNU Binutils 2.45 and GCC 15.2.0 for `i686-elf`, including target
-`libgcc`. These are pinned versions, not an automatic latest-version download.
-Source archives come from `https://ftp.gnu.org/gnu/` over HTTPS. Compilation uses
-six jobs by default; set `JOBS=4` if you need to reduce memory and CPU usage.
-The toolchain is Linux executables and must run in WSL, not directly in PowerShell.
+The dependency script installs the host build tools, compiler prerequisites,
+GRUB BIOS modules, `xorriso`, Mtools, Python 3, QEMU, and GDB. `make doctor`
+checks the compiler target, target `libgcc`, and the tools used to build and boot.
 
-The temporary compiler build is `/tmp/rum-toolchain-1000` for UID 1000. Its
-`build.log` contains build diagnostics. To resume an interrupted setup, rerun
-the script. If your WSL UID differs, the temporary directory follows that UID.
+The toolchain script builds GNU Binutils 2.45 and GCC 15.2.0 for `i686-elf`,
+including `libgcc`. Source archives are downloaded from GNU over HTTPS.
+Compilation uses six jobs by default; reduce that if needed:
 
-No host compiler or shell profile is replaced. The Makefile addresses the local
-cross-compiler explicitly. To use an existing toolchain instead:
+```sh
+JOBS=4 bash scripts/build-toolchain.sh
+```
+
+Temporary compiler builds use `/tmp/rum-toolchain-<uid>/` on Linux storage;
+diagnostics are in its `build.log`. Rerun the script to resume an interrupted
+build. `RUM_TOOLCHAIN_BUILD_DIR` overrides the temporary directory.
+The installed compiler runs in Ubuntu, not directly in PowerShell.
+
+The Makefile uses the local toolchain without changing your shell profile.
+To use an existing `i686-elf` toolchain on `PATH`:
 
 ```sh
 make CROSS_PREFIX=i686-elf-
 ```
 
-`make doctor` checks the compiler target, `libgcc`, GRUB's BIOS modules, Make,
-`grub-file`, `grub-mkrescue`, `xorriso`, `mcopy`, Python, and QEMU.
+## Build commands
 
-## Boot path
+```sh
+make                 # Build build/rum.elf and build/rum.iso
+make run             # Boot the ISO through GRUB
+make run-kernel      # Boot the ELF through QEMU's Multiboot loader
+make test            # Run host and QEMU tests
+make test-host       # Run host tests only
+make clean           # Remove build/
+```
 
-1. QEMU starts a BIOS PC and boots the generated ISO.
-2. GRUB reads `boot/grub/grub.cfg` and loads `rum.elf`.
-3. The ELF's Multiboot header identifies rum as a Multiboot v1 kernel.
-4. GRUB jumps to `_start` with its magic value in EAX and boot information in EBX.
-5. Assembly creates a 16 KiB stack, clears the direction flag, aligns the stack
-   for the C ABI, saves the Multiboot arguments, loads rum's own GDT and segment
-   selectors, and calls `kernel_main(magic, info_address)`.
-6. The C kernel initializes VGA and COM1, installs the IDT, remaps and masks the
-   PIC, programs the PIT, initializes the PS/2 keyboard, and verifies the handoff.
-   CPU exceptions enter the panic handler.
-7. The kernel validates the Multiboot memory map, reserves occupied pages,
-   allocates a page directory/tables, and enables paging with write protection.
-   The existing code, stack, VGA, GDT, and IDT retain identity addresses.
-8. The kernel maps its initial heap page, initializes the RAM filesystem, and
-   copies build-embedded assets into mutable heap allocations.
-9. After printing boot checks, rum unmasks IRQ0 and (if initialization succeeded)
-   IRQ1, then enables CPU interrupts. IRQs return after acknowledging the PIC.
-10. The foreground loop feeds queued keys into the shell or active Snake game,
-   runs completed command lines, advances timed movement, and refreshes uptime.
-   It sleeps with
-   `sti; hlt` when no work is pending; hardware interrupts wake it again.
+QEMU starts with 64 MiB of RAM. Serial output appears in the launching terminal.
+Close the QEMU window or press `Ctrl+C` in that terminal to stop it.
 
-The tutorial's essential build and boot approach is preserved. rum adds separate
-console and serial modules, a few compiler-required memory routines, automatic
-Multiboot validation, build scripts, and the terminal exercises (newlines and scrolling).
+## Debugging
 
-Milestone 2 adds a kernel GDT, IDT, and exception diagnostics. The implementation
-and fault tests are described in [exceptions.md](exceptions.md).
-Milestone 3 adds the live timer and keyboard paths described in
-[interrupts.md](interrupts.md).
-Milestone 4 adds the command loop described in [shell.md](shell.md).
-Milestone 5 adds the memory map, page allocator, and paging described in
-[memory.md](memory.md).
-Milestone 6 adds the page-backed heap, RAM filesystem and embedded files described
-in [storage.md](storage.md).
-Milestone 7 adds the ASCII Snake game described in [snake.md](snake.md).
+Run `.\rum.ps1 debug` or `make debug` to start QEMU paused with a GDB server.
+In an Ubuntu terminal in the repository:
 
-References: [Bare Bones](https://wiki.osdev.org/Bare_Bones),
-[GCC Cross-Compiler](https://wiki.osdev.org/GCC_Cross-Compiler),
-[Multiboot v1](https://www.gnu.org/software/grub/manual/multiboot/multiboot.html).
+```sh
+gdb build/rum.elf
+```
+
+```gdb
+target remote localhost:1234
+break kernel_main
+continue
+```
+
+The PowerShell action uses Windows QEMU. If WSL cannot reach its debugger port
+through localhost, use `make debug` in Ubuntu instead. C sources include debug
+information, and assembly stubs have symbols.
+
+Run `.\rum.ps1 panic` or `make panic` to boot the isolated invalid-opcode test
+kernel. Use the regular run action to return to rum.
+
+## References
+
+- [OSDev Bare Bones](https://wiki.osdev.org/Bare_Bones)
+- [GCC Cross-Compiler](https://wiki.osdev.org/GCC_Cross-Compiler)
+- [Multiboot v1 specification](https://www.gnu.org/software/grub/manual/multiboot/multiboot.html)

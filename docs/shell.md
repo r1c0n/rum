@@ -1,65 +1,73 @@
-# Command loop (milestone 4)
+# Shell
 
-rum now buffers keyboard input into a command line and runs it on Enter.
-The kernel remains an unreleased `0.1.0`. Start `./rum.ps1 run`, click inside
-QEMU, and enter `help` at the `> ` prompt.
+Start rum, click inside QEMU, and enter `help` at the `> ` prompt.
+The shell reads a command line from the PS/2 keyboard and runs it on Enter.
 
-| Command | Behavior |
+| Command | Description |
 | --- | --- |
 | `help` | List commands and their descriptions |
-| `clear` | Clear the 24 console rows, reset the cursor, and print a fresh prompt |
-| `about` | Show rum's version and kernel information |
-| `echo <text>` | Print the remaining text followed by a newline |
-| `ls` | List RAM files and their byte sizes |
-| `cat <name>` | Read a RAM file; show binary/control bytes as dots |
-| `write <name> [text]` | Create/replace a file, or create an empty file without text |
+| `clear` | Clear the console and print a fresh prompt |
+| `about` | Show version and kernel information |
+| `echo <text>` | Print text followed by a newline |
+| `ls` | List RAM files and their sizes in bytes |
+| `cat <name>` | Display a RAM file |
+| `write <name> [text]` | Create or replace a file; omit text for an empty file |
 | `rm <name>` | Remove a RAM file |
-| `mem` | Show heap and RAM filesystem usage |
-| `snake` | Play ASCII Snake; Q returns to the shell |
+| `mem` | Show heap and filesystem usage |
+| `snake` | Play ASCII Snake |
 
-`clear` preserves the bottom uptime row and current text color. On COM1 it also
-emits ANSI erase/home sequences for serial terminals that support them. Serial
-log files retain those escape bytes and the earlier output.
+For example:
 
-## Input rules
+```text
+write notes.txt hello from rum
+cat notes.txt
+rm notes.txt
+```
 
-Command names are lowercase and matched exactly. Leading spaces are ignored;
-spaces between the command name and its arguments are skipped. `echo` preserves
-spaces within and after its text. Without text, `echo` prints a blank line.
-`help`, `clear`, `about`, `ls`, `mem` and `snake` accept no arguments and show
-`Usage: <command>` if given any. `cat` and `rm` require exactly one filename;
-`write` requires a filename and treats the remaining text literally. Blank or
-whitespace-only lines return a prompt. Unknown commands
-show their name and suggest `help`.
+Files are temporary. Rebooting restores the embedded files from `assets/ramfs/`.
+See [heap and RAM files](storage.md) for filename rules and capacity.
 
-Backspace removes one buffered character and erases it on VGA and COM1. It can
-cross a wrapped line and cannot erase the prompt. Tab inserts four spaces.
-The 256-byte buffer holds at most 255 characters plus a terminating zero; at
-capacity, further characters are ignored and are not echoed. Backspace makes
-room again. Every Enter resets the line for the next command.
+## Input
 
-Text is literal: there is no quote processing, variable expansion, command
-chaining, history, completion, or cursor navigation. There are no external
-programs or processes. This is a kernel command loop using the existing US
-PS/2 input driver.
+Command names are lowercase and matched exactly. Leading spaces and spaces
+before arguments are skipped. `echo` preserves spaces within and after its
+text; without text it prints a blank line. `write` treats the text after the
+filename the same way.
 
-## Implementation and checks
+`help`, `clear`, `about`, `ls`, `mem`, and `snake` accept no arguments. `cat`
+and `rm` require one filename. Incorrect arguments display a usage message.
+Blank lines return a prompt, and unknown commands suggest `help`.
 
-`kernel/shell.c` owns editing, parsing, built-ins, and the prompt. The main loop
-calls `shell_receive` after restoring CPU interrupt flags. IRQ1 only queues
-characters; it never runs commands. The PIT keeps counting during output, and
-the main loop refreshes uptime and uses its existing interrupt-safe idle path.
-Editing uses fixed storage. File commands use the page-backed heap and RAM
-filesystem, without a host C library. See [heap and RAM files](storage.md) for
-filename limits, ownership and embedding. Edits disappear on reboot.
-During Snake, keys go to the game and PIT ticks drive movement. Q frees game
-state and restores a fresh prompt. See [Snake](snake.md) for controls and checks.
+Backspace removes one character, including across wrapped lines, and stops at
+the prompt. Tab inserts four spaces. A line holds up to 255 characters; further
+input is ignored until Backspace makes room. Shift and Caps Lock work with the
+US QWERTY keyboard layout.
 
-`./rum.ps1 test` / `make test` check the real shell and VGA driver with captured
-serial output. Cases cover commands, exact name matching, whitespace, usage
-errors, empty `echo`, literal text, Backspace, wrapped input, full-buffer editing,
-line reset, scrolling, and clear/status preservation. QEMU tests type commands
-through the emulated PS/2 keyboard in both GRUB ISO and direct ELF boots,
-compare VGA and serial results, and verify input and timer delivery after clear.
-Existing CPU-fault and IRQ tests remain included. Generated logs, memory dumps,
-and shell screenshots are in `build/test-artifacts/`.
+Text is literal. The shell has no quoting, variable expansion, command chaining,
+history, completion, or cursor navigation. All commands are kernel built-ins.
+
+`cat` displays control and binary bytes as dots, except for newline and tab,
+and adds a final newline when needed. The filesystem API preserves the original
+bytes. `clear` resets the console cursor and preserves the uptime row and text
+color. Serial output uses ANSI erase/home sequences, which remain in saved logs.
+
+During [Snake](snake.md), keyboard input goes to the game. Press Q to leave it
+and return to a fresh shell prompt.
+
+## Implementation
+
+`kernel/shell.c` handles editing, parsing, commands, and the prompt. The
+foreground loop calls `shell_receive` with interrupts restored. IRQ1 only
+queues characters, and the PIT continues counting while commands run.
+
+Line editing uses a fixed 256-byte buffer. File commands use the kernel heap
+and RAM filesystem. Timed game updates use `shell_tick_due` and `shell_tick`
+in the same foreground loop.
+
+## Tests
+
+Host tests use the real shell and VGA driver with captured serial output. They
+cover parsing, usage errors, literal text, line limits, wrapped editing,
+scrolling, and clear/status preservation. QEMU tests enter commands through
+the emulated PS/2 keyboard in GRUB and direct ELF boots and compare VGA and
+serial output. Logs and screenshots are in `build/test-artifacts/`.

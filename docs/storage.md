@@ -1,12 +1,10 @@
-# Heap and RAM files (milestone 6)
+# Heap and RAM files
 
-rum remains at unreleased `0.1.0`. After physical allocation and paging start,
-the kernel initializes a heap, creates a flat RAM filesystem, and copies embedded
-boot files into it. No disk image, GRUB module, or host filesystem is needed at runtime.
+After physical allocation and paging are initialized, rum creates a kernel
+heap and a flat RAM filesystem. Embedded files are copied into it at boot.
+Runtime file access uses RAM only.
 
-## Try it
-
-Start `./rum.ps1 run` and type:
+## Working with files
 
 ```text
 ls
@@ -17,116 +15,109 @@ mem
 rm notes.txt
 ```
 
-`write` creates or replaces a file; without text it creates an empty file.
-Leading spaces before its text are skipped and internal/trailing spaces are
-preserved. There is no quoting or redirection. `cat` adds a newline if needed
-and displays binary/control bytes as dots, except newline and tab. The C API
-preserves every byte, including zero bytes. `ls` reports filenames and byte sizes.
-`mem` reports mapped heap bytes, aligned live payload bytes, allocations, file
-count, and file bytes. Heap headers are excluded from payload counts.
+`write` creates or replaces a file. Without text it creates an empty file.
+Leading spaces before text are skipped; internal and trailing spaces are
+preserved. `cat` displays binary/control bytes as dots, except for newline and
+tab, and adds a final newline if needed. The C API preserves all bytes.
 
-One root directory holds at most 64 files, each at most 64 KiB, within the heap
-and available RAM budget. Names contain
-1–63 ASCII letters/digits or `._-`; `.` and `..` are rejected. An optional leading
-`/` names the same root file. Subdirectories and paths with additional slashes
-are unsupported. The shell's existing 255-character command-line limit also
-bounds text entered with `write`; kernel callers can store larger/binary files.
-All edits disappear on reboot, when embedded files are restored.
+`ls` reports names and sizes. `mem` reports mapped heap bytes, live aligned
+payload capacity, allocation count, file count, and stored file bytes.
+Heap headers are excluded from payload counts.
+
+The filesystem holds up to 64 files of up to 64 KiB each, subject to heap space.
+Names contain 1–63 ASCII letters, digits, dots, underscores, or hyphens.
+`.` and `..` are rejected. An optional leading `/` refers to the same root
+file; subdirectories are unsupported. The shell's 255-character line limit
+bounds text entered with `write`; kernel callers can store larger binary data.
+Rebooting restores the embedded files and discards edits.
 
 ## Heap
 
-`kernel/heap.c` uses first-fit allocation and a doubly linked list of in-heap
-headers. Payload pointers are aligned to 16 bytes. Blocks split when there is
-enough room for another header and an aligned payload. Freeing merges adjacent
-free blocks; freed space can be reused without taking more physical pages.
+`kernel/heap.c` uses first-fit allocation with a doubly linked list of block
+headers. Payloads are aligned to 16 bytes. Blocks split when there is room
+for another header and an aligned payload. Freeing merges adjacent free
+blocks for reuse.
 
-The heap owns virtual addresses `0x40000000` through `0x403fffff` (4 MiB).
-It initially maps one page, then allocates physical frames and writable,
-supervisor-only mappings on demand. Other mapping callers must avoid this
-window. Failure during growth removes every newly created mapping and frees its
-frame, leaving previous mappings and blocks intact. The paging layer reclaims
-an empty page table if initialization fails. Pages are retained after `kfree`
-for later reuse; this milestone does not shrink the heap or return idle heap
-pages to the physical allocator. The next page after the heap remains unmapped
-unless another kernel caller maps it.
+The heap reserves virtual addresses `0x40000000`–`0x403fffff` (4 MiB).
+It starts with one mapped page and grows by allocating frames and writable
+supervisor mappings. Failed growth removes new mappings and frees their frames,
+leaving existing allocations intact. An empty page table is reclaimed if
+initialization fails. Freed heap pages stay mapped for reuse.
 
-The API in `include/rum/heap.h` provides:
+The interface is declared in `include/rum/heap.h`:
 
-| Function | Contract |
+| API | Behavior |
 | --- | --- |
-| `kmalloc(size)` | Uninitialized allocation; zero size, overflow or exhaustion returns `NULL` |
-| `kcalloc(count, size)` | Check multiplication overflow, allocate and zero the requested bytes |
-| `krealloc(pointer, size)` | Preserve existing bytes; shrink/extend in place when possible; otherwise move |
-| `kfree(pointer)` | Merge free neighbors; `NULL` succeeds, invalid/interior/double frees return false |
-| `heap_stats()` | Mapped bytes, live aligned payload capacity, reusable bytes and live allocation count |
+| `kmalloc(size)` | Allocate uninitialized bytes; return `NULL` for zero size, overflow, or exhaustion |
+| `kcalloc(count, size)` | Check multiplication overflow, allocate, and zero the requested bytes |
+| `krealloc(pointer, size)` | Resize while preserving data; move the allocation if necessary |
+| `kfree(pointer)` | Free and merge neighbors; reject invalid, interior, or double-free pointers |
+| `heap_stats()` | Report mapped bytes, live payload capacity, reusable bytes, and allocation count |
 
-`krealloc(NULL, size)` behaves like allocation. `krealloc(pointer, 0)` frees and
-returns `NULL`. A failed nonzero resize leaves a valid original allocation
-unchanged. Invalid pointers are compared against live payload addresses without
-reading memory before them. As with other allocators, a stale pointer cannot
-identify a former allocation after its address has been reused.
+`krealloc(NULL, size)` allocates. `krealloc(pointer, 0)` frees and returns
+`NULL`. A failed nonzero resize preserves the original allocation.
+`kfree(NULL)` succeeds. Pointer validation compares live payload addresses
+without reading before an arbitrary pointer; it cannot distinguish a stale
+pointer after the same address has been reused.
 
-This is a single-CPU kernel heap. Operations save/disable/restore interrupt flags
-while changing headers/mappings. Callers must run in foreground code; IRQ handlers
-only queue work and must never allocate. There are no SMP locks, user heaps,
-garbage collection, allocation poisoning, or memory compaction.
+Heap operations preserve interrupt flags while updating headers and mappings.
+The heap supports one CPU and must be called from foreground code, never from
+IRQ handlers.
 
-## RAM filesystem
+## Filesystem API
 
-`kernel/ramfs.c` keeps heap-allocated file nodes and exact-size copied payloads.
-The API is foreground-only and owns all stored bytes:
+`kernel/ramfs.c` stores heap-allocated nodes and copied payloads. Calls run in
+foreground code. For example:
 
 ```c
 ramfs_put("notes.txt", "hello", 5);
 const unsigned char *data;
 size_t size;
 if (ramfs_read("notes.txt", &data, &size)) {
-    /* data[0..size) is borrowed; it is not necessarily zero-terminated. */
+    /* Use data[0..size); it may contain binary bytes. */
 }
 ramfs_remove("notes.txt");
 ```
 
-`ramfs_put` copies first and commits only after all allocations succeed. A failed
-create/replace leaves the filesystem and any original file unchanged. Replacing
-a file from its own borrowed bytes is supported. Borrowed pointers remain valid
-until that file is replaced or removed. Removing a file frees both its node and
-payload. Listing callbacks can return false to stop, and must not mutate the
-filesystem during iteration. Empty files have a zero length and may have a null
-data pointer. The implementation has no file descriptors, permissions, mount
-table, VFS, disk driver, or persistence.
+`ramfs_put` copies data before committing a change. Failed creation or
+replacement leaves existing files unchanged, including when replacing a file
+from its own borrowed bytes.
+
+`ramfs_read` returns borrowed bytes valid until the file is replaced or removed.
+Data is not necessarily zero-terminated. Empty files have zero length and may
+return a null data pointer. Removal frees the node and payload. Listing
+callbacks can return false to stop; they must not modify files during iteration.
+
+The filesystem has one root directory and no file descriptors, permissions,
+mounts, or disk persistence.
 
 ## Embedded files
 
-Edit or add files in `assets/ramfs/`, then run `./rum.ps1 build` or `make`.
-`scripts/embed-files.py` validates filenames/limits, sorts files, and generates
-binary-safe C byte arrays in `build/embedded-files.c`. They are linked into
-read-only kernel data, then copied into mutable RAM files at boot. The default
-files are `readme.txt` and `welcome.txt`. There is no terminating-zero requirement.
+Add or edit files in `assets/ramfs/`, then run `.\rum.ps1 build` or `make`.
+`scripts/embed-files.py` validates names and limits, sorts files, and generates
+binary-safe arrays in `build/embedded-files.c`. They are linked into read-only
+kernel data and copied into mutable files at boot. The default files are
+`readme.txt` and `welcome.txt`.
 
-Every build checks the asset directory, including removed files. If generated
-contents are unchanged, its timestamp is preserved and the generated object
-stays current. If assets change, the kernel and ISO rebuild. A failed install
-removes files created by that attempt; it will not overwrite files already
-present. The generator and runtime use the same 64-file, 64-KiB and name limits.
-Generated C/objects are ignored build artifacts; commit the assets and generator.
-Git preserves asset bytes without line-ending conversion. The read-only manifest
-is available through `include/rum/embedded.h` for kernel code that needs to inspect
-the embedded filenames, lengths or original bytes.
+Every build checks the asset directory, including deletions. Unchanged generated
+content keeps its timestamp; changed assets rebuild the kernel and ISO.
+Git preserves asset bytes without line-ending conversion.
 
-## Checks
+Installation rolls back files created by a failed attempt and does not overwrite
+existing files. The generator and runtime share the same capacity and filename
+limits. `include/rum/embedded.h` exposes the read-only filename, length, and
+byte manifest. Commit source assets; generated arrays and objects belong in
+the ignored build directory.
 
-`make test` / `./rum.ps1 test` run production heap/filesystem code in host tests
-with a simulated page boundary, then in isolated QEMU kernels at 16 and 64 MiB.
-Checks cover alignment, zero/overflow, split/coalesce, fragmentation with payload
-canaries, calloc, realloc preservation, invalid frees, virtual exhaustion/reuse,
-partial physical growth failures, and initialization page-table failure rollback.
-File checks cover binary/empty/max-size files, paths, capacity, listing and
-early termination, unlinking, failed atomic writes, and embedded installation.
+## Tests
 
-Normal boots independently inspect heap page-table permissions, physical frame
-ownership, block headers/accounting, file nodes, and every embedded byte against
-the source assets. Keyboard-driven tests use list/read/write/replace/remove,
-usage errors, memory reports, and VGA/serial output while the timer continues.
-The generator is checked for binary/empty content, stable output, asset removal,
-and invalid names/sizes. Existing exception, IRQ, paging and RAM-size tests remain.
-Logs, reports, dumps and screenshots are in `build/test-artifacts/`.
+Host tests run the heap and filesystem with a simulated page backend.
+Isolated QEMU kernels exercise them at 16 and 64 MiB. Cases cover alignment,
+splitting and coalescing, fragmentation, resizing, overflow, invalid frees,
+exhaustion, and rollback after partial growth failures.
+
+File tests cover binary and empty data, size/name limits, listing, removal,
+atomic replacement, and embedded installation. Normal boots inspect heap
+mappings and headers, file nodes, and embedded bytes, then use the shell to
+create, read, replace, and remove files. Generator tests check stable output,
+asset removal, and invalid inputs. Artifacts are in `build/test-artifacts/`.

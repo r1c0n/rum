@@ -1,86 +1,86 @@
-# Physical pages and paging (milestone 5)
+# Memory management
 
 rum uses GRUB's Multiboot v1 memory map to allocate physical RAM and enable
-32-bit, non-PAE paging. Version `0.1.0` remains unchanged. Normal boot reports
-the memory map, allocator, and paging before entering the existing command loop.
+32-bit, non-PAE paging. Physical allocation and the identity window are limited
+to addresses below `0x40000000` (1 GiB).
 
 ## Physical allocator
 
-`include/rum/multiboot.h` describes the wire layout with fixed-width physical
-addresses. The parser requires information flag 6 and a nonempty map; it does
-not infer free RAM from `mem_upper`. Each entry's size describes the bytes after
-its size field, so larger future entries are skipped correctly. Truncation,
-undersized entries, address overflow, and invalid metadata lengths fail closed.
-Boot information is trusted to reside in readable physical memory supplied by
-the bootloader; this parser is not a fault-catching reader for arbitrary pointers.
+`include/rum/multiboot.h` describes the boot information using fixed-width
+physical addresses. The parser requires information flag 6 and a nonempty map;
+it does not infer free RAM from `mem_upper`. Entry sizes allow extensions to be
+skipped. Truncated entries, address overflow, and invalid metadata lengths
+are rejected. Boot information must reside in readable memory supplied by the
+bootloader.
 
-Only type-1 RAM contributes whole 4096-byte pages. Partial pages are excluded,
-and overlapping reserved/ACPI/NVS/bad-memory entries override available entries.
-The initial architecture manages physical addresses below `0x40000000` (1 GiB).
-RAM above this limit is ignored without wrapping into lower addresses.
+Only whole 4096-byte pages in type-1 RAM are available. Partial pages are
+excluded, and reserved entries take precedence over overlapping available
+entries. RAM above 1 GiB is ignored.
 
-Two fixed bitmaps in kernel BSS use 64 KiB total: one marks managed pages, the
-other marks allocated pages. Initialization reserves:
+Two fixed bitmaps in kernel BSS use 64 KiB in total: one tracks managed pages,
+the other tracks allocations. Initialization reserves:
 
-- The first MiB, including page zero, firmware, and legacy device memory.
-- The entire linker-defined kernel range, including BSS, stack, GDT, IDT,
-  driver state, and allocator bitmaps.
-- Multiboot information, memory-map storage, command/loader strings, modules
-  and their strings/payloads, symbol tables and loaded ELF section payloads.
+- The first MiB, including firmware and legacy device memory.
+- The entire kernel range, including BSS, stack, CPU tables, and allocator state.
+- Multiboot information, maps, strings, modules, symbol tables, and loaded ELF
+  section payloads.
 - Reported drive, BIOS configuration, APM/VBE, framebuffer, and palette data.
 
-Strings must terminate within 4096 bytes. Reservations block every touched page,
-even for unaligned or overlapping objects. The current milestone keeps boot
-resources reserved for their lifetime rather than trying to reclaim them early.
-Kernel pages must be described as usable RAM before reservation.
+Reservations cover every touched page, including unaligned objects. Boot
+strings must terminate within 4096 bytes, and kernel pages must be described
+as usable RAM before reservation. Boot resources remain reserved for the
+kernel's lifetime.
 
-`pmm_allocate_page()` returns an aligned physical address, or zero on exhaustion
-or failed initialization. Returned contents are uninitialized. `pmm_free_page()`
-rejects unaligned/out-of-range addresses, permanently reserved pages, unallocated
-pages, and double frees. Allocation, freeing, and statistics snapshots briefly
-save/disable/restore interrupts. This is a single-CPU allocator, without SMP locks.
+| API | Behavior |
+| --- | --- |
+| `pmm_allocate_page()` | Return an aligned physical address, or zero on failure |
+| `pmm_free_page(address)` | Free an allocated page; reject invalid, reserved, or already-free pages |
+| `pmm_stats()` | Report usable, managed, and free pages and the RAM-window limit |
 
-`pmm_stats()` reports usable pages before permanent reservations, managed pages
-after reservations, free pages, and the end of the physical RAM window. Allocated
-page directories and tables count against free pages. The serial boot report
-`rum_memory_ok` records these values and the boot information/directory addresses.
+Allocated pages contain uninitialized data. Allocation, freeing, and statistics
+snapshots briefly preserve and disable interrupts. The allocator supports a
+single CPU. Page directories and tables consume allocated pages like other
+kernel data. The serial marker `rum_memory_ok` records boot memory statistics.
 
 ## Paging
 
-`arch/i386/paging.c` obtains the page directory and every page table from the
-allocator, clears them, and uses 1024-entry, two-level 4 KiB paging. It identity
-maps addresses from `0x1000` to the RAM-window limit, including gaps/reservations
-inside that window. Those mappings allow physical access; the allocator still
-never hands out holes or reserved pages. Page zero remains absent.
+`arch/i386/paging.c` allocates and clears a page directory and 1024-entry page
+tables. It identity maps addresses from `0x1000` to the RAM-window limit,
+including gaps and reservations. This permits physical access while the
+allocator prevents reserved memory from being handed out. Page zero is unmapped.
 
-All mappings are supervisor-only. Kernel `.text` and `.rodata` pages are
-read-only; data, BSS, stack, and page tables are writable. Legacy VGA/ROM pages
-from `0xa0000` to `0x100000` have cache-disable set. CR3 points at the physical
-directory. CR4 clears PAE, large-page, and global-page modes; CR0 sets PG and WP,
-so ring-0 writes to read-only pages fault too. This non-PAE stage has no NX bit,
-user address spaces, demand paging or swap. A page-backed kernel heap now uses
-the first 4 MiB of the dynamic window; see [heap and RAM files](storage.md).
+All mappings are supervisor-only. Kernel `.text` and `.rodata` are read-only;
+data, BSS, stack, and page tables are writable. Legacy VGA/ROM pages from
+`0xa0000` to `0x100000` have caching disabled.
 
-If initialization cannot allocate all tables, it frees the directory and every
-table, leaves paging off, and returns failure. Normal boot then reports the
-failure and halts. Missing/invalid memory maps similarly halt before IRQs enable.
+CR3 points to the physical directory. CR4 clears PAE, large-page, and global-page
+modes. CR0 enables PG and WP so ring-0 writes to read-only pages fault. This
+paging mode has no NX bit. User address spaces, demand paging, and swap are
+unsupported.
 
-The mapping API accepts aligned virtual addresses at/above `0x40000000`, aligned
-physical frames currently owned by the allocator, and either writable or
-read-only permissions. It preserves the identity window and rejects existing
-mappings rather than overwriting them. New tables are allocated on demand.
-`paging_translate()` returns the physical address including a byte offset.
+Initialization failure frees allocated tables and leaves paging disabled.
+Invalid boot maps or paging failures are reported before the kernel halts.
 
-`paging_unmap_page()` removes an alias and optionally returns its physical frame.
-It does not free that data frame. Empty dynamic tables are removed, the TLB is
-flushed, and their physical frames are freed. Map/unmap operations invalidate
-translations and preserve interrupt flags. Callers must remove all their aliases
-before freeing a data frame, and must never free the directory or table frames.
-Read-only aliases still have writable physical identity access; they are not
-separate protected user address spaces.
+## Mapping API
+
+The API accepts aligned virtual addresses at or above `0x40000000`, allocated
+physical frames, and writable or read-only permissions. The
+[heap](storage.md#heap) reserves `0x40000000`–`0x403fffff`; other callers must
+use addresses outside that range.
+
+`paging_map_page` preserves the identity window, rejects existing mappings,
+and creates tables on demand. `paging_translate` returns a physical address
+including the byte offset.
+
+`paging_unmap_page` removes a mapping and can return its frame, but does not
+free the data frame. Empty dynamic tables are removed and their frames freed.
+Mapping changes invalidate TLB entries and preserve interrupt flags.
+
+Remove all aliases before freeing a frame, and never free active directory
+or table frames. Read-only aliases still have writable identity mappings;
+they do not provide isolation from other kernel code.
 
 ```c
-/* Start after the heap's reserved 0x40000000..0x403fffff window. */
 uint32_t frame = pmm_allocate_page();
 if (frame && paging_map_page(0x40400000, frame, PAGING_WRITABLE)) {
     *(volatile uint32_t *)0x40400000 = 42;
@@ -91,30 +91,25 @@ if (frame && paging_map_page(0x40400000, frame, PAGING_WRITABLE)) {
 }
 ```
 
-## Verification
+## Tests
 
-`./rum.ps1 test` / `make test` run synthetic map tests for extensions, overlap,
-rounding, boot/module/symbol reservations, high RAM, malformed input, exhaustion,
-reuse, and invalid frees. Host tests exercise the real allocator with simulated
-low-address boot structures; privileged interrupt instructions are stubbed.
+Host tests cover map extensions, overlaps, rounding, boot reservations,
+malformed input, exhaustion, reuse, and invalid frees. They run the allocator
+with simulated boot structures and stubbed privileged instructions.
 
-In normal QEMU boots, tests independently derive eligible pages from the actual
-Multiboot map and metadata, compare the allocator bitmap, verify table-frame
-ownership/accounting (including heap data frames), and inspect all mappings,
-flags, null guard, and CR0/3/4. Heap headers and boot files are also checked.
-GRUB ISO and direct ELF boots also run the keyboard, timer, PIC, and command tests
-with production paging enabled. Additional boots cover 16, 256, and 1152 MiB,
-with a GRUB 16 MiB boot and an explicit check of the 1 GiB management limit.
+QEMU tests derive eligible pages from the actual Multiboot map, compare
+bitmaps, and inspect frame ownership, page tables, permissions, the null guard,
+and CR0/3/4. Boots at 16, 64, 256, and 1152 MiB check behavior across RAM sizes
+and the 1 GiB limit.
 
-An isolated kernel exercises writable/read-only aliases, byte translation,
-map rejection, unmap/remap TLB behavior, shared/empty table accounting, and
-partial initialization/runtime out-of-memory recovery. Five further kernels
-generate actual #PFs: null read, code write, constant write, unmapped alias read,
-and read-only alias write. They check error codes, CR2, faulting EIP, PG/WP,
-panic output, and halt. Existing CPU-register/IRQ tests stay included. Generated
-reports, logs, memory dumps, and screenshots are in `build/test-artifacts/`.
+Isolated kernels test aliases, translation, remapping, table accounting, and
+allocation-failure recovery. Fault cases cover null reads, code/constant
+writes, unmapped aliases, and read-only alias writes. They verify CR2, error
+codes, faulting EIP, write protection, and the panic halt.
+Reports and dumps are in `build/test-artifacts/`.
 
-References: [Multiboot v1 specification](https://www.gnu.org/software/grub/manual/multiboot/multiboot.html),
-[GRUB's Multiboot ABI header](https://github.com/rhboot/grub2/blob/master/include/multiboot.h),
-and [Intel system programming manual](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366821.pdf)
-(page tables, CR0.WP, and TLB invalidation).
+## References
+
+- [Multiboot v1 specification](https://www.gnu.org/software/grub/manual/multiboot/multiboot.html)
+- [GRUB Multiboot ABI header](https://github.com/rhboot/grub2/blob/master/include/multiboot.h)
+- [Intel system programming manual](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366821.pdf)
