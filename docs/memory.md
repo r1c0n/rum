@@ -4,6 +4,9 @@ rum uses GRUB's Multiboot v1 memory map to allocate physical RAM and enable
 32-bit, non-PAE paging. Physical allocation and the identity window are limited
 to addresses below `0x40000000` (1 GiB).
 
+Shared constants, reserved stack/user ranges, and resource ownership are
+described in [Memory layout and ownership](memory-layout.md).
+
 ## Physical allocator
 
 `include/rum/multiboot.h` describes the boot information using fixed-width
@@ -63,10 +66,11 @@ Invalid boot maps or paging failures are reported before the kernel halts.
 
 ## Mapping API
 
-The API accepts aligned virtual addresses at or above `0x40000000`, allocated
-physical frames, and writable or read-only permissions. The
+The API accepts aligned virtual addresses from `0x40000000` up to, but excluding,
+`0x7fc00000`, allocated physical frames, and writable or read-only permissions. The
 [heap](storage.md#heap) reserves `0x40000000`–`0x403fffff`; other callers must
-use addresses outside that range.
+use addresses starting at `RUM_KERNEL_ALIAS_BASE` (`0x40400000`). Reserved
+kernel-stack, user, and unassigned ranges are rejected without allocating tables.
 
 `paging_map_page` preserves the identity window, rejects existing mappings,
 and creates tables on demand. `paging_translate` returns a physical address
@@ -82,9 +86,9 @@ they do not provide isolation from other kernel code.
 
 ```c
 uint32_t frame = pmm_allocate_page();
-if (frame && paging_map_page(0x40400000, frame, PAGING_WRITABLE)) {
-    *(volatile uint32_t *)0x40400000 = 42;
-    paging_unmap_page(0x40400000, NULL);
+if (frame && paging_map_page(RUM_KERNEL_ALIAS_BASE, frame, PAGING_WRITABLE)) {
+    *(volatile uint32_t *)RUM_KERNEL_ALIAS_BASE = 42;
+    paging_unmap_page(RUM_KERNEL_ALIAS_BASE, NULL);
     pmm_free_page(frame);
 } else if (frame) {
     pmm_free_page(frame);
@@ -102,7 +106,7 @@ bitmaps, and inspect frame ownership, page tables, permissions, the null guard,
 and CR0/3/4. Boots at 16, 64, 256, and 1152 MiB check behavior across RAM sizes
 and the 1 GiB limit.
 
-Isolated kernels test aliases, translation, remapping, table accounting, and
+Isolated kernels test aliases, reserved ranges, translation, remapping, table accounting, and
 allocation-failure recovery. Fault cases cover null reads, code/constant
 writes, unmapped aliases, and read-only alias writes. They verify CR2, error
 codes, faulting EIP, write protection, and the panic halt.

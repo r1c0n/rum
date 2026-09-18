@@ -17,17 +17,22 @@ Snake, and both boot paths working.
 
 ### P1. Memory layout and resource ownership
 
-- [ ] Define shared address-range constants for the kernel, identity window, heap,
+- [x] Define shared address-range constants for the kernel, identity window, heap,
   kernel stacks, user programs, and user stacks.
-- [ ] Keep the existing boot layout and reserve non-overlapping user/stack ranges.
-- [ ] Define ownership of private frames, shared tables, stacks, and process records,
+- [x] Keep the existing boot layout and reserve non-overlapping user/stack ranges.
+- [x] Define ownership of private frames, shared tables, stacks, and process records,
   including cleanup after partial initialization.
 
 The kernel is loaded at 2 MiB, identity maps physical memory below 1 GiB, and
 reserves `0x40000000`–`0x403fffff` for its heap. User mappings must fit around
 these existing ranges. Set initial bounds for process count, stack sizes, user
-memory, arguments, and file handles. User frames belong to the physical
-allocator; the kernel heap holds metadata rather than program payloads.
+memory, arguments, and file handles. Allocate user payloads directly as physical
+pages; the kernel heap holds metadata rather than program payloads.
+
+The shared constants and initial policy are in `include/rum/memory_layout.h`
+and `include/rum/process_limits.h`. [Memory layout and ownership](memory-layout.md)
+records the ranges, cleanup contract, and passing test/memory baseline. Process
+allocation and runtime quota enforcement belong to the later implementation.
 
 ### P2. Paging contexts and shared kernel mappings
 

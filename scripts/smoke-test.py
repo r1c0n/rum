@@ -50,6 +50,16 @@ def elf_symbols(path):
     return symbols
 
 
+def boot_layout_test(symbols):
+    # Check the actual linked result against rum's unchanged boot contract.
+    start, end = symbols["__kernel_start"], symbols["__kernel_end"]
+    bottom, top = symbols["__boot_stack_bottom"], symbols["__boot_stack_top"]
+    if start != 0x200000 or end % 4096 or not start < end <= 0x40000000:
+        raise RuntimeError("Kernel exceeds its boot/identity layout")
+    if not start <= bottom < top <= end or top - bottom != 16384 or bottom % 16 or top % 16:
+        raise RuntimeError("Boot stack differs from its size/alignment/reservation contract")
+
+
 def dump_ram(stream, address, length, path):
     response = qmp_command(stream, "human-monitor-command", {
         "command-line": f'pmemsave {address:#x} {length} "{path.as_posix()}"'
@@ -740,6 +750,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
     image = project / ("build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
                        f"build/tests/fault-{fault}.elf" if fault else "build/rum.elf")
     symbols = elf_symbols(image)
+    boot_layout_test(symbols)
     marker = ("rum_storage_test_ok" if storage else "rum_paging_test_ok" if paging == "ok" else "rum_panic_halted" if paging else
               "rum_irq_test_ok" if irq_test else "rum_panic_halted" if fault else "rum_boot_ok")
     normal = not fault and not irq_test and not paging and not storage

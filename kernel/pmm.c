@@ -151,12 +151,12 @@ bool pmm_initialize(const struct multiboot_info *info, uint32_t kernel_start, ui
             statistics.limit = (page + 1) * PAGE_SIZE;
         }
     }
-    if (!statistics.limit || !reserve(0, 0x100000) ||
+    if (!statistics.limit || !reserve(0, RUM_LOW_RESERVED_END) ||
         !reserve(kernel_start, kernel_end - kernel_start) || !reserve_boot_data(info)) return false;
     for (uint32_t page = 0; page < statistics.limit / PAGE_SIZE; ++page)
         if (bit(managed, page)) ++statistics.managed_pages;
     statistics.free_pages = statistics.managed_pages;
-    next_page = 0x100000 / PAGE_SIZE;
+    next_page = RUM_LOW_RESERVED_END / PAGE_SIZE;
     ready = true;
     return true;
 }

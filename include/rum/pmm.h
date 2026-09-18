@@ -4,9 +4,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <rum/multiboot.h>
+#include <rum/memory_layout.h>
 
-#define PAGE_SIZE 4096u
-#define PMM_PHYSICAL_LIMIT 0x40000000u /* Initial identity window: 1 GiB. */
+#define PAGE_SIZE RUM_PAGE_SIZE
+#define PMM_PHYSICAL_LIMIT RUM_IDENTITY_END
 
 struct pmm_statistics {
     uint32_t usable_pages;  /* Full RAM pages before kernel/boot reservations. */
