@@ -62,7 +62,7 @@ input with `Ctrl+Alt+G`.
 ## Kernel features
 
 - GRUB Multiboot v1 boot with VGA text and COM1 output.
-- Kernel GDT, IDT, and CPU exception diagnostics.
+- Writable GDT/TSS, IDT, shared interrupt entry, and CPU exception diagnostics.
 - PIC interrupts, a 100 Hz PIT timer, and PS/2 keyboard input.
 - A physical allocator for 4 KiB pages below 1 GiB.
 - Supervisor paging with a null-page guard and read-only kernel code/constants.

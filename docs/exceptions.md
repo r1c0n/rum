@@ -22,7 +22,8 @@ gates clear IF on entry; CPU faults can enter with device interrupts disabled.
 2. The assembly stub pushes the vector and supplies a zero error code if needed.
 3. Common assembly clears DF, saves general and segment registers, loads kernel
    data selectors, aligns the stack, and passes an `exception_frame` pointer to C.
-4. The panic handler prints to VGA and COM1, then halts with `cli; hlt`.
+4. C dispatch handles device IRQs and returns, or reports a fatal exception to
+   VGA and COM1 before halting with `cli; hlt`.
 
 All CPU exceptions are fatal, including breakpoints and NMIs. Exceptions and
 device IRQs share one assembly entry/return path. `interrupt_dispatch` sends
@@ -37,9 +38,27 @@ Stack helpers read the tail only for user entries. For ring 0, interrupted ESP
 comes from PUSHAD's saved ESP plus the normalized five-word CPU/stub frame.
 There is no separate double-fault stack yet.
 
+## User CPU policy
+
+`cpu_user_frame_initialize` creates a zeroed register frame with user segment
+selectors and EFLAGS `0x202`: interrupts enabled, IOPL zero, and DF, TF, NT,
+VM and the other optional flags clear. The trusted caller must validate the
+entry address and stack before using it. Kernel flags are never inherited.
+`interrupt_return` accepts a complete trusted frame for `iret`; device IRQs
+reach the same restore path after C dispatch.
+
+The first user ABI is integer-only. Bootstrap sets CR0.MP, EM and TS, and clears
+CR4.OSFXSR, OSXMMEXCPT and OSXSAVE. Actual x87/MMX/SIMD state instructions fault;
+compiler options also disable floating-point and vector code generation in the
+kernel. Extended register state has no owner or context-save path yet.
+An unsupported instruction remains a fatal exception until process fault
+recovery exists. Instructions such as fences that do not use extended register
+state are not excluded by this policy.
+
 Panic reports include the vector and name, error code, EIP, CS, EFLAGS,
-general registers, segment selectors, and interrupted ESP. Page faults also
-report CR2 and decode the access type and whether the page was absent or protected.
+general registers, segment selectors, and interrupted ESP (plus SS for a user
+entry). Page faults also report CR2 and decode the access type and whether the
+page was absent or protected.
 
 ## Inspecting a panic
 
@@ -72,11 +91,31 @@ The diagnostic page-fault fixture maps only the first 4 MiB. Additional test
 kernels use the [kernel paging implementation](memory.md) to fault on null
 access, unmapped aliases, and writes to read-only pages.
 
-QEMU tests inspect GDT/IDT contents and segment selectors, compare known
+QEMU tests inspect GDT/IDT contents, TR, the hardware TSS busy bit, the kernel
+entry stack and I/O-map offset. Paging tests verify GDT/TSS pages are writable
+and remain supervisor-only under child CR3s. Fault tests compare known
 registers and instruction addresses against panic reports, and verify the CPU
 halts with IF clear. The invalid-opcode case checks that saved EFLAGS retain DF
 while the handler clears it for C. Logs, memory dumps, and screenshots are in
 `build/test-artifacts/`.
+
+Five additional CPU fixtures enter ring 3 through the shared restore path and
+receive at least three real PIT IRQs on a dedicated TSS kernel stack. They check
+C-entry alignment, live kernel segments and flags, both stack pointers, and
+register/segment/DF/IF preservation after `iret`. They then execute `ud2`,
+`fldz`, MMX `pxor`, SSE `xorps`, or `outb`. Expected vectors are respectively
+6, 7, 6, 6 and 13, with zero error codes at the exact instruction addresses.
+The MMX test also accepts vector 7: [QEMU 8.2's decoder](https://github.com/qemu/qemu/blob/v8.2.2/target/i386/tcg/decode-new.c.inc)
+checks TS before EM for MMX, giving device-unavailable priority. Both exceptions
+reject the instruction before it uses extended register state.
+The initial user flags must be exactly `0x202`.
+
+These isolated fixtures leave paging disabled and replace C dispatch with an
+observer; assembly entry/return, descriptors, TSS, timer and PIC acknowledgment
+are the production code. They test CPU transitions without claiming process
+isolation or fault recovery. The normal kernel remains in ring 0.
+The host frame test puts a short kernel frame against an inaccessible page to
+catch accidental reads of a user tail, and verifies fresh user-frame initialization.
 
 ## References
 
