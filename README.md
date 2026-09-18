@@ -141,3 +141,4 @@ The project follows the boot and toolchain approach in
 `arch/i386/boot.s` sets up its stack and CPU segments before calling C.
 
 See the [documentation](docs/README.md) for subsystem details and debugging.
+Planned work for the next release is in the [0.2.0 roadmap](docs/roadmap.md).

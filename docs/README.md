@@ -9,6 +9,7 @@
 | [Device interrupts](interrupts.md) | PIC, PIT, keyboard driver, and idle loop |
 | [Memory management](memory.md) | Multiboot memory map, physical pages, and paging |
 | [Heap and RAM files](storage.md) | Allocation APIs, file ownership, and embedded assets |
+| [0.2.0 roadmap](roadmap.md) | Kernel prerequisites, user processes, syscalls, and persistent storage |
 
 ## Boot sequence
 
