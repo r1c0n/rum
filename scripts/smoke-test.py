@@ -808,7 +808,9 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                 time.sleep(0.1)
             family = socket.AF_INET if os.name == "nt" else socket.AF_UNIX
             with socket.socket(family, socket.SOCK_STREAM) as connection:
-                connection.settimeout(5)
+                # Dumps and screenshots write to the host filesystem; DrvFs
+                # can take longer than an ordinary monitor/register request.
+                connection.settimeout(20)
                 connection.connect(("127.0.0.1", port) if os.name == "nt" else monitor)
                 with connection.makefile("rwb") as stream:
                     greeting = json.loads(stream.readline())
