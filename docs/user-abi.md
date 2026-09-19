@@ -1,10 +1,10 @@
 # User ABI and ELF programs
 
 rum can build freestanding i386 user executables with a separate startup,
-runtime, linker script, and public include tree. The normal kernel does not load
-or launch those executables yet. The syscall wrappers and ring-3 transition are
-exercised by isolated test kernels while the production loader and dispatcher
-are completed.
+runtime, linker script, and public include tree. The task system can enter a
+prepared process in ring 3 and recover its user faults. The normal kernel does
+not load or launch ELF executables yet, and the syscall wrappers remain in
+isolated test kernels until the production dispatcher is completed.
 
 This distinction matters: a successful `make user` proves that an ELF follows
 rum's ABI, not that typing its name in the kernel shell will run it.
@@ -156,7 +156,8 @@ clear.
 ## Troubleshooting
 
 - **A program builds but cannot be run from the shell:** production ELF loading
-  and syscall dispatch are not connected to the normal shell yet.
+  and syscall dispatch are not connected to the normal shell yet. Ring-3 task
+  entry alone does not parse or map an ELF file.
 - **Private kernel headers are missing:** user code may include only
   `user/include/rum/user.h` and copied `rum/abi/` headers.
 - **The ELF checker rejects a segment:** inspect program headers with

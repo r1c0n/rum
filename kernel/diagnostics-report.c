@@ -85,7 +85,15 @@ void diagnostics_render(const struct kernel_diagnostics *snapshot, diagnostics_w
         } else write("kernel ");
         write(item->state <= TASK_EXITED ? states[item->state] : "unknown");
         write(" stack="); hex(write, item->stack_base); write(".."); hex(write, item->stack_top);
-        write(item->owns_stack ? " owned\n" : " borrowed\n");
+        write(item->owns_stack ? " owned" : " borrowed");
+        if (item->state == TASK_EXITED && item->termination == TASK_TERMINATION_FAULT) {
+            write(" fault vector="); decimal(write, item->fault.vector);
+            write(" error="); hex(write, item->fault.error);
+            write(" eip="); hex(write, item->fault.instruction);
+        } else if (item->state == TASK_EXITED && item->termination == TASK_TERMINATION_EXIT) {
+            write(" status="); hex(write, (uint32_t)item->exit_status);
+        }
+        write("\n");
         write("     CR3="); hex(write, item->directory);
         write(item->owns_space ? " owned\n" : " borrowed\n");
     }

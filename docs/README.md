@@ -23,11 +23,12 @@ qemu-system-i386 -m 64M -cdrom rum.iso
 The normal boot provides a VGA text console, a PS/2 keyboard, a kernel shell,
 temporary RAM files, diagnostics, and ASCII Snake. The kernel has physical and
 virtual memory management, guarded task stacks, cooperative scheduling, and a
-controlled double-fault path.
+controlled double-fault path. Prepared processes enter ring 3 through the
+production interrupt-return path, and a user exception terminates only that
+process while preserving its fault record for the parent.
 
-Separate user ELF programs and process records exist as groundwork for
-userspace. The normal shell does not launch a user process yet. File changes
-also remain in RAM and disappear on reboot.
+Separate user ELF programs also build successfully, but the normal shell does
+not load or launch them yet. File changes remain in RAM and disappear on reboot.
 
 ## User guides
 

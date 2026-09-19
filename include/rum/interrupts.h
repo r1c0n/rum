@@ -49,6 +49,8 @@ static inline uint32_t exception_frame_ss(const struct exception_frame *frame)
 
 void idt_initialize(void);
 void interrupt_dispatch(struct exception_frame *frame);
+/* Restore a complete trusted privilege-change frame and enter ring 3. */
+_Noreturn void interrupt_enter(const struct exception_user_frame *frame);
 void irq_register(uint8_t irq, void (*handler)(void));
 void irq_dispatch(const struct exception_frame *frame);
 uint32_t irq_spurious_count(void);

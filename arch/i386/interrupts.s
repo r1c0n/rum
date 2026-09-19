@@ -110,6 +110,16 @@ interrupt_return:
     iret
 .size interrupt_common, . - interrupt_common
 
+/* A normal C call places the trusted frame pointer above its return address.
+   Replace the current kernel stack with that frame and share the production
+   restore path used by returning interrupts. */
+.global interrupt_enter
+.type interrupt_enter, @function
+interrupt_enter:
+    mov 4(%esp), %esp
+    jmp interrupt_return
+.size interrupt_enter, . - interrupt_enter
+
 .section .rodata, "a"
 .balign 4
 .global exception_stub_table

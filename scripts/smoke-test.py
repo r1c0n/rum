@@ -1211,19 +1211,19 @@ def snake_test(stream, symbols, artifacts, mode, serial):
     timer_test(stream, symbols, artifacts, mode)
 
 
-def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False, cpu=None, tasks=False, user_abi=None, task_fault=False, double_fault=False):
+def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False, cpu=None, tasks=False, user_abi=None, task_fault=False, double_fault=False, process_fault=None):
     if task_fault:
         fault = "ud"
     serial_artifact = artifacts / f"{mode}-serial.log"
     vga_dump = artifacts / f"{mode}-vga.bin"
     screenshot = artifacts / f"{mode}.ppm"
-    image = project / ("build/tests/task-double-fault.elf" if double_fault else "build/tests/task-fault.elf" if task_fault else f"build/tests/abi-{user_abi}.elf" if user_abi else "build/tests/task.elf" if tasks else f"build/tests/cpu-{cpu}.elf" if cpu else "build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
+    image = project / (f"build/tests/process-fault-{process_fault}.elf" if process_fault else "build/tests/task-double-fault.elf" if double_fault else "build/tests/task-fault.elf" if task_fault else f"build/tests/abi-{user_abi}.elf" if user_abi else "build/tests/task.elf" if tasks else f"build/tests/cpu-{cpu}.elf" if cpu else "build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
                        f"build/tests/fault-{fault}.elf" if fault else "build/rum.elf")
     symbols = elf_symbols(image)
     boot_layout_test(symbols)
-    marker = ("rum_panic_halted" if double_fault else "rum_abi_test_ok" if user_abi else "rum_task_test_ok" if tasks else "rum_cpu_test_ok" if cpu else "rum_storage_test_ok" if storage else "rum_paging_test_ok" if paging == "ok" else "rum_panic_halted" if paging else
+    marker = ("rum_process_irq_ready" if process_fault == "irq" else "rum_process_fault_test_ok" if process_fault else "rum_panic_halted" if double_fault else "rum_abi_test_ok" if user_abi else "rum_task_test_ok" if tasks else "rum_cpu_test_ok" if cpu else "rum_storage_test_ok" if storage else "rum_paging_test_ok" if paging == "ok" else "rum_panic_halted" if paging else
               "rum_irq_test_ok" if irq_test else "rum_panic_halted" if fault else "rum_boot_ok")
-    normal = not fault and not irq_test and not paging and not storage and not cpu and not tasks and not user_abi and not double_fault
+    normal = not process_fault and not fault and not irq_test and not paging and not storage and not cpu and not tasks and not user_abi and not double_fault
     with tempfile.TemporaryDirectory(prefix="rum-qmp-") as temporary:
         # Keep the live writer/readers on one filesystem. DrvFs can return
         # ENODATA when a WSL guest creates/truncates a log on the Windows drive.
@@ -1249,7 +1249,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
         try:
             deadline = time.monotonic() + 20
             while marker not in serial.read_text(errors="replace"):
-                if any(marker in serial.read_text(errors="replace") for marker in ("rum_paging_test_failed", "rum_storage_test_failed", "rum_cpu_test_failed", "rum_task_test_failed", "rum_abi_test_failed")):
+                if any(marker in serial.read_text(errors="replace") for marker in ("rum_process_fault_test_failed", "rum_paging_test_failed", "rum_storage_test_failed", "rum_cpu_test_failed", "rum_task_test_failed", "rum_abi_test_failed")):
                     raise RuntimeError(serial.read_text(errors="replace"))
                 if process.poll() is not None:
                     raise RuntimeError(f"QEMU exited: {process.stderr.read().decode(errors='replace')}")
@@ -1270,6 +1270,16 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                     status = qmp_command(stream, "query-status")
                     if not status["running"]:
                         raise RuntimeError(f"Guest unexpectedly stopped: {status}")
+                    if process_fault == "irq":
+                        send, _, _ = guest_keyboard(stream, serial)
+                        send("x")
+                        deadline = time.monotonic() + 5
+                        while "rum_process_fault_test_ok" not in serial.read_text(errors="replace"):
+                            if "rum_process_fault_test_failed" in serial.read_text(errors="replace"):
+                                raise RuntimeError(serial.read_text(errors="replace"))
+                            if time.monotonic() >= deadline:
+                                raise RuntimeError(f"User IRQ return timed out ({mode}). Serial output:\n{serial.read_text(errors='replace')}")
+                            time.sleep(0.02)
                     if normal:
                         stop_at_idle(stream)
                     else:
@@ -1287,7 +1297,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                             for y in range(25)]
                     screen = "\n".join(rows)
                     (artifacts / f"{mode}-screen.txt").write_text(screen + "\n")
-                    expected_text = (("rum kernel panic", "Double fault", "CPU halted.") if double_fault else
+                    expected_text = (("rum user fault recovery tests passed.",) if process_fault else
+                                     ("rum kernel panic", "Double fault", "CPU halted.") if double_fault else
                                      ("rum user ABI and startup tests passed.",) if user_abi else
                                      ("rum kernel contexts and waiting tests passed.",) if tasks else
                                      ("rum user CPU entry and policy tests passed.",) if cpu else
@@ -1327,7 +1338,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                         snake_test(stream, symbols, artifacts, mode, serial)
                     qmp_command(stream, "quit")
             print(f"PASS: {mode}, GDT/IDT/segments, " +
-                  ("hardware task gate, independent guarded stack, saved failed TSS, controlled panic" if double_fault else
+                  ("production ring-3 process entry, isolated fault recovery, parent/CR3/TSS restore, cleanup" if process_fault else
+                   "hardware task gate, independent guarded stack, saved failed TSS, controlled panic" if double_fault else
                    "separate user ELF, real ring-3 startup/int 0x80, arguments/BSS/return, segment permissions" if user_abi else
                    "guarded stacks, atomic process records, exit status, context/CR3 switches, waiting/IRQ cleanup" if tasks else
                    "real ring-3 PIT/IRET, TSS stack, user registers/segments/DF, alignment, integer/I/O policy" if cpu else
@@ -1362,6 +1374,8 @@ def main():
     boot_test(args.qemu, project, "irq", artifacts, irq_test=True)
     for case in ("irq", "x87", "mmx", "sse", "io"):
         boot_test(args.qemu, project, f"cpu-{case}", artifacts, cpu=case)
+    for case in ("null", "kernel", "readonly", "ud2", "privileged", "io", "irq"):
+        boot_test(args.qemu, project, f"process-fault-{case}", artifacts, process_fault=case)
     for ram in (16, 64):
         boot_test(args.qemu, project, f"tasks-{ram}", artifacts, tasks=True, ram=ram)
         boot_test(args.qemu, project, f"task-fault-{ram}", artifacts, task_fault=True, ram=ram)

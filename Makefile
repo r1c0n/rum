@@ -29,7 +29,10 @@ PAGING_OBJECTS := $(PAGING_KERNELS:.elf=.o)
 CPU_CASES := irq x87 mmx sse io
 CPU_KERNELS := $(addprefix build/tests/cpu-,$(addsuffix .elf,$(CPU_CASES)))
 CPU_OBJECTS := $(CPU_KERNELS:.elf=.o)
-TEST_DEPENDENCIES := $(FAULT_OBJECTS:.o=.d) $(PAGING_OBJECTS:.o=.d) $(CPU_OBJECTS:.o=.d) build/tests/cpu-probe.d build/tests/paging-spaces.d build/tests/user-memory.d build/tests/irq-kernel.d build/tests/storage-kernel.d build/tests/storage-checks.d build/tests/task-kernel.d build/tests/task-fault-kernel.d build/tests/task-double-fault-kernel.d build/tests/task-stack-fault.d
+PROCESS_FAULT_CASES := null kernel readonly ud2 privileged io irq
+PROCESS_FAULT_KERNELS := $(addprefix build/tests/process-fault-,$(addsuffix .elf,$(PROCESS_FAULT_CASES)))
+PROCESS_FAULT_OBJECTS := $(PROCESS_FAULT_KERNELS:.elf=.o)
+TEST_DEPENDENCIES := $(FAULT_OBJECTS:.o=.d) $(PAGING_OBJECTS:.o=.d) $(CPU_OBJECTS:.o=.d) $(PROCESS_FAULT_OBJECTS:.o=.d) build/tests/cpu-probe.d build/tests/process-fault-probe.d build/tests/paging-spaces.d build/tests/user-memory.d build/tests/irq-kernel.d build/tests/storage-kernel.d build/tests/storage-checks.d build/tests/task-kernel.d build/tests/task-fault-kernel.d build/tests/task-double-fault-kernel.d build/tests/task-stack-fault.d
 STORAGE_HOST_SOURCES := kernel/heap.c kernel/ramfs.c kernel/memory.c tests/page-backend.c build/embedded-files.c
 STORAGE_HOST_HEADERS := include/rum/heap.h include/rum/ramfs.h include/rum/embedded.h include/rum/paging.h include/rum/pmm.h include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
 SNAKE_HOST_SOURCES := kernel/snake.c kernel/snake_model.c
@@ -52,7 +55,7 @@ ABI_IMAGES := $(addprefix build/tests/abi-image-,$(addsuffix .o,$(ABI_CASES)))
 TEST_DEPENDENCIES += $(ABI_OBJECTS:.o=.d) $(ABI_IMAGES:.o=.d) build/tests/abi-entry.d build/tests/user/probe.d build/tests/user/probe-entry.d
 
 .PHONY: all check iso user test-user run run-kernel debug panic test test-host doctor toolchain clean FORCE
-.SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) build/tests/paging-spaces.o build/tests/user-memory.o
+.SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) $(PROCESS_FAULT_OBJECTS) build/tests/paging-spaces.o build/tests/user-memory.o
 .SECONDARY: $(USER_DEBUG) $(USER_RUNTIME) $(addprefix build/user/programs/,$(addsuffix .o,$(USER_PROGRAMS)))
 .SECONDARY: $(ABI_OBJECTS) $(ABI_IMAGES)
 all: user iso
@@ -171,7 +174,7 @@ debug: iso
 panic: build/tests/fault-ud.elf
 	$(QEMU) -m 64M -kernel $< -serial stdio -no-reboot -no-shutdown
 
-test: test-host test-user iso $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PAGING_KERNELS) build/tests/storage.elf build/tests/task.elf build/tests/task-fault.elf build/tests/task-double-fault.elf $(ABI_KERNELS)
+test: test-host test-user iso $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PROCESS_FAULT_KERNELS) $(PAGING_KERNELS) build/tests/storage.elf build/tests/task.elf build/tests/task-fault.elf build/tests/task-double-fault.elf $(ABI_KERNELS)
 	python3 scripts/smoke-test.py --qemu $(QEMU)
 
 build/tests/irq.elf: build/tests/irq-kernel.o build/tests/irq-probe.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
@@ -253,6 +256,26 @@ $(CPU_OBJECTS): build/tests/cpu-%.o: tests/cpu-kernel.c Makefile
 
 # The observer replaces only C dispatch; entry/return, tables and PIC are real.
 build/tests/cpu-%.elf: build/tests/cpu-%.o build/tests/cpu-probe.o $(filter-out build/arch/i386/interrupt.o build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
+
+build/tests/process-fault-null.o: PROCESS_FAULT_CASE=0
+build/tests/process-fault-kernel.o: PROCESS_FAULT_CASE=1
+build/tests/process-fault-readonly.o: PROCESS_FAULT_CASE=2
+build/tests/process-fault-ud2.o: PROCESS_FAULT_CASE=3
+build/tests/process-fault-privileged.o: PROCESS_FAULT_CASE=4
+build/tests/process-fault-io.o: PROCESS_FAULT_CASE=5
+build/tests/process-fault-irq.o: PROCESS_FAULT_CASE=6
+
+$(PROCESS_FAULT_OBJECTS): build/tests/process-fault-%.o: tests/process-fault-kernel.c Makefile
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DRUM_PROCESS_FAULT_CASE=$(PROCESS_FAULT_CASE) -MMD -MP -c $< -o $@
+
+build/tests/process-fault-probe.o: tests/process-fault-probe.s $(LAYOUT_HEADERS) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
+
+build/tests/process-fault-%.elf: build/tests/process-fault-%.o build/tests/process-fault-probe.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
 
