@@ -1211,19 +1211,19 @@ def snake_test(stream, symbols, artifacts, mode, serial):
     timer_test(stream, symbols, artifacts, mode)
 
 
-def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False, cpu=None, tasks=False, user_abi=None, task_fault=False, double_fault=False, process_fault=None, syscalls=False):
+def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False, cpu=None, tasks=False, user_abi=None, task_fault=False, double_fault=False, process_fault=None, syscalls=False, elf_loader=False):
     if task_fault:
         fault = "ud"
     serial_artifact = artifacts / f"{mode}-serial.log"
     vga_dump = artifacts / f"{mode}-vga.bin"
     screenshot = artifacts / f"{mode}.ppm"
-    image = project / ("build/tests/syscall.elf" if syscalls else f"build/tests/process-fault-{process_fault}.elf" if process_fault else "build/tests/task-double-fault.elf" if double_fault else "build/tests/task-fault.elf" if task_fault else f"build/tests/abi-{user_abi}.elf" if user_abi else "build/tests/task.elf" if tasks else f"build/tests/cpu-{cpu}.elf" if cpu else "build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
+    image = project / ("build/tests/elf-loader.elf" if elf_loader else "build/tests/syscall.elf" if syscalls else f"build/tests/process-fault-{process_fault}.elf" if process_fault else "build/tests/task-double-fault.elf" if double_fault else "build/tests/task-fault.elf" if task_fault else f"build/tests/abi-{user_abi}.elf" if user_abi else "build/tests/task.elf" if tasks else f"build/tests/cpu-{cpu}.elf" if cpu else "build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
                        f"build/tests/fault-{fault}.elf" if fault else "build/rum.elf")
     symbols = elf_symbols(image)
     boot_layout_test(symbols)
-    marker = ("rum_syscall_test_ready" if syscalls else "rum_process_irq_ready" if process_fault == "irq" else "rum_process_fault_test_ok" if process_fault else "rum_panic_halted" if double_fault else "rum_abi_test_ok" if user_abi else "rum_task_test_ok" if tasks else "rum_cpu_test_ok" if cpu else "rum_storage_test_ok" if storage else "rum_paging_test_ok" if paging == "ok" else "rum_panic_halted" if paging else
+    marker = ("rum_elf_loader_test_ok" if elf_loader else "rum_syscall_test_ready" if syscalls else "rum_process_irq_ready" if process_fault == "irq" else "rum_process_fault_test_ok" if process_fault else "rum_panic_halted" if double_fault else "rum_abi_test_ok" if user_abi else "rum_task_test_ok" if tasks else "rum_cpu_test_ok" if cpu else "rum_storage_test_ok" if storage else "rum_paging_test_ok" if paging == "ok" else "rum_panic_halted" if paging else
               "rum_irq_test_ok" if irq_test else "rum_panic_halted" if fault else "rum_boot_ok")
-    normal = not syscalls and not process_fault and not fault and not irq_test and not paging and not storage and not cpu and not tasks and not user_abi and not double_fault
+    normal = not elf_loader and not syscalls and not process_fault and not fault and not irq_test and not paging and not storage and not cpu and not tasks and not user_abi and not double_fault
     with tempfile.TemporaryDirectory(prefix="rum-qmp-") as temporary:
         # Keep the live writer/readers on one filesystem. DrvFs can return
         # ENODATA when a WSL guest creates/truncates a log on the Windows drive.
@@ -1249,7 +1249,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
         try:
             deadline = time.monotonic() + 20
             while marker not in serial.read_text(errors="replace"):
-                if any(marker in serial.read_text(errors="replace") for marker in ("rum_syscall_test_failed", "rum_process_fault_test_failed", "rum_paging_test_failed", "rum_storage_test_failed", "rum_cpu_test_failed", "rum_task_test_failed", "rum_abi_test_failed")):
+                if any(marker in serial.read_text(errors="replace") for marker in ("rum_elf_loader_test_failed", "rum_syscall_test_failed", "rum_process_fault_test_failed", "rum_paging_test_failed", "rum_storage_test_failed", "rum_cpu_test_failed", "rum_task_test_failed", "rum_abi_test_failed")):
                     raise RuntimeError(serial.read_text(errors="replace"))
                 if process.poll() is not None:
                     raise RuntimeError(f"QEMU exited: {process.stderr.read().decode(errors='replace')}")
@@ -1301,7 +1301,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                             for y in range(25)]
                     screen = "\n".join(rows)
                     (artifacts / f"{mode}-screen.txt").write_text(screen + "\n")
-                    expected_text = (("rum production syscall tests",) if syscalls else
+                    expected_text = (("rum ELF loader tests passed.",) if elf_loader else ("rum production syscall tests",) if syscalls else
                                      ("rum user fault recovery tests passed.",) if process_fault else
                                      ("rum kernel panic", "Double fault", "CPU halted.") if double_fault else
                                      ("rum user ABI and startup tests passed.",) if user_abi else
@@ -1325,6 +1325,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                             raise RuntimeError(f"Missing VGA text {expected!r} ({mode})")
                     if syscalls and ("W" * 128 + "errZrum_syscall_test_ok") not in serial.read_text():
                         raise RuntimeError("Production stdout/stderr bytes or final marker are incomplete")
+                    if elf_loader and "Hello from rum userspace!\n" not in serial.read_text():
+                        raise RuntimeError("Loaded hello program did not write through the production syscall")
                     if double_fault:
                         double_fault_test(stream, symbols, artifacts, mode, serial.read_text(), registers)
                     elif paging and paging != "ok":
@@ -1345,7 +1347,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                         snake_test(stream, symbols, artifacts, mode, serial)
                     qmp_command(stream, "quit")
             print(f"PASS: {mode}, GDT/IDT/segments, " +
-                  ("production int 0x80, validated partial I/O, blocking input, register and task preservation" if syscalls else
+                  ("validated ELF mapping, initial stack, allocation rollback, execution and cleanup" if elf_loader else
+                   "production int 0x80, validated partial I/O, blocking input, register and task preservation" if syscalls else
                    "production ring-3 process entry, isolated fault recovery, parent/CR3/TSS restore, cleanup" if process_fault else
                    "hardware task gate, independent guarded stack, saved failed TSS, controlled panic" if double_fault else
                    "separate user ELF, real ring-3 startup/int 0x80, arguments/BSS/return, segment permissions" if user_abi else
@@ -1385,6 +1388,7 @@ def main():
     for case in ("null", "kernel", "readonly", "ud2", "privileged", "io", "irq"):
         boot_test(args.qemu, project, f"process-fault-{case}", artifacts, process_fault=case)
     boot_test(args.qemu, project, "syscalls", artifacts, syscalls=True)
+    boot_test(args.qemu, project, "elf-loader", artifacts, elf_loader=True)
     for ram in (16, 64):
         boot_test(args.qemu, project, f"tasks-{ram}", artifacts, tasks=True, ram=ram)
         boot_test(args.qemu, project, f"task-fault-{ram}", artifacts, task_fault=True, ram=ram)
