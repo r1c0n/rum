@@ -158,6 +158,7 @@ void kernel_main(uint32_t magic, uint32_t information)
 #endif
 #if RUM_PAGING_CASE == 0
     paging_space_checks();
+    user_address_space_checks();
     before = pmm_stats().free_pages; /* The heap intentionally retains grown pages. */
     consumed = consume_pages(0);
     check(!pmm_allocate_page() && !paging_map_page(space, RUM_KERNEL_ALIAS_BASE, consumed, PAGING_WRITABLE),

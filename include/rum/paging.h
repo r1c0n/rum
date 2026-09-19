@@ -2,6 +2,7 @@
 #define RUM_PAGING_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <rum/pmm.h>
 
@@ -13,6 +14,7 @@ struct paging_space;
 struct paging_statistics {
     uint32_t spaces, directory_pages, shared_table_pages;
     uint32_t kernel_directory, active_directory;
+    uint32_t private_table_pages, user_pages;
 };
 
 /* Allocation-free, IRQ-safe snapshot. Shared table frames are counted once,
@@ -40,5 +42,28 @@ bool paging_switch_space(struct paging_space *space);
 bool paging_map_page(struct paging_space *space, uint32_t virtual, uint32_t physical, uint32_t flags);
 bool paging_unmap_page(struct paging_space *space, uint32_t virtual, uint32_t *physical);
 bool paging_translate(const struct paging_space *space, uint32_t virtual, uint32_t *physical);
+
+/* Private anonymous user pages. The address and page count must fit entirely
+   inside the program range or the fixed user-stack range. Allocate zeroes every
+   frame before publishing it and rolls the whole request back on failure.
+   Release owns and frees the mapped frames; protect changes only write access. */
+bool paging_user_allocate(struct paging_space *space, uint32_t virtual,
+                          uint32_t pages, uint32_t flags);
+bool paging_user_protect(struct paging_space *space, uint32_t virtual,
+                         uint32_t pages, uint32_t flags);
+bool paging_user_release(struct paging_space *space, uint32_t virtual, uint32_t pages);
+uint32_t paging_user_page_count(const struct paging_space *space);
+
+/* Validate every covered page before copying. A zero-byte copy succeeds without
+   inspecting either address. String copies require a NUL within capacity and
+   report its length excluding the NUL; failure leaves destination/length alone. */
+bool paging_user_accessible(const struct paging_space *space, uint32_t address,
+                            size_t bytes, bool writable);
+bool paging_copy_from_user(const struct paging_space *space, void *destination,
+                           uint32_t source, size_t bytes);
+bool paging_copy_to_user(const struct paging_space *space, uint32_t destination,
+                         const void *source, size_t bytes);
+bool paging_copy_string_from_user(const struct paging_space *space, char *destination,
+                                  size_t capacity, uint32_t source, size_t *length);
 
 #endif

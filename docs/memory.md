@@ -52,14 +52,14 @@ tables. It identity maps addresses from `0x1000` to the RAM-window limit,
 including gaps and reservations. This permits physical access while the
 allocator prevents reserved memory from being handed out. Page zero is unmapped.
 
-All mappings are supervisor-only. Kernel `.text` and `.rodata` are read-only;
-data, BSS, stack, and page tables are writable. Legacy VGA/ROM pages from
-`0xa0000` to `0x100000` have caching disabled.
+Shared kernel mappings are supervisor-only. Kernel `.text` and `.rodata` are
+read-only; data, BSS, stack, and page tables are writable. Private mappings in
+registered user spaces carry the user bit and may be read-only or writable.
+Legacy VGA/ROM pages from `0xa0000` to `0x100000` have caching disabled.
 
 CR3 points to the physical directory. CR4 clears PAE, large-page, and global-page
 modes. CR0 enables PG and WP so ring-0 writes to read-only pages fault. This
-paging mode has no NX bit. Private user mappings, demand paging, and swap are
-unsupported.
+paging mode has no NX bit. Demand paging and swap are unsupported.
 
 Initialization failure frees allocated tables and leaves paging disabled.
 Invalid boot maps or paging failures are reported before the kernel halts.
@@ -80,14 +80,15 @@ directory. User and unassigned ranges start unmapped.
 | `paging_directory_address(space)` | Return its physical directory address, or zero for an unregistered handle |
 | `paging_space_create()` | Create a directory borrowing kernel tables; require an initialized heap; return `NULL` on failure |
 | `paging_switch_space(space)` | Load a registered directory into CR3, preserve interrupt flags, and update active-space bookkeeping |
-| `paging_space_destroy(space)` | Release an inactive directory and its metadata; retain all borrowed kernel resources |
+| `paging_space_destroy(space)` | Release an inactive directory, private user pages/tables, and metadata; retain borrowed kernel resources |
 
 Up to 16 additional spaces can coexist with the kernel directory. Creation
 checks that bound before allocation and publishes a handle only after its
 directory is ready. Allocation failure releases acquired metadata. Destruction
 refuses the kernel space, active space, unregistered handles, and unsupported
 private directory entries. A handle is invalid after successful destruction.
-Private user tables will need explicit ownership before they can be introduced.
+Each space records its private table and data-page counts so destruction can
+validate and release only resources owned by that space.
 
 The heap always maps through the kernel owner, even when a different space is
 active. Existing tables are shared directly, so added heap pages appear in
@@ -102,8 +103,37 @@ disabled. This also makes changes made while a directory was inactive visible
 on its next activation. See the [Intel SDM, Volume 3A, section 5.10.4.1](https://cdrdv2-public.intel.com/874240/325462-090-sdm-vol-1-2abcd-3abcd-4.pdf)
 for translation-cache invalidation rules.
 
-Paging contexts currently contain shared kernel mappings. Program loading,
-private execution stacks, and user mode follow in the process implementation.
+Paging contexts can now contain owned anonymous user pages. ELF loading,
+process records, and ring-3 entry follow in later 0.3.0 work.
+
+## User mapping and copy API
+
+`paging_user_allocate` maps zeroed private pages into an inactive or active
+registered user space. A request must be page-aligned and fit wholly inside the
+program range (`0x80000000`–`0xbfc00000`) or the fixed 64 KiB user stack
+(`0xbfff0000`–`0xc0000000`). The stack guard at `0xbffef000`, the unused gap,
+page zero, and addresses at or above `0xc0000000` are rejected.
+
+The 16 MiB per-space page budget is checked before allocation. Every data frame
+is cleared before its PTE is published. If a data frame or page table cannot be
+allocated, the operation removes only mappings created by that request and
+returns their frames. Existing mappings and their contents remain unchanged.
+
+| API | Behavior |
+| --- | --- |
+| `paging_user_allocate(space, address, pages, flags)` | Own and map zeroed anonymous pages; reject overlaps and roll back the full request on failure |
+| `paging_user_protect(space, address, pages, flags)` | Change write permission only after validating every page in the range |
+| `paging_user_release(space, address, pages)` | Remove and free every page, then reclaim newly empty private tables |
+| `paging_user_page_count(space)` | Return the number of private data pages charged to the space |
+| `paging_user_accessible(space, address, bytes, writable)` | Validate the complete byte range and requested access without copying |
+| `paging_copy_from_user` / `paging_copy_to_user` | Validate all covered pages before moving any byte across the kernel boundary |
+| `paging_copy_string_from_user` | Copy through the first NUL within capacity; leave outputs unchanged on failure |
+
+Zero-length buffer operations succeed for a valid user space without inspecting
+the address or buffer. Nonempty operations reject arithmetic overflow, holes,
+guard pages, addresses outside the user window, and writes spanning any
+read-only page. These helpers use supervisor identity aliases internally;
+drivers and other kernel code do not need to dereference raw user pointers.
 
 ## Mapping API
 
@@ -157,11 +187,20 @@ tables, verify real CR3 values and live timer IRQs, and check bounded/repeated
 creation and destruction. Directory and metadata exhaustion must recover
 without leaking owned resources; retained heap pages are accounted separately.
 
+User-memory cases allocate the same virtual program and stack pages in two
+spaces, verify complete zero-fill and distinct physical frames, cross page-table
+boundaries, change permissions, and exercise checked buffers and strings at
+holes and end addresses. Forced PMM exhaustion checks rollback after every
+partial acquisition. QMP then walks the live directories and tables, rebuilds
+the allocation ledger from owners, and compares it byte-for-byte with the PMM
+bitmap.
+
 Fault cases cover null reads, code/constant
 writes, unmapped aliases, and read-only alias writes. They verify CR2, error
 codes, faulting EIP, write protection, and the panic halt.
 Null and code/constant protection cases run under child CR3s. The serial markers
-`rum_paging_spaces_ok` and `rum_paging_fault_space_ok` confirm those checks ran.
+`rum_user_memory_ok`, `rum_paging_spaces_ok`, and `rum_paging_fault_space_ok`
+confirm those checks ran.
 Reports and dumps are in `build/test-artifacts/`.
 
 ## References
