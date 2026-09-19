@@ -122,6 +122,10 @@ between the check and wait therefore makes the call return without sleeping.
 waiting on that event runnable. Woken tasks must recheck their predicate because
 another task can consume the resource first.
 
+The keyboard owns a separate input event in addition to the foreground work
+event. A blocking standard-input syscall waits on that narrower event so PIT
+ticks cannot wake it when no character has arrived.
+
 Do not yield or wait while holding a lock, owning temporary interrupt-disabled
 state, or exposing another task's partially updated resource.
 

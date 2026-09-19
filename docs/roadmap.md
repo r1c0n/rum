@@ -98,15 +98,15 @@ delivery. Keep deliberately faulting programs in isolated QEMU cases.
 
 ### 4. Production syscall path
 
-- [ ] Install vector `0x80` as a present ring-3 interrupt gate.
-- [ ] Dispatch ABI v1 syscall numbers from EAX with arguments in EBX, ECX and EDX.
-- [ ] Implement `exit`, `read`, `write` and `getpid` with the documented signed
+- [x] Install vector `0x80` as a present ring-3 interrupt gate.
+- [x] Dispatch ABI v1 syscall numbers from EAX with arguments in EBX, ECX and EDX.
+- [x] Implement `exit`, `read`, `write` and `getpid` with the documented signed
   results and errors from `include/rum/abi/`.
-- [ ] Preserve every general register except EAX on return to userspace.
-- [ ] Validate syscall numbers, handles, pointer ranges and page permissions before
+- [x] Preserve every general register except EAX on return to userspace.
+- [x] Validate syscall numbers, handles, pointer ranges and page permissions before
   reading or writing user memory.
-- [ ] Support partial console reads/writes and zero-length operations.
-- [ ] Block standard-input reads on keyboard events without polling or holding
+- [x] Support partial console reads/writes and zero-length operations.
+- [x] Block standard-input reads on keyboard events without polling or holding
   interrupts disabled.
 
 The first release uses handles 0, 1 and 2 for standard input, output and error.

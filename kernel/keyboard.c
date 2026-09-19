@@ -14,6 +14,7 @@
 static struct keyboard_decoder decoder;
 static volatile char queue[QUEUE_SIZE];
 static volatile uint32_t head, tail, dropped;
+static struct task_event input_event;
 
 static bool write_port(uint16_t port, uint8_t value)
 {
@@ -71,6 +72,7 @@ static void keyboard_interrupt(void)
         } else {
             queue[head] = character;
             head = next;
+            task_event_signal(&input_event);
             task_event_signal(task_work_event());
         }
     }
@@ -80,6 +82,7 @@ bool keyboard_initialize(void)
 {
     decoder = (struct keyboard_decoder){0};
     head = tail = dropped = 0;
+    input_event = (struct task_event){0};
     if (!write_port(PS2_COMMAND, 0xAD) || !write_port(PS2_COMMAND, 0xA7))
         return false; /* Disable both ports while configuring the controller. */
     for (unsigned count = 0; count < 256 && (inb(PS2_STATUS) & 1); ++count)
@@ -116,4 +119,9 @@ bool keyboard_read(char *character)
 uint32_t keyboard_dropped(void)
 {
     return dropped;
+}
+
+struct task_event *keyboard_input_event(void)
+{
+    return &input_event;
 }

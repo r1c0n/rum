@@ -567,12 +567,12 @@ def cpu_tables_test(stream, symbols, artifacts, mode, live=False, user_abi=False
         if ((high << 16 | low) != symbols[target]
                 or (selector, reserved, attributes) != (8, 0, 0x8E)):
             raise RuntimeError(f"Wrong IDT gate {vector}")
-    if user_abi:
-        low, selector, reserved, attributes, high = struct.unpack_from("<HHBBH", idt, 128 * 8)
-        if ((high << 16 | low) != symbols["abi_test_syscall"] or
-                (selector, reserved, attributes) != (8, 0, 0xEE)):
-            raise RuntimeError("Wrong fixture user syscall gate")
-    if any(idt[48 * 8:128 * 8]) or any(idt[(129 if user_abi else 128) * 8:]):
+    low, selector, reserved, attributes, high = struct.unpack_from("<HHBBH", idt, 128 * 8)
+    syscall_target = symbols["abi_test_syscall"] if user_abi else symbols["syscall_entry"]
+    if ((high << 16 | low) != syscall_target or
+            (selector, reserved, attributes) != (8, 0, 0xEE)):
+        raise RuntimeError("Wrong ring-3 syscall gate")
+    if any(idt[48 * 8:128 * 8]) or any(idt[129 * 8:]):
         raise RuntimeError("Unexpected IDT gates above the PIC range")
     return registers
 
@@ -1211,19 +1211,19 @@ def snake_test(stream, symbols, artifacts, mode, serial):
     timer_test(stream, symbols, artifacts, mode)
 
 
-def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False, cpu=None, tasks=False, user_abi=None, task_fault=False, double_fault=False, process_fault=None):
+def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False, cpu=None, tasks=False, user_abi=None, task_fault=False, double_fault=False, process_fault=None, syscalls=False):
     if task_fault:
         fault = "ud"
     serial_artifact = artifacts / f"{mode}-serial.log"
     vga_dump = artifacts / f"{mode}-vga.bin"
     screenshot = artifacts / f"{mode}.ppm"
-    image = project / (f"build/tests/process-fault-{process_fault}.elf" if process_fault else "build/tests/task-double-fault.elf" if double_fault else "build/tests/task-fault.elf" if task_fault else f"build/tests/abi-{user_abi}.elf" if user_abi else "build/tests/task.elf" if tasks else f"build/tests/cpu-{cpu}.elf" if cpu else "build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
+    image = project / ("build/tests/syscall.elf" if syscalls else f"build/tests/process-fault-{process_fault}.elf" if process_fault else "build/tests/task-double-fault.elf" if double_fault else "build/tests/task-fault.elf" if task_fault else f"build/tests/abi-{user_abi}.elf" if user_abi else "build/tests/task.elf" if tasks else f"build/tests/cpu-{cpu}.elf" if cpu else "build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
                        f"build/tests/fault-{fault}.elf" if fault else "build/rum.elf")
     symbols = elf_symbols(image)
     boot_layout_test(symbols)
-    marker = ("rum_process_irq_ready" if process_fault == "irq" else "rum_process_fault_test_ok" if process_fault else "rum_panic_halted" if double_fault else "rum_abi_test_ok" if user_abi else "rum_task_test_ok" if tasks else "rum_cpu_test_ok" if cpu else "rum_storage_test_ok" if storage else "rum_paging_test_ok" if paging == "ok" else "rum_panic_halted" if paging else
+    marker = ("rum_syscall_test_ready" if syscalls else "rum_process_irq_ready" if process_fault == "irq" else "rum_process_fault_test_ok" if process_fault else "rum_panic_halted" if double_fault else "rum_abi_test_ok" if user_abi else "rum_task_test_ok" if tasks else "rum_cpu_test_ok" if cpu else "rum_storage_test_ok" if storage else "rum_paging_test_ok" if paging == "ok" else "rum_panic_halted" if paging else
               "rum_irq_test_ok" if irq_test else "rum_panic_halted" if fault else "rum_boot_ok")
-    normal = not process_fault and not fault and not irq_test and not paging and not storage and not cpu and not tasks and not user_abi and not double_fault
+    normal = not syscalls and not process_fault and not fault and not irq_test and not paging and not storage and not cpu and not tasks and not user_abi and not double_fault
     with tempfile.TemporaryDirectory(prefix="rum-qmp-") as temporary:
         # Keep the live writer/readers on one filesystem. DrvFs can return
         # ENODATA when a WSL guest creates/truncates a log on the Windows drive.
@@ -1249,7 +1249,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
         try:
             deadline = time.monotonic() + 20
             while marker not in serial.read_text(errors="replace"):
-                if any(marker in serial.read_text(errors="replace") for marker in ("rum_process_fault_test_failed", "rum_paging_test_failed", "rum_storage_test_failed", "rum_cpu_test_failed", "rum_task_test_failed", "rum_abi_test_failed")):
+                if any(marker in serial.read_text(errors="replace") for marker in ("rum_syscall_test_failed", "rum_process_fault_test_failed", "rum_paging_test_failed", "rum_storage_test_failed", "rum_cpu_test_failed", "rum_task_test_failed", "rum_abi_test_failed")):
                     raise RuntimeError(serial.read_text(errors="replace"))
                 if process.poll() is not None:
                     raise RuntimeError(f"QEMU exited: {process.stderr.read().decode(errors='replace')}")
@@ -1270,12 +1270,16 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                     status = qmp_command(stream, "query-status")
                     if not status["running"]:
                         raise RuntimeError(f"Guest unexpectedly stopped: {status}")
-                    if process_fault == "irq":
+                    if syscalls or process_fault == "irq":
                         send, _, _ = guest_keyboard(stream, serial)
+                        if syscalls:
+                            time.sleep(0.1)
                         send("x")
                         deadline = time.monotonic() + 5
-                        while "rum_process_fault_test_ok" not in serial.read_text(errors="replace"):
-                            if "rum_process_fault_test_failed" in serial.read_text(errors="replace"):
+                        final_marker = "rum_syscall_test_ok" if syscalls else "rum_process_fault_test_ok"
+                        failure_marker = "rum_syscall_test_failed" if syscalls else "rum_process_fault_test_failed"
+                        while final_marker not in serial.read_text(errors="replace"):
+                            if failure_marker in serial.read_text(errors="replace"):
                                 raise RuntimeError(serial.read_text(errors="replace"))
                             if time.monotonic() >= deadline:
                                 raise RuntimeError(f"User IRQ return timed out ({mode}). Serial output:\n{serial.read_text(errors='replace')}")
@@ -1297,7 +1301,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                             for y in range(25)]
                     screen = "\n".join(rows)
                     (artifacts / f"{mode}-screen.txt").write_text(screen + "\n")
-                    expected_text = (("rum user fault recovery tests passed.",) if process_fault else
+                    expected_text = (("rum production syscall tests",) if syscalls else
+                                     ("rum user fault recovery tests passed.",) if process_fault else
                                      ("rum kernel panic", "Double fault", "CPU halted.") if double_fault else
                                      ("rum user ABI and startup tests passed.",) if user_abi else
                                      ("rum kernel contexts and waiting tests passed.",) if tasks else
@@ -1318,6 +1323,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                     for expected in expected_text:
                         if expected not in screen:
                             raise RuntimeError(f"Missing VGA text {expected!r} ({mode})")
+                    if syscalls and ("W" * 128 + "errZrum_syscall_test_ok") not in serial.read_text():
+                        raise RuntimeError("Production stdout/stderr bytes or final marker are incomplete")
                     if double_fault:
                         double_fault_test(stream, symbols, artifacts, mode, serial.read_text(), registers)
                     elif paging and paging != "ok":
@@ -1338,7 +1345,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                         snake_test(stream, symbols, artifacts, mode, serial)
                     qmp_command(stream, "quit")
             print(f"PASS: {mode}, GDT/IDT/segments, " +
-                  ("production ring-3 process entry, isolated fault recovery, parent/CR3/TSS restore, cleanup" if process_fault else
+                  ("production int 0x80, validated partial I/O, blocking input, register and task preservation" if syscalls else
+                   "production ring-3 process entry, isolated fault recovery, parent/CR3/TSS restore, cleanup" if process_fault else
                    "hardware task gate, independent guarded stack, saved failed TSS, controlled panic" if double_fault else
                    "separate user ELF, real ring-3 startup/int 0x80, arguments/BSS/return, segment permissions" if user_abi else
                    "guarded stacks, atomic process records, exit status, context/CR3 switches, waiting/IRQ cleanup" if tasks else
@@ -1376,6 +1384,7 @@ def main():
         boot_test(args.qemu, project, f"cpu-{case}", artifacts, cpu=case)
     for case in ("null", "kernel", "readonly", "ud2", "privileged", "io", "irq"):
         boot_test(args.qemu, project, f"process-fault-{case}", artifacts, process_fault=case)
+    boot_test(args.qemu, project, "syscalls", artifacts, syscalls=True)
     for ram in (16, 64):
         boot_test(args.qemu, project, f"tasks-{ram}", artifacts, tasks=True, ram=ram)
         boot_test(args.qemu, project, f"task-fault-{ram}", artifacts, task_fault=True, ram=ram)

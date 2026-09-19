@@ -59,6 +59,8 @@ task_id task_create(void (*entry)(void *), void *argument, struct paging_space *
 task_id task_create_process(const struct task_process *process);
 task_id task_current_id(void);
 bool task_current_is_process(void);
+rum_pid_t task_current_process_id(void);
+struct paging_space *task_current_process_space(void);
 bool task_query(task_id id, struct task_information *information);
 /* Bounded, allocation-free and IRQ-safe. Copies one consistent registry view;
    false before initialization (with a zeroed result) or for a NULL result. */

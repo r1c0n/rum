@@ -25,7 +25,9 @@ temporary RAM files, diagnostics, and ASCII Snake. The kernel has physical and
 virtual memory management, guarded task stacks, cooperative scheduling, and a
 controlled double-fault path. Prepared processes enter ring 3 through the
 production interrupt-return path, and a user exception terminates only that
-process while preserving its fault record for the parent.
+process while preserving its fault record for the parent. The production
+`int 0x80` dispatcher provides process exit, PID lookup, and checked console
+input and output.
 
 Separate user ELF programs also build successfully, but the normal shell does
 not load or launch them yet. File changes remain in RAM and disappear on reboot.

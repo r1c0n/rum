@@ -35,6 +35,12 @@ The assembly entry and return format is shared with CPU exceptions. See
 [Boot, exceptions, and CPU state](exceptions.md#common-interrupt-frame) before
 changing the stubs.
 
+System calls use the same saved frame at vector `0x80`, but they are not hardware
+IRQs and receive no PIC acknowledgement. The gate clears IF on entry like the
+other interrupt gates. After validating a user process context, the dispatcher
+enables interrupts before console work so a blocking read can receive keyboard
+IRQs and other runnable tasks can make progress.
+
 ## PIC acknowledgement
 
 `irq_dispatch` calls the registered handler and then sends the end-of-interrupt
@@ -83,6 +89,10 @@ Decoded characters enter a 128-slot ring buffer with 127 usable entries. If the
 buffer is full, the newest character is dropped and the diagnostic drop counter
 increases. IRQ1 never echoes or edits text; the foreground loop sends queued
 characters to the [shell](shell.md) or [Snake](snake.md).
+
+A decoded character also signals a keyboard-specific task event. Blocking
+standard-input reads wait on this event rather than the general work event, so
+timer ticks do not cause needless wakeups.
 
 ## Adding an IRQ source
 
