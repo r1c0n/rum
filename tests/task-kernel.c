@@ -27,7 +27,7 @@ static volatile uint32_t waiters_ready, waiters_done, idle_irqs;
 static uint32_t short_runs;
 static bool require_idle_ticks;
 static task_id process_task;
-static uint32_t process_directory, process_runs;
+static uint32_t process_directory;
 static struct exception_user_frame process_frame;
 
 static void check(bool condition, const char *name)
@@ -128,31 +128,6 @@ static void short_worker(void *argument)
     ++short_runs;
 }
 
-static void process_worker(void *argument)
-{
-    (void)argument;
-    struct task_information info;
-    check(task_current_id() == process_task && task_query(process_task, &info),
-          "running process identity");
-    check(info.kind == TASK_PROCESS && info.process_id == 1 && info.parent == 1 &&
-          info.state == TASK_RUNNING && info.directory == process_directory && info.owns_space &&
-          info.resources.kernel_stack_pages == RUM_KERNEL_STACK_SIZE / RUM_PAGE_SIZE &&
-          info.resources.directory_pages == 1 && info.resources.user_table_pages == 2 &&
-          info.resources.user_pages == 2,
-          "running process record and resources");
-    check(!memcmp(&info.user_frame, &process_frame, sizeof process_frame) && !info.exit_status,
-          "trusted user frame is an owned copy");
-    struct kernel_diagnostics diagnostics;
-    check(diagnostics_capture(&diagnostics) && diagnostics.tasks.processes == 1 &&
-          diagnostics.tasks.user_table_pages == 2 && diagnostics.tasks.user_pages == 2 &&
-          diagnostics.tasks.current == process_task && diagnostics.cr3 == process_directory &&
-          diagnostics.esp0 == info.stack_top,
-          "process diagnostics and TSS context");
-    context_check();
-    ++process_runs;
-    task_exit_with_status(-23);
-}
-
 static void waiter(void *argument)
 {
     (void)argument;
@@ -236,11 +211,11 @@ static __attribute__((noinline)) void process_records(uint32_t baseline)
     check(space && paging_user_allocate(space, RUM_USER_BASE, 1, PAGING_WRITABLE) &&
           paging_user_allocate(space, RUM_USER_STACK_TOP - RUM_PAGE_SIZE, 1, PAGING_WRITABLE),
           "prepare process mappings");
-    const uint8_t instruction = 0x90;
+    const uint8_t instructions[] = {0x0F, 0x0B}; /* ud2 */
     const uint32_t user_esp = RUM_USER_STACK_TOP - 32;
     const uint32_t words[] = {1, user_esp + 16, 0, 0};
     const char name[] = "probe";
-    check(paging_copy_to_user(space, RUM_USER_BASE, &instruction, sizeof instruction) &&
+    check(paging_copy_to_user(space, RUM_USER_BASE, instructions, sizeof instructions) &&
           paging_copy_to_user(space, user_esp, words, sizeof words) &&
           paging_copy_to_user(space, user_esp + sizeof words, name, sizeof name) &&
           paging_user_protect(space, RUM_USER_BASE, 1, 0), "complete process image and arguments");
@@ -256,9 +231,7 @@ static __attribute__((noinline)) void process_records(uint32_t baseline)
                   .eip = RUM_USER_BASE, .cs = USER_CODE_SELECTOR, .eflags = 0x202 },
         .esp = user_esp, .ss = USER_DATA_SELECTOR,
     };
-    struct task_process process = {
-        .entry = process_worker, .space = space, .user_frame = process_frame,
-    };
+    struct task_process process = { .space = space, .user_frame = process_frame };
     uint32_t prepared_free = pmm_stats().free_pages;
     check(task_snapshot_read(&before), "process validation baseline");
     struct task_process invalid = process;
@@ -302,15 +275,19 @@ static __attribute__((noinline)) void process_records(uint32_t baseline)
     check(task_query(process_task, &info) && info.kind == TASK_PROCESS && info.process_id == 1 &&
           info.parent == 1 && info.state == TASK_RUNNABLE &&
           !memcmp(&info.user_frame, &process_frame, sizeof process_frame) &&
+          info.termination == TASK_TERMINATION_NONE &&
           info.resources.kernel_stack_pages == 4 && info.resources.directory_pages == 1 &&
           info.resources.user_table_pages == 2 && info.resources.user_pages == 2,
           "published process record owns immutable state");
     process.user_frame = process_frame;
     check(!task_create_process(&process) && !task_create(short_worker, NULL, space) &&
           pmm_stats().free_pages == 0, "address space has one task owner");
-    check(task_yield() && process_runs == 1 && task_query(process_task, &info) &&
-          info.state == TASK_EXITED && info.exit_status == -23 && info.process_id == 1,
-          "process exit status remains observable");
+    check(task_yield() && task_query(process_task, &info) && info.state == TASK_EXITED &&
+          info.termination == TASK_TERMINATION_FAULT && info.process_id == 1 &&
+          info.fault.vector == 6 && !info.fault.error && !info.fault.address &&
+          info.fault.instruction == RUM_USER_BASE && info.fault.stack == user_esp &&
+          info.user_frame.core.vector == 6 && info.user_frame.core.eip == RUM_USER_BASE,
+          "ring-3 fault terminates only the process with a recorded reason");
     check(task_snapshot_read(&after) && after.processes == 1 &&
           after.states[TASK_EXITED] == 1 && after.user_table_pages == 2 && after.user_pages == 2 &&
           pmm_stats().free_pages == 0, "process resources remain until explicit reap");

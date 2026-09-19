@@ -26,7 +26,9 @@ struct task {
     struct paging_space *space;
     bool owns_space;
     struct exception_user_frame user_frame;
+    enum task_termination termination;
     rum_result_t exit_status;
+    struct task_fault fault;
     struct task_resources resources;
     struct task_event *waiting;
 };
@@ -168,7 +170,7 @@ task_id task_create_process(const struct task_process *process)
     uint32_t saved = cpu_interrupt_save();
     struct paging_space_statistics space = {0};
     bool valid = (saved & IF) && next_id && next_process_id <= RUM_ABI_PID_MAX &&
-        process->entry && paging_space_stats(process->space, &space) && !space.kernel &&
+        paging_space_stats(process->space, &space) && !space.kernel &&
         process->space != paging_active_space() && valid_user_frame(process->space, &process->user_frame);
     struct task *slot = valid ? available_slot(process->space) : NULL;
     task_id parent = valid ? current->id : 0;
@@ -179,7 +181,6 @@ task_id task_create_process(const struct task_process *process)
     struct task constructed = {
         .id = next_id, .process_id = next_process_id, .parent = parent,
         .kind = TASK_PROCESS, .state = TASK_RUNNABLE,
-        .entry = process->entry, .argument = process->argument,
         .space = process->space, .owns_space = true, .user_frame = process->user_frame,
         .resources = { .directory_pages = 1, .user_table_pages = space.private_table_pages,
                        .user_pages = space.user_pages },
@@ -204,13 +205,19 @@ task_id task_current_id(void)
     return ready ? current->id : 0;
 }
 
+bool task_current_is_process(void)
+{
+    return ready && current && current->kind == TASK_PROCESS;
+}
+
 static struct task_information information(const struct task *task)
 {
     return (struct task_information){ .id = task->id, .process_id = task->process_id,
         .parent = task->parent, .kind = task->kind, .state = task->state,
         .stack_slot = task->stack_slot, .stack_base = task->stack_base,
         .stack_top = task->stack_top, .saved_stack = task->stack,
-        .user_frame = task->user_frame, .exit_status = task->exit_status,
+        .user_frame = task->user_frame, .termination = task->termination,
+        .exit_status = task->exit_status, .fault = task->fault,
         .resources = task->resources,
         .directory = paging_directory_address(task->space), .owns_space = task->owns_space,
         .owns_stack = task != &tasks[BOOT] };
@@ -335,11 +342,34 @@ _Noreturn void task_exit_with_status(rum_result_t status)
     if (!ready || irq_in_handler() || current == &tasks[BOOT] || current == &tasks[IDLE]) cpu_halt();
     (void)cpu_interrupt_save();
     current->waiting = NULL;
+    current->termination = TASK_TERMINATION_EXIT;
     current->exit_status = status;
     current->state = TASK_EXITED;
     ++exited;
     schedule();
     cpu_halt(); /* An exited context can never become runnable again. */
+}
+
+_Noreturn void task_exit_from_user_fault(const struct exception_frame *frame,
+                                         uint32_t fault_address)
+{
+    if (!ready || !current || current->kind != TASK_PROCESS || !frame ||
+        !exception_frame_from_user(frame) || irq_in_handler()) cpu_halt();
+    (void)cpu_interrupt_save();
+    current->waiting = NULL;
+    current->termination = TASK_TERMINATION_FAULT;
+    current->user_frame = *(const struct exception_user_frame *)frame;
+    current->fault = (struct task_fault){
+        .vector = frame->vector,
+        .error = frame->error,
+        .address = frame->vector == 14 ? fault_address : 0,
+        .instruction = frame->eip,
+        .stack = exception_frame_esp(frame),
+    };
+    current->state = TASK_EXITED;
+    ++exited;
+    schedule();
+    cpu_halt();
 }
 
 _Noreturn void task_exit(void)
@@ -390,6 +420,8 @@ struct task_event *task_work_event(void)
 static _Noreturn void start_task(void)
 {
     (void)reap_exited(false);
+    if (current->kind == TASK_PROCESS)
+        interrupt_enter(&current->user_frame);
     cpu_interrupt_enable();
     current->entry(current->argument);
     task_exit();
