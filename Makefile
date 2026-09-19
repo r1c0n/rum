@@ -98,8 +98,8 @@ build/user/ramfs/%.elf: build/user/debug/%.elf build/tools/check-user-elf
 	build/tools/check-user-elf $@.tmp $<
 	mv -- $@.tmp $@
 
-# Validate the future combined boot assets without embedding unlaunchable
-# programs into the current kernel. Keep symbols in build/user/debug/ only.
+# Generate and validate the combined boot-asset manifest during user-only builds.
+# Runtime files are stripped; symbols stay in build/user/debug/ only.
 build/user/embedded-files.c: FORCE $(USER_ASSETS) scripts/embed-files.py $(wildcard assets/ramfs/*)
 	python3 scripts/embed-files.py assets/ramfs $@ --extra-directory build/user/ramfs
 
@@ -138,10 +138,11 @@ build/%.o: %.c Makefile
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
-# Check the directory each build, including removed assets. Unchanged C keeps mtime.
+# Check both asset directories each build, including removed files. Unchanged C
+# keeps its mtime. Runtime ELFs are stripped; debug symbols and maps stay out.
 FORCE:
-build/embedded-files.c: FORCE scripts/embed-files.py $(wildcard assets/ramfs/*)
-	python3 scripts/embed-files.py assets/ramfs $@
+build/embedded-files.c: FORCE $(USER_ASSETS) scripts/embed-files.py $(wildcard assets/ramfs/*)
+	python3 scripts/embed-files.py assets/ramfs $@ --extra-directory build/user/ramfs
 
 build/generated/embedded-files.o: build/embedded-files.c Makefile
 	@mkdir -p $(@D)

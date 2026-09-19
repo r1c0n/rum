@@ -298,7 +298,9 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
             raise RuntimeError("Empty RAM file owns unexpected data")
         loaded[name] = bytes(heap_bytes(address, size)) if size else b""
         node = following
-    assets = {path.name: path.read_bytes() for path in (project / "assets/ramfs").iterdir()}
+    assets = {path.name: path.read_bytes()
+              for directory in (project / "assets/ramfs", project / "build/user/ramfs")
+              for path in directory.iterdir()}
     if (loaded != assets or len(loaded) != file_count or sum(map(len, loaded.values())) != file_bytes or
             owners != set(live_blocks)):
         raise RuntimeError("Embedded RAM files differ from assets or leak heap allocations")
@@ -1031,7 +1033,9 @@ def double_fault_test(stream, symbols, artifacts, mode, serial_text, registers):
 def storage_shell_test(stream, symbols, artifacts, mode, serial, project):
     qmp_command(stream, "cont")
     _, expect, type_text = guest_keyboard(stream, serial)
-    assets = {path.name: path.read_bytes() for path in sorted((project / "assets/ramfs").iterdir())}
+    assets = {path.name: path.read_bytes()
+              for directory in (project / "assets/ramfs", project / "build/user/ramfs")
+              for path in sorted(directory.iterdir())}
     start = len(serial.read_bytes())
     type_text("ls\n")
     expect("\r\n> ")
