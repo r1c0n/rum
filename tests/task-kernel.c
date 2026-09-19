@@ -26,6 +26,9 @@ static struct task_event broadcast;
 static volatile uint32_t waiters_ready, waiters_done, idle_irqs;
 static uint32_t short_runs;
 static bool require_idle_ticks;
+static task_id process_task;
+static uint32_t process_directory, process_runs;
+static struct exception_user_frame process_frame;
 
 static void check(bool condition, const char *name)
 {
@@ -125,6 +128,31 @@ static void short_worker(void *argument)
     ++short_runs;
 }
 
+static void process_worker(void *argument)
+{
+    (void)argument;
+    struct task_information info;
+    check(task_current_id() == process_task && task_query(process_task, &info),
+          "running process identity");
+    check(info.kind == TASK_PROCESS && info.process_id == 1 && info.parent == 1 &&
+          info.state == TASK_RUNNING && info.directory == process_directory && info.owns_space &&
+          info.resources.kernel_stack_pages == RUM_KERNEL_STACK_SIZE / RUM_PAGE_SIZE &&
+          info.resources.directory_pages == 1 && info.resources.user_table_pages == 2 &&
+          info.resources.user_pages == 2,
+          "running process record and resources");
+    check(!memcmp(&info.user_frame, &process_frame, sizeof process_frame) && !info.exit_status,
+          "trusted user frame is an owned copy");
+    struct kernel_diagnostics diagnostics;
+    check(diagnostics_capture(&diagnostics) && diagnostics.tasks.processes == 1 &&
+          diagnostics.tasks.user_table_pages == 2 && diagnostics.tasks.user_pages == 2 &&
+          diagnostics.tasks.current == process_task && diagnostics.cr3 == process_directory &&
+          diagnostics.esp0 == info.stack_top,
+          "process diagnostics and TSS context");
+    context_check();
+    ++process_runs;
+    task_exit_with_status(-23);
+}
+
 static void waiter(void *argument)
 {
     (void)argument;
@@ -155,7 +183,7 @@ static void release_pages(uint32_t head)
     }
 }
 
-static void allocation_boundaries(uint32_t baseline)
+static __attribute__((noinline)) void allocation_boundaries(uint32_t baseline)
 {
     /* Repeat each insufficient contiguous-stack budget. Failed creation cannot
        publish a task or claim the caller's private directory/metadata. */
@@ -197,6 +225,103 @@ static void allocation_boundaries(uint32_t baseline)
           "worker reaper releases four stack pages plus private directory");
     release_pages(held);
     check(pmm_stats().free_pages == baseline, "exact stack budget leaves no private frames");
+}
+
+static __attribute__((noinline)) void process_records(uint32_t baseline)
+{
+    struct task_snapshot initial, before, after;
+    check(task_snapshot_read(&initial) && !initial.processes && !initial.user_pages &&
+          !initial.user_table_pages, "initial process ownership ledger");
+    struct paging_space *space = paging_space_create();
+    check(space && paging_user_allocate(space, RUM_USER_BASE, 1, PAGING_WRITABLE) &&
+          paging_user_allocate(space, RUM_USER_STACK_TOP - RUM_PAGE_SIZE, 1, PAGING_WRITABLE),
+          "prepare process mappings");
+    const uint8_t instruction = 0x90;
+    const uint32_t user_esp = RUM_USER_STACK_TOP - 32;
+    const uint32_t words[] = {1, user_esp + 16, 0, 0};
+    const char name[] = "probe";
+    check(paging_copy_to_user(space, RUM_USER_BASE, &instruction, sizeof instruction) &&
+          paging_copy_to_user(space, user_esp, words, sizeof words) &&
+          paging_copy_to_user(space, user_esp + sizeof words, name, sizeof name) &&
+          paging_user_protect(space, RUM_USER_BASE, 1, 0), "complete process image and arguments");
+    struct paging_space_statistics ownership;
+    process_directory = paging_directory_address(space);
+    check(paging_space_stats(space, &ownership) && !ownership.kernel &&
+          ownership.directory == process_directory && ownership.private_table_pages == 2 &&
+          ownership.user_pages == 2, "per-space process ownership");
+
+    process_frame = (struct exception_user_frame){
+        .core = { .gs = USER_DATA_SELECTOR, .fs = USER_DATA_SELECTOR,
+                  .es = USER_DATA_SELECTOR, .ds = USER_DATA_SELECTOR,
+                  .eip = RUM_USER_BASE, .cs = USER_CODE_SELECTOR, .eflags = 0x202 },
+        .esp = user_esp, .ss = USER_DATA_SELECTOR,
+    };
+    struct task_process process = {
+        .entry = process_worker, .space = space, .user_frame = process_frame,
+    };
+    uint32_t prepared_free = pmm_stats().free_pages;
+    check(task_snapshot_read(&before), "process validation baseline");
+    struct task_process invalid = process;
+    invalid.space = paging_kernel_space();
+    check(!task_create_process(NULL) && !task_create_process(&invalid),
+          "reject missing and kernel process definitions");
+    invalid = process; invalid.user_frame.core.cs = KERNEL_CODE_SELECTOR;
+    check(!task_create_process(&invalid), "reject untrusted process selectors");
+    invalid = process; invalid.user_frame.core.eflags ^= 0x400;
+    check(!task_create_process(&invalid), "reject unsafe process flags");
+    invalid = process; invalid.user_frame.core.eip += RUM_PAGE_SIZE;
+    check(!task_create_process(&invalid), "reject unmapped process entry");
+    invalid = process; invalid.user_frame.esp = RUM_USER_STACK_BASE;
+    check(!task_create_process(&invalid), "reject unmapped process stack");
+    check(task_snapshot_read(&after) && after.count == before.count &&
+          after.processes == before.processes && after.created == before.created &&
+          pmm_stats().free_pages == prepared_free,
+          "invalid process definitions remain private");
+
+    for (uint32_t remaining = 0; remaining < RUM_KERNEL_STACK_SIZE / RUM_PAGE_SIZE; ++remaining) {
+        uint32_t held = consume_until(remaining);
+        check(task_snapshot_read(&before), "snapshot before partial process stack");
+        check(!task_create_process(&process), "partial process stack cannot publish");
+        check(pmm_stats().free_pages == remaining, "partial process stack restores pages");
+        check(paging_directory_address(space) == process_directory,
+              "partial process stack retains caller address space");
+        check(task_snapshot_read(&after) && after.count == before.count &&
+              after.processes == before.processes && after.stack_pages == before.stack_pages &&
+              after.directory_pages == before.directory_pages && after.user_pages == before.user_pages &&
+              after.created == before.created, "failed process is never published");
+        release_pages(held);
+        check(pmm_stats().free_pages == prepared_free, "process stack rollback restores ledger");
+    }
+
+    uint32_t held = consume_until(RUM_KERNEL_STACK_SIZE / RUM_PAGE_SIZE);
+    process_task = task_create_process(&process);
+    check(process_task && pmm_stats().free_pages == 0, "exact process stack budget publishes once complete");
+    /* Mutating the producer's packet cannot change the trusted record. */
+    process.user_frame.core.eip = 0;
+    struct task_information info;
+    check(task_query(process_task, &info) && info.kind == TASK_PROCESS && info.process_id == 1 &&
+          info.parent == 1 && info.state == TASK_RUNNABLE &&
+          !memcmp(&info.user_frame, &process_frame, sizeof process_frame) &&
+          info.resources.kernel_stack_pages == 4 && info.resources.directory_pages == 1 &&
+          info.resources.user_table_pages == 2 && info.resources.user_pages == 2,
+          "published process record owns immutable state");
+    process.user_frame = process_frame;
+    check(!task_create_process(&process) && !task_create(short_worker, NULL, space) &&
+          pmm_stats().free_pages == 0, "address space has one task owner");
+    check(task_yield() && process_runs == 1 && task_query(process_task, &info) &&
+          info.state == TASK_EXITED && info.exit_status == -23 && info.process_id == 1,
+          "process exit status remains observable");
+    check(task_snapshot_read(&after) && after.processes == 1 &&
+          after.states[TASK_EXITED] == 1 && after.user_table_pages == 2 && after.user_pages == 2 &&
+          pmm_stats().free_pages == 0, "process resources remain until explicit reap");
+    check(task_reap() == 1 && !task_query(process_task, &info) &&
+          !paging_directory_address(space) && pmm_stats().free_pages == 9,
+          "process reap releases stack and complete address space");
+    ownership = (struct paging_space_statistics){ .directory = UINT32_MAX };
+    check(!paging_space_stats(space, &ownership) && !ownership.directory,
+          "destroyed process space has no stale statistics");
+    release_pages(held);
+    check(pmm_stats().free_pages == baseline, "process construction and exit leave no physical owners");
 }
 
 void kernel_main(uint32_t magic, uint32_t information)
@@ -256,6 +381,7 @@ void kernel_main(uint32_t magic, uint32_t information)
           "deferred stack/directory/metadata cleanup");
 
     allocation_boundaries(baseline);
+    process_records(baseline);
 
     /* Exercise the bounded registry repeatedly, including borrowed kernel spaces.
        Old IDs must never refer to a later occupant of the same slot. */

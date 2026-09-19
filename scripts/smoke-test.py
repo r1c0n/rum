@@ -1328,7 +1328,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
             print(f"PASS: {mode}, GDT/IDT/segments, " +
                   ("hardware task gate, independent guarded stack, saved failed TSS, controlled panic" if double_fault else
                    "separate user ELF, real ring-3 startup/int 0x80, arguments/BSS/return, segment permissions" if user_abi else
-                   "private kernel stacks, real context/CR3 switches, waiting/idle/IRQ wakeup, deferred cleanup" if tasks else
+                   "guarded stacks, atomic process records, exit status, context/CR3 switches, waiting/IRQ cleanup" if tasks else
                    "real ring-3 PIT/IRET, TSS stack, user registers/segments/DF, alignment, integer/I/O policy" if cpu else
                    "production heap/RAM files, alignment, reuse, realloc, limits, physical OOM rollback" if storage else
                    "owned user pages, checked copies, isolation, rollback, page-table/PMM ledger" if paging == "ok"
