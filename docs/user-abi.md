@@ -1,13 +1,14 @@
 # User ABI and ELF programs
 
-rum can build freestanding i386 user executables with a separate startup,
-runtime, linker script, and public include tree. The task system can enter a
-prepared process in ring 3, recover its user faults, and serve ABI version 1
-through the production syscall dispatcher. The normal kernel does not load or
-launch ELF executables yet.
+rum builds freestanding i386 user executables with a separate startup, runtime,
+linker script, and public include tree. The kernel validates and maps stripped
+ELF files from its RAM filesystem, constructs their initial stacks, enters the
+prepared process in ring 3, recovers user faults, and serves ABI version 1
+through the production syscall dispatcher. The normal shell does not launch
+programs yet.
 
-This distinction matters: a successful `make user` proves that an ELF follows
-rum's ABI, not that typing its name in the kernel shell will run it.
+Typing an ELF filename in the kernel shell does not run it yet; foreground
+launch and process waiting are the next stage of userspace work.
 
 ## Building user programs
 
@@ -60,6 +61,24 @@ int main(int argc, char **argv)
 `write` may complete partially. Production programs should loop until all bytes
 are written or an error is returned; `user/programs/hello.c` shows the complete
 pattern.
+
+## Loading an executable
+
+Normal kernel builds merge the stripped files from `build/user/ramfs/` with the
+ordinary files from `assets/ramfs/`. Symbol-rich ELFs and linker maps stay under
+`build/user/debug/` and are not embedded.
+
+`elf_load_ramfs` reads one of those borrowed RAM-file images and applies the same
+checks as `elf_load_process`. The loader validates the complete ELF and argument
+packet before creating an address space. It then allocates distinct zeroed pages
+for each LOAD segment, copies only file-backed bytes, applies final read/write
+permissions, maps the fixed 64 KiB stack, and builds `argc`, `argv`, and an empty
+`envp` at a 16-byte-aligned ESP.
+
+On success, the returned `struct task_process` is complete but unpublished. The
+caller transfers its address space to `task_create_process`; if publication is
+not attempted or fails, the caller must destroy the space. A load failure leaves
+the output empty and rolls back its directory, page tables, and user pages.
 
 ## Syscall convention
 
@@ -150,9 +169,9 @@ The validator accepts a deliberately small subset:
 - No TLS, relocation runtime, shared libraries, constructors, or destructors.
 
 The linker places text, constants, and data/BSS on distinct pages and emits a
-nonexecutable GNU-stack descriptor. The loader must zero BSS and unused page
-padding before publication. i386 non-PAE paging has no NX bit, so rejecting
-writable executable input remains a software policy.
+nonexecutable GNU-stack descriptor. The loader zeroes BSS, segment padding, and
+unused stack bytes before publication. i386 non-PAE paging has no NX bit, so
+rejecting writable executable input remains a software policy.
 
 Each stripped asset must also fit the RAM filesystem's 64 KiB per-file limit.
 The debug and stripped ELFs are compared to ensure stripping did not change the
@@ -170,9 +189,9 @@ clear.
 
 ## Troubleshooting
 
-- **A program builds but cannot be run from the shell:** ELF loading and launch
-  support are not connected to the normal shell yet. The syscall path does not
-  parse or map an ELF file by itself.
+- **A program builds but cannot be run from the shell:** the ELF is embedded and
+  loadable, but the foreground shell command and parent wait path are not
+  implemented yet.
 - **A read appears to stop the process:** standard input is blocking. Type a
   supported character in the QEMU window; timer interrupts continue meanwhile.
 - **A write returns less than requested:** loop over the unconsumed bytes. The
@@ -188,8 +207,8 @@ clear.
   the program integer-only.
 
 Run `make test-user` after changing the public ABI, linker script, startup,
-runtime, or ELF rules. Run `make test` after changing CPU entry/return or syscall
-assembly.
+runtime, or ELF rules. Run `make test` after changing the kernel loader,
+CPU entry/return, or syscall assembly.
 
 ## Reference
 

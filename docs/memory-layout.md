@@ -84,8 +84,10 @@ that frame remains responsible for it.
 ## Process publication and cleanup
 
 A process address space is built while it is inactive and owned by the caller.
-Program pages, initial stack contents, and the trusted CPU frame must be complete
-before `task_create_process` is called.
+`elf_load_process` or `elf_load_ramfs` validates the complete image and argument
+packet, maps program and stack pages, and returns that private space with a
+trusted CPU frame. Everything must be complete before `task_create_process` is
+called.
 
 On successful publication, ownership of the space moves to the process record.
 On failure, the caller keeps the space and tears it down. The kernel stack is

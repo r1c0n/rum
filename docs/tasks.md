@@ -17,9 +17,9 @@ context unless foreground code later invokes the scheduler.
 | Kernel worker | 0 | Borrows kernel space or owns a private space | Calls a trusted C entry function |
 | User process | Positive | Owns a private space | Restores a trusted user frame and enters ring 3 |
 
-The scheduler can run a prepared process through the production ring-3 entry
-path. The normal shell cannot prepare an ELF image yet, so this path is currently
-used by the process and fault fixtures.
+The ELF loader can prepare a private address space and trusted frame for this
+path. The normal shell does not launch that prepared image yet, so production
+loading and execution are currently exercised by isolated integration fixtures.
 
 ## Guarded kernel stacks
 

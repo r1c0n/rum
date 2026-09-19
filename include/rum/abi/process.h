@@ -9,7 +9,7 @@
 #ifndef __ASSEMBLER__
 #include <stddef.h>
 
-/* Future launch packet: copied as bounded bytes, never followed as host/kernel
+/* Launch packet: copied as bounded bytes, never followed as host/kernel
    pointers. argc is 1..32; offsets describe tightly packed strings in order,
    beginning at offset zero. string_bytes counts exactly those strings. */
 struct rum_arguments {
