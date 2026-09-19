@@ -13,7 +13,7 @@ struct task_event { volatile uint32_t sequence; };
 struct task_information {
     task_id id;
     enum task_state state;
-    uint32_t stack_base, stack_top, saved_stack, directory;
+    uint32_t stack_slot, stack_base, stack_top, saved_stack, directory;
     bool owns_space, owns_stack;
 };
 

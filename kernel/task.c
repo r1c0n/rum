@@ -15,7 +15,7 @@
 struct task {
     task_id id;
     enum task_state state;
-    uint32_t stack, stack_base, stack_top;
+    uint32_t stack, stack_slot, stack_base, stack_top;
     void (*entry)(void *);
     void *argument;
     struct paging_space *space;
@@ -34,11 +34,13 @@ extern const char __boot_stack_bottom[], __boot_stack_top[];
 static _Noreturn void start_task(void);
 static _Noreturn void idle_loop(void *argument);
 
-static uint32_t new_stack(void)
+static bool new_stack(struct task *task, uint32_t slot)
 {
-    uint32_t base = pmm_allocate_contiguous(STACK_PAGES);
-    if (base) memset((void *)(uintptr_t)base, 0, RUM_KERNEL_STACK_SIZE);
-    return base;
+    if (!paging_kernel_stack_allocate(slot)) return false;
+    task->stack_slot = slot;
+    task->stack_base = RUM_KERNEL_STACK_SLOT_BASE(slot);
+    task->stack_top = RUM_KERNEL_STACK_SLOT_TOP(slot);
+    return true;
 }
 
 static void prepare_stack(struct task *task)
@@ -52,24 +54,24 @@ bool task_initialize(void)
 {
     if (ready || irq_in_handler() || !paging_kernel_space() ||
         paging_active_space() != paging_kernel_space()) return false;
-    uint32_t base = new_stack();
-    if (!base) return false;
+    struct task idle = { .id = 2, .state = TASK_RUNNABLE,
+        .entry = idle_loop, .space = paging_kernel_space() };
+    if (!new_stack(&idle, 0)) return false;
     uint32_t saved = cpu_interrupt_save();
     tasks[BOOT] = (struct task){ .id = 1, .state = TASK_RUNNING,
         .stack_base = (uintptr_t)__boot_stack_bottom, .stack_top = (uintptr_t)__boot_stack_top,
         .space = paging_kernel_space() };
-    tasks[IDLE] = (struct task){ .id = 2, .state = TASK_RUNNABLE, .stack_base = base,
-        .stack_top = base + RUM_KERNEL_STACK_SIZE, .entry = idle_loop, .space = paging_kernel_space() };
+    tasks[IDLE] = idle;
     prepare_stack(&tasks[IDLE]);
     current = &tasks[BOOT];
     if (!gdt_set_kernel_stack(current->stack_top)) {
         current = NULL;
         memset(tasks, 0, sizeof tasks);
         cpu_interrupt_restore(saved);
-        (void)pmm_free_contiguous(base, STACK_PAGES);
+        (void)paging_kernel_stack_release(0);
         return false;
     }
-    task_idle_stack_base = base;
+    task_idle_stack_base = idle.stack_base;
     task_current_stack_top = current->stack_top;
     ready = true;
     cpu_interrupt_restore(saved);
@@ -92,12 +94,14 @@ task_id task_create(void (*entry)(void *), void *argument, struct paging_space *
     if (!valid || !slot) return 0;
     /* No other foreground task can run during construction. IRQs only wake
        published tasks; zeroing the stack does not hold the scheduler lock. */
-    uint32_t base = new_stack();
-    if (!base) return 0;
-    saved = cpu_interrupt_save();
-    *slot = (struct task){ .id = next_id++, .state = TASK_RUNNABLE, .stack_base = base,
-        .stack_top = base + RUM_KERNEL_STACK_SIZE, .entry = entry, .argument = argument,
+    uint32_t stack_slot = (uint32_t)(slot - tasks) - 1;
+    struct task constructed = { .id = next_id, .state = TASK_RUNNABLE,
+        .entry = entry, .argument = argument,
         .space = owned_space ? owned_space : paging_kernel_space(), .owns_space = owned_space != NULL };
+    if (!new_stack(&constructed, stack_slot)) return 0;
+    saved = cpu_interrupt_save();
+    ++next_id;
+    *slot = constructed;
     prepare_stack(slot);
     task_id id = slot->id;
     ++created;
@@ -113,7 +117,8 @@ task_id task_current_id(void)
 static struct task_information information(const struct task *task)
 {
     return (struct task_information){ .id = task->id, .state = task->state,
-        .stack_base = task->stack_base, .stack_top = task->stack_top, .saved_stack = task->stack,
+        .stack_slot = task->stack_slot, .stack_base = task->stack_base,
+        .stack_top = task->stack_top, .saved_stack = task->stack,
         .directory = paging_directory_address(task->space), .owns_space = task->owns_space,
         .owns_stack = task != &tasks[BOOT] };
 }
@@ -174,7 +179,7 @@ uint32_t task_reap(void)
             cpu_interrupt_restore(saved);
             continue;
         }
-        if (!pmm_free_contiguous(task->stack_base, STACK_PAGES)) cpu_halt();
+        if (!paging_kernel_stack_release(task->stack_slot)) cpu_halt();
         *task = (struct task){0};
         ++reaped;
         cpu_interrupt_restore(saved);

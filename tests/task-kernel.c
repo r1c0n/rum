@@ -56,9 +56,15 @@ static void context_check(void)
     for (uint32_t i = 0; i < snapshot.count; ++i) {
         const struct task_information *item = &snapshot.tasks[i];
         if (item->id == info.id) found = item->directory == cr3 && item->stack_top == rum_tss.esp0;
-        if (item->owns_stack)
-            for (uint32_t frame = item->stack_base; frame < item->stack_top; frame += RUM_PAGE_SIZE)
-                check(pmm_is_allocated(frame), "snapshot stack frames remain owned");
+        if (item->owns_stack) {
+            check(!paging_translate(paging_kernel_space(), RUM_KERNEL_STACK_GUARD(item->stack_slot), NULL),
+                  "snapshot stack guard remains absent");
+            for (uint32_t address = item->stack_base; address < item->stack_top; address += RUM_PAGE_SIZE) {
+                uint32_t frame;
+                check(paging_translate(paging_kernel_space(), address, &frame) && pmm_is_allocated(frame),
+                      "snapshot stack frames remain owned");
+            }
+        }
         if (item->owns_space) check(pmm_is_allocated(item->directory), "snapshot directory remains owned");
     }
     struct paging_statistics paging = paging_stats();
@@ -85,8 +91,9 @@ void task_test_worker(void *argument)
         check(task_test_registers(), "callee-saved registers/ESP across switches");
         context_check();
     }
-    uint32_t stack = rum_tss.esp0 - RUM_KERNEL_STACK_SIZE;
-    check(pmm_is_allocated(stack) && task_reap() == 0, "running stack cannot be reaped");
+    uint32_t frame;
+    check(paging_translate(paging_kernel_space(), rum_tss.esp0 - RUM_KERNEL_STACK_SIZE, &frame) &&
+          pmm_is_allocated(frame) && task_reap() == 0, "running stack cannot be reaped");
     ++finished;
     task_event_signal(&done);
     /* Returning from a C entry exits through the scheduler, never a freed stack. */
@@ -176,29 +183,21 @@ static void allocation_boundaries(uint32_t baseline)
         }
     }
     struct paging_space *candidate = paging_space_create();
-    uint32_t block = pmm_allocate_contiguous(8);
-    check(candidate && block, "fragmentation fixture resources");
-    uint32_t held = consume_pages();
-    for (uint32_t i = 0; i < 8; i += 2)
-        check(pmm_free_page(block + i * RUM_PAGE_SIZE), "scatter four free frames");
+    check(candidate, "exact stack-budget directory");
     uint32_t directory = paging_directory_address(candidate);
-    check(pmm_stats().free_pages == 4 && !task_create(short_worker, NULL, candidate) &&
-          pmm_stats().free_pages == 4 && paging_directory_address(candidate) == directory,
-          "four fragmented pages cannot become a contiguous task stack");
-    for (uint32_t i = 0; i < 4; ++i) check(pmm_allocate_page() != 0, "reclaim fragmented frames");
-    check(pmm_stats().free_pages == 0 && pmm_free_contiguous(block, 4), "make exactly one stack available");
+    uint32_t held = consume_until(RUM_KERNEL_STACK_SIZE / RUM_PAGE_SIZE);
     task_id worker = task_create(short_worker, NULL, candidate);
     check(worker && pmm_stats().free_pages == 0, "exact four-page budget publishes worker");
     struct task_information info;
-    check(task_query(worker, &info) && info.stack_base == block && info.directory == directory &&
+    check(task_query(worker, &info) && info.stack_slot == 1 &&
+          info.stack_base == RUM_KERNEL_STACK_SLOT_BASE(1) && info.directory == directory &&
           info.owns_stack && info.owns_space, "successful creation transfers stack/directory ownership");
     while (task_query(worker, &info)) check(task_yield(), "execute exact-budget worker");
     (void)task_reap();
     check(pmm_stats().free_pages == 5 && !paging_directory_address(candidate),
           "worker reaper releases four stack pages plus private directory");
-    check(pmm_free_contiguous(block + 4 * RUM_PAGE_SIZE, 4), "release retained fragmentation pages");
     release_pages(held);
-    check(pmm_stats().free_pages == baseline, "fragmentation fixture leaves no private frames");
+    check(pmm_stats().free_pages == baseline, "exact stack budget leaves no private frames");
 }
 
 void kernel_main(uint32_t magic, uint32_t information)

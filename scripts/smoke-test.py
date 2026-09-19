@@ -184,8 +184,8 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
     heap_mapped, heap_used, heap_allocations, file_count, file_bytes = map(int, storage.groups())
     if not 0 < heap_mapped <= 4 * 1024 * 1024 or heap_mapped % 4096:
         raise RuntimeError("Invalid heap virtual window")
-    heap_index = 256
-    populated = set(range(table_count)) | {heap_index}
+    heap_index, stack_index = 256, 511
+    populated = set(range(table_count)) | {heap_index, stack_index}
     if (any(entry for index, entry in enumerate(directory) if index not in populated) or
             any(directory[index] & ~0x20 & 0xFFF != 3 for index in populated)):
         raise RuntimeError("Unexpected page directory entries")
@@ -211,12 +211,25 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
     owned = bytearray(len(expected))
     idle = struct.unpack("<I", dump_ram(stream, symbols["task_idle_stack_base"], 4,
                                          artifacts / f"{mode}-idle-stack-base.bin"))[0]
-    if not idle or idle % 4096 or idle + 16384 > limit:
-        raise RuntimeError("Invalid private idle stack")
-    for frame in range(idle, idle + 16384, 4096):
+    if idle != 0x7FC01000:
+        raise RuntimeError("Invalid guarded idle stack slot")
+    stack_table = struct.unpack("<1024I", dump_ram(stream, directory[stack_index] & 0xFFFFF000, 4096,
+                                                   artifacts / f"{mode}-stack-table.bin"))
+    if stack_table[(idle >> 12 & 1023) - 1]:
+        raise RuntimeError("Idle stack guard is mapped")
+    idle_frames = []
+    for address in range(idle, idle + 16384, 4096):
+        entry = stack_table[(address >> 12) & 1023]
+        frame = entry & 0xFFFFF000
+        if entry & ~0x60 & 0xFFF != 3:
+            raise RuntimeError("Idle stack is not supervisor/writable")
         if frame in frames or frame // 4096 not in pages:
             raise RuntimeError("Idle stack overlaps another owner or reserved RAM")
         frames.add(frame)
+        idle_frames.append(frame)
+    if any(entry for slot, entry in enumerate(stack_table)
+           if entry and not (idle >> 12 & 1023) <= slot < (idle >> 12 & 1023) + 4):
+        raise RuntimeError("Normal boot owns an unexpected kernel stack slot")
     for frame in frames: owned[frame // 4096 // 8] |= 1 << (frame // 4096 % 8)
     if allocated != owned or free != managed_count - len(frames):
         raise RuntimeError("Page table/heap/task stack physical frame accounting incorrect")
@@ -287,7 +300,8 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
         raise RuntimeError("Embedded RAM files differ from assets or leak heap allocations")
     report = {"usable_pages": usable, "managed_pages": managed_count, "free_pages": free,
               "identity_limit": limit, "page_table_frames": structure_count,
-              "heap_pages": len(heap_frames), "idle_stack_pages": 4, "heap_used_bytes": used, "files": file_count}
+              "heap_pages": len(heap_frames), "idle_stack_pages": len(idle_frames),
+              "heap_used_bytes": used, "files": file_count}
     (artifacts / f"{mode}-memory.json").write_text(json.dumps(report, indent=2) + "\n")
 
 
@@ -904,7 +918,19 @@ def panic_diagnostics_test(stream, symbols, artifacts, mode, serial_text, regist
         raise RuntimeError("Panic heap mappings lost supervisor/write permissions")
     idle = struct.unpack("<I", dump_ram(stream, symbols["task_idle_stack_base"], 4,
                                         artifacts / f"{mode}-panic-idle-stack.bin"))[0]
-    private = [*heap_frames, *range(idle, idle + 16384, 4096), *range(expected["base"], expected["top"], 4096)]
+    stack_table = struct.unpack("<1024I", dump_ram(stream, directory[511] & 0xFFFFF000, 4096,
+                                                   artifacts / f"{mode}-panic-stack-table.bin"))
+    stack_virtual = [*range(idle, idle + 16384, 4096),
+                     *range(expected["base"], expected["top"], 4096)]
+    if any(stack_table[((base >> 12) & 1023) - 1] for base in (idle, expected["base"])):
+        raise RuntimeError("Panic stack guard is mapped")
+    stack_frames = []
+    for address in stack_virtual:
+        entry = stack_table[(address >> 12) & 1023]
+        if entry & ~0x60 & 0xFFF != 3:
+            raise RuntimeError("Panic stack mapping is not supervisor/writable")
+        stack_frames.append(entry & 0xFFFFF000)
+    private = [*heap_frames, *stack_frames]
     for frame in private:
         if frame in frames:
             raise RuntimeError("Panic owners overlap")
