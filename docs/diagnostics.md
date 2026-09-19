@@ -34,7 +34,9 @@ Addresses and counts vary with the build, RAM size, and current task.
 
 Each task entry also shows whether its stack and directory are owned or
 borrowed. Kernel tasks have PID zero. A published process has a positive PID,
-a parent task, an owned private directory, and accounted user pages.
+a parent task, an owned private directory, and accounted user pages. An exited
+process also shows either its hexadecimal exit status or its fault vector,
+error code, and user EIP.
 
 ## What healthy output looks like
 
@@ -49,9 +51,9 @@ During an ordinary shell session:
   heap allocations are freed. Heap pages stay mapped for reuse.
 
 An exited process remains visible until the kernel observes its signed status
-and explicitly reaps it. Its directory, user pages, and guarded kernel stack
-remain owned during that interval. After reaping, the record and all of those
-counts should disappear together.
+or fault record and explicitly reaps it. Its directory, user pages, and guarded
+kernel stack remain owned during that interval. After reaping, the record and
+all of those counts should disappear together.
 
 Do not add paging and task directory totals together. A task-owned directory is
 already included in the paging total. Paging may also contain an unpublished
@@ -59,9 +61,10 @@ space that a loader is still constructing.
 
 ## Panic output
 
-A fatal exception prints the saved CPU state first, followed by the current
-task, CR3, TSS.ESP0, and kernel-stack bounds. Page faults also include CR2 and a
-plain-language access description.
+A fatal kernel exception prints the saved CPU state first, followed by the
+current task, CR3, TSS.ESP0, and kernel-stack bounds. Page faults also include
+CR2 and a plain-language access description. A user exception does not use this
+panic report; it becomes the process fault record described above.
 
 COM1 receives two machine-readable lines:
 

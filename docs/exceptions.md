@@ -41,7 +41,7 @@ Most CPU exceptions and all device IRQs enter through the same assembly path:
 3. Common assembly clears DF, saves general and segment registers, loads kernel
    data selectors, and aligns the stack for C.
 4. `interrupt_dispatch` routes PIC vectors to the IRQ layer and exceptions to
-   the fatal exception handler.
+   the exception handler.
 5. A returning IRQ restores the saved state and executes `iret`.
 
 `struct exception_frame` is the 68-byte common prefix. A ring-3 entry uses
@@ -52,12 +52,19 @@ tail. A ring-0 frame ends at EFLAGS.
 `exception_frame_esp` and `exception_frame_ss` provide the correct values for
 either frame shape. Use them instead of manually indexing the stack.
 
-## Fatal exceptions
+## User faults and kernel panics
 
-The normal kernel treats CPU exceptions as fatal. The panic report includes the
-exception name, vector, error code, EIP, CS, EFLAGS, general registers, segment
-registers, and interrupted stack pointer. A page fault also reports CR2 and
-decodes whether the access was present, writable, and from user mode.
+An exception is recoverable only when its saved CS shows CPL 3 and the current
+task is a user process. The handler records the vector, error code, EIP, ESP,
+complete user frame, and CR2 for a page fault. It marks the process exited and
+switches to a surviving kernel context. The parent can inspect the record before
+explicitly reaping the process and its private memory.
+
+An exception whose saved CS shows CPL 0 is fatal, even when the current task is
+serving a process. The panic report includes the exception name, vector, error
+code, EIP, CS, EFLAGS, general registers, segment registers, and interrupted
+stack pointer. A page fault also reports CR2 and decodes whether the access was
+present, writable, and from user mode.
 
 A nested panic stops immediately to avoid recursively using corrupted state.
 The final halt runs with interrupts disabled.
@@ -92,9 +99,10 @@ program page and its 16-byte-aligned ESP must point into mapped writable user
 stack memory. `task_create_process` performs those checks and copies the trusted
 frame into the process record.
 
-`interrupt_return` accepts a complete trusted frame and restores it with
-`iret`. The normal boot does not use this path to launch a production process
-yet; the separate CPU and user-ABI kernels use it to validate the contract.
+`interrupt_enter` accepts a complete trusted frame and transfers it to
+`interrupt_return`, which restores the frame with `iret`. Production process
+tasks use this path. The normal shell does not construct a process yet because
+ELF loading and syscall dispatch are later roadmap steps.
 
 rum uses an integer-only CPU policy. Kernel and user builds disable
 x87, MMX, SSE, and SSE2 code generation. CR0 and CR4 are configured so actual
@@ -135,6 +143,7 @@ follow the saved registers.
 - Keep the stack aligned according to the i386 C calling convention.
 - Do not read a user-frame tail after a ring-0 entry.
 - Update TSS.ESP0 before code can return to a different user context.
+- Switch away before releasing a faulted process's active CR3 or kernel stack.
 - Keep fatal paths allocation-free and safe with IF already clear.
 
 Run `make test-host` after changing frame definitions and `make test` after any

@@ -76,14 +76,14 @@ ledger to be restored.
 
 ### 3. Ring-3 entry and fault recovery
 
-- [ ] Build the first trusted user frame with user selectors, validated EIP/ESP
+- [x] Build the first trusted user frame with user selectors, validated EIP/ESP
   and EFLAGS `0x202`.
-- [ ] Enter ring 3 through the production interrupt-return path.
-- [ ] Preserve timer and keyboard delivery while user code is running.
-- [ ] Distinguish exceptions from CPL 3 from faults in kernel code.
-- [ ] Convert a user exception into process termination with a recorded reason.
-- [ ] Preserve the existing kernel panic path and its register/resource report.
-- [ ] Deny port I/O and keep the integer-only x87/MMX/SSE policy active.
+- [x] Enter ring 3 through the production interrupt-return path.
+- [x] Preserve timer and keyboard delivery while user code is running.
+- [x] Distinguish exceptions from CPL 3 from faults in kernel code.
+- [x] Convert a user exception into process termination with a recorded reason.
+- [x] Preserve the existing kernel panic path and its register/resource report.
+- [x] Deny port I/O and keep the integer-only x87/MMX/SSE policy active.
 
 Null access, kernel-memory access, writes to read-only pages, `ud2`, privileged
 instructions and invalid port I/O must terminate only the current process.

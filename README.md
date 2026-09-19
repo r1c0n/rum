@@ -70,13 +70,14 @@ input with `Ctrl+Alt+G`.
 - A physical allocator for 4 KiB pages below 1 GiB.
 - Supervisor paging with protected kernel pages and private user address spaces.
 - Process records with positive PIDs, trusted user frames, and owned-resource accounting.
+- Production ring-3 entry with isolated user-fault recovery and recorded fault state.
 - A page-backed heap with aligned allocation, resizing, and free-block reuse.
 - A flat RAM filesystem with build-time file embedding.
 - A separate freestanding user ELF build and public ABI.
 
 rum is a single-CPU system. The normal boot still runs the shell and Snake in
-ring 0; production user-program launching and persistent disk storage are not
-connected yet.
+ring 0; ELF loading, production syscalls, shell-driven program launching, and
+persistent disk storage are not connected yet.
 
 ## Building and testing
 

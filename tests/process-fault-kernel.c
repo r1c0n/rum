@@ -212,6 +212,25 @@ void kernel_main(uint32_t magic, uint32_t information)
 
     check(task_reap() == 1 && !task_query(process, &info) &&
           pmm_stats().free_pages == baseline, "complete process cleanup");
+#if RUM_PROCESS_FAULT_CASE == 3
+    /* A recovered user fault must not poison the nested-kernel-panic guard. */
+    struct paging_space *retry_space = paging_space_create();
+    check(retry_space && paging_user_allocate(retry_space, RUM_USER_BASE, 1, PAGING_WRITABLE) &&
+          paging_user_allocate(retry_space, RUM_USER_STACK_TOP - RUM_PAGE_SIZE, 1, PAGING_WRITABLE) &&
+          paging_copy_to_user(retry_space, RUM_USER_BASE, PROBE_START, code_bytes) &&
+          paging_user_protect(retry_space, RUM_USER_BASE, 1, 0) &&
+          paging_copy_to_user(retry_space, user_esp, initial_stack, sizeof initial_stack),
+          "prepare repeated user fault");
+    cpu_user_frame_initialize(&frame, RUM_USER_BASE, user_esp);
+    task_id retry = task_create_process(&(struct task_process){
+        .space = retry_space,
+        .user_frame = frame,
+    });
+    check(retry && task_yield() && task_query(retry, &info) &&
+          info.termination == TASK_TERMINATION_FAULT && info.fault.vector == 6 &&
+          task_reap() == 1 && pmm_stats().free_pages == baseline,
+          "repeated user faults remain recoverable");
+#endif
     task_id worker = task_create(survivor, NULL, NULL);
     check(worker && task_yield() && survivor_runs == 1 && !task_query(worker, &info) &&
           pmm_stats().free_pages == baseline, "parent scheduler remains usable");

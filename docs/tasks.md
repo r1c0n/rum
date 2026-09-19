@@ -15,11 +15,11 @@ context unless foreground code later invokes the scheduler.
 | Boot | 0 | Borrows kernel space | Runs kernel initialization and foreground loop |
 | Idle | 0 | Borrows kernel space | Sleeps with `sti; hlt` |
 | Kernel worker | 0 | Borrows kernel space or owns a private space | Calls a trusted C entry function |
-| Process record | Positive | Owns a private space | Holds a trusted user frame and temporary kernel bootstrap |
+| User process | Positive | Owns a private space | Restores a trusted user frame and enters ring 3 |
 
-The normal boot does not enter a production process in ring 3 yet. Process
-records already provide the ownership, PID, parent, frame, status, and cleanup
-model needed by that entry path.
+The scheduler can run a prepared process through the production ring-3 entry
+path. The normal shell cannot prepare an ELF image yet, so this path is currently
+used by the process and fault fixtures.
 
 ## Guarded kernel stacks
 
@@ -83,7 +83,6 @@ invalid. On failure, the caller still owns the supplied space and argument.
 
 - A completed, inactive private address space.
 - A trusted `exception_user_frame`.
-- A temporary trusted kernel bootstrap and optional borrowed argument.
 
 The frame must use the exact user selectors and EFLAGS `0x202`. Its EIP must be
 mapped in the user program range, and its 16-byte-aligned ESP must cover writable
@@ -94,6 +93,11 @@ The record becomes runnable only after validation and complete stack setup. A
 failed call publishes nothing and leaves the prepared address space with the
 caller. A successful record receives a monotonically increasing task ID, a
 positive process ID, and the current task as its parent.
+
+When the scheduler first selects the process, it switches CR3, updates TSS.ESP0,
+and runs `interrupt_enter`. That assembly helper replaces the bootstrap kernel
+stack with the trusted frame and shares the same `iret` restore path used by
+returning interrupts. EFLAGS enables interrupts as the CPU enters ring 3.
 
 ## Yielding, waiting, and waking
 
@@ -128,6 +132,12 @@ Returning from a kernel entry is equivalent to `task_exit()`. Call
 record and switches to a surviving context; it never frees the stack or CR3
 that the CPU is still using.
 
+An exception whose saved CS came from ring 3 follows the same switch-first rule.
+The process becomes exited with `TASK_TERMINATION_FAULT`, and its vector, error
+code, CR2 page-fault address, EIP, ESP, and complete user frame remain available
+to its parent. An exception from ring 0 still enters the kernel panic path,
+including a kernel fault that occurs while serving a process.
+
 Exited kernel workers can be reclaimed automatically by a resumed task or
 idle. Exited process records remain visible so a parent can observe their
 status. An explicit `task_reap()` destroys their inactive address space,
@@ -137,7 +147,8 @@ available again. Task IDs and process IDs are not recycled.
 ## Inspecting task state
 
 `task_query(id, &information)` returns one record with its kind, state, IDs,
-stack bounds, directory, trusted frame, exit status, and resource ownership.
+stack bounds, directory, latest trusted frame, termination kind, exit status or
+fault record, and resource ownership.
 
 `task_snapshot_read(&snapshot)` copies the complete fixed registry without
 allocating. It is safe from IRQ context and includes state totals, process and
@@ -150,6 +161,9 @@ information; see [Kernel diagnostics](diagnostics.md).
   the private space is registered and inactive, and a registry slot is free.
 - **A process definition is rejected:** verify selectors, EFLAGS `0x202`, EIP
   mapping, 16-byte ESP alignment, and writable stack coverage.
+- **A process fault halts the whole kernel:** verify the common frame reports a
+  ring-3 CS and that the current task is a process. Ring-0 faults intentionally
+  retain the panic behavior.
 - **A waiter never wakes:** capture the event sequence before checking the shared
   predicate and signal the same event after changing that predicate.
 - **A cleanup path faults:** never destroy the active CR3 or unmap the currently

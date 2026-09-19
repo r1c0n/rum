@@ -87,12 +87,12 @@ _Noreturn void exception_dispatch(const struct exception_frame *frame)
     __asm__ volatile ("cli" : : : "memory");
     if (panicking)
         cpu_halt();
-    panicking = true;
     /* Read CR2 before console output in case the original fault was #PF. */
     uint32_t fault_address;
     __asm__ volatile ("mov %%cr2, %0" : "=r"(fault_address));
     if (exception_frame_from_user(frame) && task_current_is_process())
         task_exit_from_user_fault(frame, fault_address);
+    panicking = true;
     terminal_initialize();
     terminal_set_color(VGA_LIGHT_RED, VGA_BLACK);
     write("\n  rum kernel panic\n\n  ");
