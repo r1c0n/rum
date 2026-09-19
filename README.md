@@ -47,6 +47,7 @@ The bottom row shows uptime.
 | `write <name> [text]` | Create or replace a file |
 | `rm <name>` | Remove a file |
 | `mem` | Show heap and filesystem usage |
+| `diag` | Inspect tasks, paging, stacks and memory usage |
 | `snake` | Play ASCII Snake |
 
 Snake uses **WASD** to move, **P** to pause, **R** to restart, and **Q** to return
@@ -62,8 +63,9 @@ input with `Ctrl+Alt+G`.
 ## Kernel features
 
 - GRUB Multiboot v1 boot with VGA text and COM1 output.
-- Kernel GDT, IDT, and CPU exception diagnostics.
+- Writable GDT/TSS, IDT, shared interrupt entry, and CPU exception diagnostics.
 - PIC interrupts, a 100 Hz PIT timer, and PS/2 keyboard input.
+- Cooperative kernel tasks with private stacks, event waits and deferred cleanup.
 - A physical allocator for 4 KiB pages below 1 GiB.
 - Supervisor paging with a null-page guard and read-only kernel code/constants.
 - A page-backed heap with aligned allocation, resizing, and free-block reuse.
@@ -141,4 +143,4 @@ The project follows the boot and toolchain approach in
 `arch/i386/boot.s` sets up its stack and CPU segments before calling C.
 
 See the [documentation](docs/README.md) for subsystem details and debugging.
-Planned work for the next release is in the [0.2.0 roadmap](docs/roadmap.md).
+Protected userspace and persistent-storage plans are in the [roadmap](docs/roadmap.md).

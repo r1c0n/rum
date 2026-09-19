@@ -12,6 +12,7 @@
 #include <rum/shell.h>
 #include <rum/terminal.h>
 #include <rum/timer.h>
+#include <rum/task.h>
 
 #if defined(__linux__) || defined(_WIN32)
 #error "rum needs a bare-metal i686-elf compiler, not a Linux or Windows compiler."
@@ -87,13 +88,18 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
         print("rum: cannot initialize heap or RAM files. Halting.\n");
         return;
     }
+    if (!task_initialize()) {
+        terminal_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        print("rum: cannot initialize kernel contexts. Halting.\n");
+        return;
+    }
     struct pmm_statistics memory = pmm_stats();
     serial_writestring("rum_memory_ok info="); serial_number(multiboot_info_address);
     serial_writestring(" usable="); serial_number(memory.usable_pages);
     serial_writestring(" managed="); serial_number(memory.managed_pages);
     serial_writestring(" free="); serial_number(memory.free_pages);
     serial_writestring(" limit="); serial_number(memory.limit);
-    serial_writestring(" directory="); serial_number(paging_directory_address());
+    serial_writestring(" directory="); serial_number(paging_directory_address(paging_kernel_space()));
     serial_writestring("\n");
     struct heap_statistics heap = heap_stats();
     struct ramfs_statistics files = ramfs_stats();
@@ -109,7 +115,7 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     terminal_set_color(VGA_WHITE, VGA_BLACK);
     print("  An island of our own.\n");
     terminal_set_color(VGA_LIGHT_GREY, VGA_BLACK);
-    print("  rum OS v0.1.0 | 32-bit x86\n");
+    print("  rum OS v0.2.0 | 32-bit x86\n");
     print("  Hello, kernel world!\n");
     terminal_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
     print("  [ok] Multiboot handoff\n");
@@ -144,6 +150,7 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     uint32_t displayed = 0;
     for (;;) {
         uint32_t flags = cpu_interrupt_save();
+        uint32_t observed = task_event_sequence(task_work_event());
         uint32_t ticks = timer_ticks();
         uint32_t seconds = ticks / TIMER_HZ;
         char character;
@@ -159,7 +166,8 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
             /* Input may have started/resumed a game after this tick snapshot. */
             shell_tick(timer_ticks());
         } else {
-            cpu_idle();
+            cpu_interrupt_restore(flags);
+            (void)task_wait(task_work_event(), observed);
         }
     }
 }

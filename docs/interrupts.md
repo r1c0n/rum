@@ -10,9 +10,11 @@ and connects through master IRQ2. Initialization masks all sources. The kernel
 registers handlers before unmasking IRQ0 and IRQ1, leaving the master mask at
 `0xfc` and the slave at `0xff`. IRQ1 stays masked if keyboard setup fails.
 
-IRQ stubs build the same ring-0 frame used for exceptions. Common assembly
+IRQ and exception stubs share the same [frame prefix](exceptions.md#handler-path).
+Ring-3 entries also carry the CPU-saved user ESP and SS. Common assembly
 clears DF, saves general and segment registers, loads kernel data selectors,
-aligns the stack, and calls `irq_dispatch`. It restores the frame and returns
+aligns the stack, and calls `interrupt_dispatch`, which routes device vectors
+to `irq_dispatch`. It restores the frame and returns
 with `iret`, including the interrupted flags. Handlers run with IF clear.
 
 Dispatch calls the registered handler and sends an end-of-interrupt command
@@ -25,16 +27,25 @@ clear.
 
 PIT channel 0 uses binary mode 2 with a divisor of 11932. Its nominal
 1,193,182 Hz input produces approximately 100 interrupts per second.
-IRQ0 increments an aligned, volatile 32-bit tick counter.
+IRQ0 increments an aligned, volatile 32-bit tick counter and signals the
+foreground work event. Accepted keyboard characters signal the same event.
 
 The foreground loop displays `ticks / TIMER_HZ` in the bottom VGA row once
 per second and uses ticks to advance Snake. Scrolling is limited to the other
 24 rows. The uptime counter wraps after roughly 497 days.
 
-The loop disables interrupts while checking ticks and queued input. It restores
-flags before processing work. When idle, `sti; hlt` enables interrupts and
-sleeps using STI's interrupt shadow, closing the gap between checking for work
-and waiting for an IRQ.
+The loop snapshots the work-event sequence while checking ticks and queued
+input with interrupts disabled. It restores flags before processing or waiting.
+`task_wait` checks the snapshot and attaches the blocked context atomically,
+so an event between checking and waiting cannot be lost. The scheduler selects
+the private idle context when nothing is runnable. Idle checks runnable state
+with IF clear and sleeps with `sti; hlt`, using STI's interrupt shadow to close
+the sleep boundary. See [Kernel tasks](tasks.md).
+
+IRQ handlers may signal events and make blocked tasks runnable. They never
+switch stacks, allocate tasks, block or reclaim exited contexts. Actual
+scheduling happens after IRQ return; `irq_in_handler` enforces those task-API
+restrictions.
 
 ## PS/2 keyboard
 
@@ -65,6 +76,8 @@ IRQ handlers do not echo, edit, or draw.
 Host tests cover decoding, modifiers, and console behavior. An isolated IRQ
 kernel uses software interrupts with known registers and DF set to check frame
 restoration and spurious IRQ handling.
+User CPU fixtures also check repeated real timer delivery through a TSS stack
+switch and `iret` back to ring 3, including segments, stack, flags and C alignment.
 
 Normal QEMU boots check live PIT ticks and inject input into the emulated PS/2
 device. Tests cover modifiers, ignored keys, editing, scrolling, timer delivery,

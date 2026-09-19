@@ -9,6 +9,7 @@ case "${1:-build}" in
         ;;
     doctor) bash scripts/doctor.sh ;;
     build) make all ;;
+    user) make user ;;
     run-kernel) make check ;;
     panic) make build/tests/fault-ud.elf ;;
     test) make test ;;

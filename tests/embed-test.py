@@ -41,4 +41,26 @@ with tempfile.TemporaryDirectory(prefix="rum-embed-") as temporary:
     (assets / "empty").unlink()
     generate()
     assert "NULL, NULL, 0" in output.read_text()
+    extra = root / "extra"
+    extra.mkdir()
+    (extra / "hello.elf").write_bytes(b"\x7fELF\0")
+    (assets / "welcome.txt").write_bytes(b"rum")
+    merged = module.generate(assets, [extra])
+    assert '"hello.elf", data_0, 5' in merged and '"welcome.txt", data_1, 3' in merged
+    (extra / "welcome.txt").write_bytes(b"duplicate")
+    try:
+        module.generate(assets, [extra])
+        raise AssertionError("duplicate across asset directories accepted")
+    except ValueError:
+        pass
+    (extra / "welcome.txt").unlink()
+    for index in range(63):
+        (assets / f"file-{index}").write_bytes(b"")
+    try:
+        module.generate(assets, [extra])
+        raise AssertionError("combined file limit exceeded")
+    except ValueError:
+        pass
+    (assets / "file-62").unlink()
+    assert "embedded_file_count = 64" in module.generate(assets, [extra])
 print("PASS: embedded binary/empty files, stable generation, asset removal, size/name validation")

@@ -1,4 +1,4 @@
-rum OS v0.1.0
+rum OS v0.2.0
 
 ls                     List RAM files and sizes.
 cat welcome.txt        Read an embedded file.

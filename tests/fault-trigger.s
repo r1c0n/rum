@@ -38,7 +38,7 @@ fault_ud_instruction:
 .type fault_trigger_gp, @function
 fault_trigger_gp:
     TEST_REGISTERS
-    mov $0x18, %ax               /* Beyond our three-entry GDT. */
+    mov $0x30, %ax               /* Beyond our six-entry GDT. */
 fault_gp_instruction:
     mov %ax, %ds
     jmp cpu_halt

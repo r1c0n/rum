@@ -151,12 +151,12 @@ bool pmm_initialize(const struct multiboot_info *info, uint32_t kernel_start, ui
             statistics.limit = (page + 1) * PAGE_SIZE;
         }
     }
-    if (!statistics.limit || !reserve(0, 0x100000) ||
+    if (!statistics.limit || !reserve(0, RUM_LOW_RESERVED_END) ||
         !reserve(kernel_start, kernel_end - kernel_start) || !reserve_boot_data(info)) return false;
     for (uint32_t page = 0; page < statistics.limit / PAGE_SIZE; ++page)
         if (bit(managed, page)) ++statistics.managed_pages;
     statistics.free_pages = statistics.managed_pages;
-    next_page = 0x100000 / PAGE_SIZE;
+    next_page = RUM_LOW_RESERVED_END / PAGE_SIZE;
     ready = true;
     return true;
 }
@@ -185,6 +185,46 @@ uint32_t pmm_allocate_page(void)
 bool pmm_is_managed(uint32_t physical)
 {
     return ready && !(physical % PAGE_SIZE) && physical < statistics.limit && bit(managed, physical / PAGE_SIZE);
+}
+
+uint32_t pmm_allocate_contiguous(uint32_t count)
+{
+    uint32_t flags = cpu_interrupt_save(), result = 0;
+    if (ready && count && count <= statistics.free_pages) {
+        uint32_t run = 0, pages = statistics.limit / PAGE_SIZE;
+        for (uint32_t page = RUM_LOW_RESERVED_END / PAGE_SIZE; page < pages; ++page) {
+            if (bit(managed, page) && !bit(allocated, page)) ++run;
+            else run = 0;
+            if (run == count) {
+                uint32_t first = page + 1 - count;
+                for (uint32_t i = first; i <= page; ++i) set_bit(allocated, i, true);
+                statistics.free_pages -= count;
+                result = first * PAGE_SIZE;
+                break;
+            }
+        }
+    }
+    cpu_interrupt_restore(flags);
+    return result;
+}
+
+bool pmm_free_contiguous(uint32_t physical, uint32_t count)
+{
+    uint32_t flags = cpu_interrupt_save();
+    bool valid = ready && count && !(physical % PAGE_SIZE) && physical < statistics.limit &&
+                 count <= (statistics.limit - physical) / PAGE_SIZE;
+    uint32_t first = physical / PAGE_SIZE;
+    if (valid) {
+        for (uint32_t i = 0; i < count; ++i)
+            if (!bit(managed, first + i) || !bit(allocated, first + i)) { valid = false; break; }
+    }
+    if (valid) {
+        for (uint32_t i = 0; i < count; ++i) set_bit(allocated, first + i, false);
+        statistics.free_pages += count;
+        if (first < next_page) next_page = first;
+    }
+    cpu_interrupt_restore(flags);
+    return valid;
 }
 
 bool pmm_is_allocated(uint32_t physical)

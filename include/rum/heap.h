@@ -4,9 +4,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <rum/memory_layout.h>
 
-#define HEAP_BASE 0x40000000u
-#define HEAP_LIMIT (4u * 1024u * 1024u)
+#define HEAP_BASE RUM_HEAP_BASE
+#define HEAP_LIMIT (RUM_HEAP_END - RUM_HEAP_BASE)
 #define HEAP_ALIGNMENT 16u
 
 struct heap_statistics {

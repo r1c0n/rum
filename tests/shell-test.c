@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <rum/heap.h>
+#include <rum/diagnostics.h>
 #include <rum/ramfs.h>
 #include <rum/serial.h>
 #include <rum/shell.h>
@@ -17,6 +18,20 @@ static char output[16384];
 static size_t output_length;
 static uint32_t ticks;
 uint32_t timer_ticks(void) { return ticks; }
+
+/* Hardware capture is exercised by QEMU; host tests use the real formatter
+   against a fixed snapshot and the real shell/console. */
+bool diagnostics_capture(struct kernel_diagnostics *result)
+{
+    if (!result) return false;
+    *result = (struct kernel_diagnostics){ .cr3 = 0x123000, .esp0 = 0x210000,
+        .tasks_ready = true, .tasks = { .current = 7, .count = 1, .stack_pages = 4,
+            .tasks = {{ .id = 7, .state = TASK_RUNNING, .stack_base = 0x20C000,
+                .stack_top = 0x210000, .directory = 0x123000, .owns_stack = true }} } };
+    result->heap = heap_stats();
+    result->files = ramfs_stats();
+    return true;
+}
 
 /* Capture COM1 output; exercise the real shell and real VGA driver. */
 void serial_putchar(char character)
@@ -175,7 +190,7 @@ int main(void)
     for (const char **name = (const char *[]){"help ", "clear ", "about ", "echo <text>", NULL}; *name; ++name)
         assert(strstr(output, *name));
     receive("about\n");
-    assert(strstr(output, "rum OS v0.1.0\r\n"));
+    assert(strstr(output, "rum OS v0.2.0\r\n"));
     assert_status();
     reset();
     receive("ls\ncat welcome.txt\nwrite notes.txt hello  from rum\ncat /notes.txt\nmem\n");
@@ -193,6 +208,14 @@ int main(void)
         assert(strstr(output, *text));
     assert_status();
 
+    reset();
+    struct heap_statistics diag_before = heap_stats();
+    receive("diag x\ndiag\n");
+    assert(strstr(output, "Usage: diag\r\n") && strstr(output, "Task: 7 | CR3: 0x00123000"));
+    assert(strstr(output, "#7 running stack=0x0020c000..0x00210000 owned"));
+    assert(strstr(output, "CR3=0x00123000 borrowed"));
+    assert(heap_stats().allocations == diag_before.allocations);
+    assert_status();
     reset();
     receive("echo\n");
     assert(strcmp(output, "> echo\r\n\r\n> ") == 0);

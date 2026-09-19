@@ -1,6 +1,7 @@
 #include <rum/interrupts.h>
 #include <rum/io.h>
 #include <rum/timer.h>
+#include <rum/task.h>
 
 #define PIT_INPUT_HZ 1193182u
 static volatile uint32_t ticks;
@@ -8,6 +9,7 @@ static volatile uint32_t ticks;
 static void timer_interrupt(void)
 {
     ++ticks;
+    task_event_signal(task_work_event());
 }
 
 void timer_initialize(void)

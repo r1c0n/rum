@@ -50,6 +50,16 @@ def elf_symbols(path):
     return symbols
 
 
+def boot_layout_test(symbols):
+    # Check the actual linked result against rum's unchanged boot contract.
+    start, end = symbols["__kernel_start"], symbols["__kernel_end"]
+    bottom, top = symbols["__boot_stack_bottom"], symbols["__boot_stack_top"]
+    if start != 0x200000 or end % 4096 or not start < end <= 0x40000000:
+        raise RuntimeError("Kernel exceeds its boot/identity layout")
+    if not start <= bottom < top <= end or top - bottom != 16384 or bottom % 16 or top % 16:
+        raise RuntimeError("Boot stack differs from its size/alignment/reservation contract")
+
+
 def dump_ram(stream, address, length, path):
     response = qmp_command(stream, "human-monitor-command", {
         "command-line": f'pmemsave {address:#x} {length} "{path.as_posix()}"'
@@ -199,9 +209,17 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
         heap_frames.append(physical)
         heap_dump.extend(dump_ram(stream, physical, 4096, artifacts / f"{mode}-heap-page-{slot}.bin"))
     owned = bytearray(len(expected))
+    idle = struct.unpack("<I", dump_ram(stream, symbols["task_idle_stack_base"], 4,
+                                         artifacts / f"{mode}-idle-stack-base.bin"))[0]
+    if not idle or idle % 4096 or idle + 16384 > limit:
+        raise RuntimeError("Invalid private idle stack")
+    for frame in range(idle, idle + 16384, 4096):
+        if frame in frames or frame // 4096 not in pages:
+            raise RuntimeError("Idle stack overlaps another owner or reserved RAM")
+        frames.add(frame)
     for frame in frames: owned[frame // 4096 // 8] |= 1 << (frame // 4096 % 8)
     if allocated != owned or free != managed_count - len(frames):
-        raise RuntimeError("Page table/heap physical frame accounting incorrect")
+        raise RuntimeError("Page table/heap/task stack physical frame accounting incorrect")
     # Read the tables in one contiguous span rather than hundreds of monitor calls.
     table_frames = [entry & 0xFFFFF000 for entry in directory[:table_count]]
     low, high = min(table_frames), max(table_frames) + 4096
@@ -269,14 +287,14 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
         raise RuntimeError("Embedded RAM files differ from assets or leak heap allocations")
     report = {"usable_pages": usable, "managed_pages": managed_count, "free_pages": free,
               "identity_limit": limit, "page_table_frames": structure_count,
-              "heap_pages": len(heap_frames), "heap_used_bytes": used, "files": file_count}
+              "heap_pages": len(heap_frames), "idle_stack_pages": 4, "heap_used_bytes": used, "files": file_count}
     (artifacts / f"{mode}-memory.json").write_text(json.dumps(report, indent=2) + "\n")
 
 
-def cpu_tables_test(stream, symbols, artifacts, mode, live=False):
+def cpu_tables_test(stream, symbols, artifacts, mode, live=False, user_abi=False):
     registers = qmp_command(stream, "human-monitor-command", {"command-line": "info registers"})
     (artifacts / f"{mode}-cpu.txt").write_text(registers)
-    for name, expected_base, expected_limit in (("GDT", symbols["rum_gdt"], 23),
+    for name, expected_base, expected_limit in (("GDT", symbols["rum_gdt"], 47),
                                                ("IDT", symbols["idt"], 2047)):
         match = re.search(rf"\b{name}=\s*([0-9a-fA-F]+)\s+([0-9a-fA-F]+)", registers)
         if not match or tuple(int(value, 16) for value in match.groups()) != (expected_base, expected_limit):
@@ -288,9 +306,40 @@ def cpu_tables_test(stream, symbols, artifacts, mode, live=False):
     flags = re.search(r"\bEFL=([0-9a-fA-F]+)", registers)
     if not flags or int(flags[1], 16) & 0x400 or bool(int(flags[1], 16) & 0x200) != live:
         raise RuntimeError("Wrong CPU interrupt/direction flags")
-    gdt = dump_ram(stream, symbols["rum_gdt"], 24, artifacts / f"{mode}-gdt.bin")
-    if gdt != struct.pack("<QQQ", 0, 0x00CF9B000000FFFF, 0x00CF93000000FFFF):
+    cr0 = re.search(r"\bCR0=([0-9a-fA-F]+)", registers)
+    cr4 = re.search(r"\bCR4=([0-9a-fA-F]+)", registers)
+    if not cr0 or not cr4 or int(cr0[1], 16) & 0xE != 0xE or int(cr4[1], 16) & 0x40600:
+        raise RuntimeError("Integer-only CPU policy is not enforced")
+    gdt = dump_ram(stream, symbols["rum_gdt"], 48, artifacts / f"{mode}-gdt.bin")
+    if gdt[:40] != struct.pack("<QQQQQ", 0, 0x00CF9B000000FFFF, 0x00CF93000000FFFF,
+                              0x00CFFB000000FFFF, 0x00CFF3000000FFFF):
         raise RuntimeError("Unexpected GDT descriptors")
+    base = symbols["rum_tss"]
+    expected_tss = struct.pack("<HHBBBB", 103, base & 0xFFFF, (base >> 16) & 0xFF,
+                               0x8B, 0, base >> 24)
+    if gdt[40:] != expected_tss:
+        raise RuntimeError("Wrong TSS descriptor or missing hardware busy flag")
+    task_register = re.search(r"\bTR\s*=\s*([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)", registers)
+    if not task_register or tuple(int(value, 16) for value in task_register.groups()) != (0x28, base, 103):
+        raise RuntimeError(f"Wrong task register: {registers}")
+    tss = dump_ram(stream, base, 104, artifacts / f"{mode}-tss.bin")
+    stack_top = symbols.get("cpu_test_stack_top", symbols["__boot_stack_top"])
+    current_top = struct.unpack("<I", dump_ram(stream, symbols["task_current_stack_top"], 4,
+                                                artifacts / f"{mode}-current-stack-top.bin"))[0]
+    if current_top:
+        stack_top = current_top
+        if live:
+            idle_base = struct.unpack("<I", dump_ram(stream, symbols["task_idle_stack_base"], 4,
+                                                       artifacts / f"{mode}-idle-base.bin"))[0]
+            if stack_top not in (symbols["__boot_stack_top"], idle_base + 16384):
+                raise RuntimeError("Normal boot is on an unowned kernel stack")
+            esp = re.search(r"\bESP=([0-9a-fA-F]+)", registers)
+            if not esp or not stack_top - 16384 <= int(esp[1], 16) < stack_top:
+                raise RuntimeError("CPU ESP is outside the current task's stack")
+    if (struct.unpack_from("<I", tss, 4)[0] != stack_top
+            or struct.unpack_from("<H", tss, 8)[0] != 0x10
+            or struct.unpack_from("<H", tss, 102)[0] != 104):
+        raise RuntimeError("Wrong TSS kernel stack or user I/O policy")
     idt = dump_ram(stream, symbols["idt"], 2048, artifacts / f"{mode}-idt.bin")
     for vector in range(48):
         low, selector, reserved, attributes, high = struct.unpack_from("<HHBBH", idt, vector * 8)
@@ -298,9 +347,55 @@ def cpu_tables_test(stream, symbols, artifacts, mode, live=False):
         if ((high << 16 | low) != symbols[target]
                 or (selector, reserved, attributes) != (8, 0, 0x8E)):
             raise RuntimeError(f"Wrong IDT gate {vector}")
-    if any(idt[48 * 8:]):
+    if user_abi:
+        low, selector, reserved, attributes, high = struct.unpack_from("<HHBBH", idt, 128 * 8)
+        if ((high << 16 | low) != symbols["abi_test_syscall"] or
+                (selector, reserved, attributes) != (8, 0, 0xEE)):
+            raise RuntimeError("Wrong fixture user syscall gate")
+    if any(idt[48 * 8:128 * 8]) or any(idt[(129 if user_abi else 128) * 8:]):
         raise RuntimeError("Unexpected IDT gates above the PIC range")
     return registers
+
+
+def user_abi_memory_test(stream, symbols, artifacts, mode, registers, project, case):
+    controls = {name: int(value, 16) for name, value in re.findall(r"\b(CR[034])=([0-9a-fA-F]+)", registers)}
+    if controls.get("CR3") != symbols["abi_directory"] or controls.get("CR0", 0) & 0x80010000 != 0x80010000:
+        raise RuntimeError("Wrong fixture user paging controls")
+    directory = struct.unpack("<1024I", dump_ram(stream, symbols["abi_directory"], 4096,
+                                                 artifacts / f"{mode}-directory.bin"))
+    expected = {0: symbols["abi_kernel_table"] | 3, 512: symbols["abi_program_table"] | 7,
+                767: symbols["abi_stack_table"] | 7}
+    if any(entry & ~0x60 != expected.get(i, 0) for i, entry in enumerate(directory)):
+        raise RuntimeError("Wrong fixture kernel/user directory separation")
+    kernel = struct.unpack("<1024I", dump_ram(stream, symbols["abi_kernel_table"], 4096,
+                                              artifacts / f"{mode}-kernel-table.bin"))
+    if any(entry & ~0x60 != (i * 4096 | 3 if i else 0) for i, entry in enumerate(kernel)):
+        raise RuntimeError("Fixture kernel mapping exposes user access or page zero")
+    program = struct.unpack("<1024I", dump_ram(stream, symbols["abi_program_table"], 4096,
+                                               artifacts / f"{mode}-program-table.bin"))
+    stack = struct.unpack("<1024I", dump_ram(stream, symbols["abi_stack_table"], 4096,
+                                             artifacts / f"{mode}-stack-table.bin"))
+    if any(entry & ~0x60 != (symbols["abi_stack_pages"] + (i - 1008) * 4096 | 7 if i >= 1008 else 0)
+           for i, entry in enumerate(stack)):
+        raise RuntimeError("Wrong fixture stack pages or missing guard")
+    image = (project / ("build/user/ramfs/hello.elf" if case == "hello" else "build/tests/user/abi-probe.elf")).read_bytes()
+    phoff, phnum = struct.unpack_from("<I", image, 28)[0], struct.unpack_from("<H", image, 44)[0]
+    mappings = {}
+    for i in range(phnum):
+        kind, offset, address, _, files, memory, flags, _ = struct.unpack_from("<8I", image, phoff + 32 * i)
+        if kind != 1 or not memory:
+            continue
+        start = (address - 0x80000000) // 4096
+        end = (address - 0x80000000 + memory + 4095) // 4096
+        for slot in range(start, end):
+            mappings[slot] = symbols["abi_program_pages"] + slot * 4096 | (7 if flags & 2 else 5)
+        if not flags & 2:
+            loaded = dump_ram(stream, symbols["abi_program_pages"] + address - 0x80000000, files,
+                              artifacts / f"{mode}-segment-{i}.bin")
+            if loaded != image[offset:offset + files]:
+                raise RuntimeError("Executed user code/constants differ from separate ELF asset")
+    if any(entry & ~0x60 != mappings.get(i, 0) for i, entry in enumerate(program)):
+        raise RuntimeError("Wrong fixture user segment permissions or frames")
 
 
 def timer_test(stream, symbols, artifacts, mode):
@@ -442,11 +537,31 @@ def shell_test(stream, symbols, artifacts, mode, serial):
            "  write <name> [text]  Create or replace a file.\r\n"
            "  rm <name>    Remove a file.\r\n"
            "  mem          Show heap and file usage.\r\n"
+           "  diag         Show task and memory diagnostics.\r\n"
            "  snake        Play ASCII Snake.\r\n> ")
     type_text("about\n")
-    expect("rum OS v0.1.0\r\n"
+    expect("rum OS v0.2.0\r\n"
            "An island of our own. A hobby kernel in C and x86 assembly.\r\n"
            "32-bit x86 | GRUB Multiboot | PIC, PIT and PS/2\r\n> ")
+    start = len(serial.read_bytes())
+    type_text("diag x\ndiag\n")
+    expect("borrowed\r\n> ")
+    report = serial.read_bytes()[start:].decode()
+    if "Usage: diag" not in report or "Task: 1 | CR3:" not in report or \
+            "Tasks: 2 live, 4 owned stack pages, 0 owned directories" not in report:
+        raise RuntimeError(f"Bad shell diagnostics: {report}")
+    cr3 = re.search(r"Task: 1 \| CR3: 0x([0-9a-f]{8})", report)
+    esp0 = re.search(r"TSS.ESP0: 0x([0-9a-f]{8})", report)
+    kesp = re.search(r"Kernel ESP: 0x([0-9a-f]{8})", report)
+    if not cr3 or not esp0 or not kesp or int(esp0[1], 16) != symbols["__boot_stack_top"] or \
+            not symbols["__boot_stack_bottom"] <= int(kesp[1], 16) < symbols["__boot_stack_top"]:
+        raise RuntimeError("Shell diagnostics lost the boot task/TSS/stack")
+    stop_at_idle(stream)
+    registers = qmp_command(stream, "human-monitor-command", {"command-line": "info registers"})
+    actual = re.search(r"\bCR3=([0-9a-fA-F]+)", registers)
+    if not actual or int(actual[1], 16) != int(cr3[1], 16):
+        raise RuntimeError("Shell diagnostics disagree with hardware CR3")
+    qmp_command(stream, "cont")
     type_text("echx\bo rum is alive!\n")
     expect("\r\nrum is alive!\r\n> ")
     type_text("   echo   two  spaces\n")
@@ -484,7 +599,7 @@ def shell_test(stream, symbols, artifacts, mode, serial):
     memory = dump_ram(stream, 0xB8000, 4000, artifacts / f"{mode}-shell-vga.bin")
     rows = [memory[y*160:(y+1)*160:2].decode("ascii").rstrip() for y in range(25)]
     screen = "\n".join(rows)
-    for text in ("Commands:", "echo <text>", "rum OS v0.1.0", "rum has a shell!", "uptime:"):
+    for text in ("Commands:", "echo <text>", "rum OS v0.2.0", "rum has a shell!", "uptime:"):
         if text not in screen:
             raise RuntimeError(f"Missing shell VGA text {text!r}")
     (artifacts / f"{mode}-shell-screen.txt").write_text(screen + "\n")
@@ -495,7 +610,7 @@ def shell_test(stream, symbols, artifacts, mode, serial):
 FAULT_CASES = {
     "de": (0, 0, "Divide error"),
     "ud": (6, 0, "Invalid opcode"),
-    "gp": (13, 0x18, "General protection fault"),
+    "gp": (13, 0x30, "General protection fault"),
     "pf": (14, 0, "Page fault"),
 }
 
@@ -509,6 +624,8 @@ PAGING_FAULTS = {
 
 
 def paging_fault_test(symbols, case, serial_text, registers):
+    if case in ("null", "text", "rodata") and "rum_paging_fault_space_ok" not in serial_text:
+        raise RuntimeError("Protected-page fault did not run under a child CR3")
     fields = {name: int(value, 16) for name, value in re.findall(r"\b([a-z0-9]+)=0x([0-9a-f]{8})", serial_text)}
     error, address, instruction = PAGING_FAULTS[case]
     if isinstance(address, str): address = symbols[address]
@@ -533,7 +650,7 @@ def fault_report_test(stream, symbols, artifacts, mode, fault, serial_text, scre
     if fault == "de":
         expected.update(ecx=0, edx=0)
     if fault == "gp":
-        expected["eax"] = 0x11220018
+        expected["eax"] = 0x11220030
     if fault == "pf":
         expected["cr2"] = 0x400000
         if "page not present, read, supervisor" not in screen:
@@ -548,6 +665,80 @@ def fault_report_test(stream, symbols, artifacts, mode, fault, serial_text, scre
     eip = re.search(r"\bEIP=([0-9a-fA-F]+)", registers)
     if not eip or not symbols["cpu_halt"] <= int(eip[1], 16) < symbols["cpu_halt"] + 4:
         raise RuntimeError("Fault did not reach cpu_halt")
+
+
+def panic_diagnostics_test(stream, symbols, artifacts, mode, serial_text, registers, owned=False):
+    fields = {name: int(value, 16) for name, value in
+              re.findall(r"\bdiag_([a-z0-9]+)=0x([0-9a-f]{8})", serial_text)}
+    controls = {name: int(value, 16) for name, value in re.findall(r"\b(CR[03])=([0-9a-fA-F]+)", registers)}
+    tss = dump_ram(stream, symbols["rum_tss"], 104, artifacts / f"{mode}-panic-tss.bin")
+    if fields.get("cr3") != controls.get("CR3") or fields.get("esp0") != struct.unpack_from("<I", tss, 4)[0]:
+        raise RuntimeError("Panic diagnostics disagree with hardware CR3/TSS")
+    if not owned:
+        return
+    raw = dump_ram(stream, symbols["task_fault_expected"], 48, artifacts / f"{mode}-expected-owners.bin")
+    names = ("task", "cr3", "esp0", "base", "top", "free", "managed", "dirs", "tables", "stacks", "heapalloc", "heapused")
+    expected = dict(zip(names, struct.unpack("<12I", raw)))
+    for name, value in expected.items():
+        if fields.get(name) != value:
+            raise RuntimeError(f"Panic changed owned resource {name}: {fields.get(name)} != {value}")
+    if not expected["base"] <= fields["kesp"] < expected["top"] or \
+            expected["top"] != expected["esp0"] or expected["top"] - expected["base"] != 16384 or \
+            fields["recordcr3"] != fields["cr3"] or fields["activecr3"] != fields["cr3"]:
+        raise RuntimeError("Worker panic lost the active stack, task record or registered CR3")
+    for name, value in {"task": 3, "live": 3, "stacks": 8, "owneddirs": 1, "dirs": 2,
+                        "created": 1, "exited": 0, "reaped": 0, "switches": 1}.items():
+        if fields.get(name) != value:
+            raise RuntimeError(f"Unexpected worker ownership/lifecycle {name}: {fields.get(name)}")
+    allocated = dump_ram(stream, symbols["allocated"], 32768, artifacts / f"{mode}-panic-allocated.bin")
+    managed = dump_ram(stream, symbols["managed"], 32768, artifacts / f"{mode}-panic-managed.bin")
+    kernel_cr3 = fields["kernelcr3"]
+    directory = struct.unpack("<1024I", dump_ram(stream, fields["cr3"], 4096, artifacts / f"{mode}-worker-directory.bin"))
+    kernel = struct.unpack("<1024I", dump_ram(stream, kernel_cr3, 4096, artifacts / f"{mode}-kernel-directory.bin"))
+    if fields["cr3"] == kernel_cr3 or any(directory[512:]) or any(kernel[512:]) or \
+            any((left & ~0x60) != (right & ~0x60) for left, right in zip(directory, kernel)):
+        raise RuntimeError("Worker directory lost private ownership or shared supervisor mappings")
+    tables = {entry & 0xFFFFF000 for entry in kernel if entry & 1}
+    if len(tables) != fields["tables"] or any(entry & ~0x60 & 0xFFF != 3 for entry in kernel if entry & 1):
+        raise RuntimeError("Shared table count/permissions disagree with diagnostics")
+    frames = {fields["cr3"], kernel_cr3, *tables}
+    if len(frames) != len(tables) + 2:
+        raise RuntimeError("Private/shared page structures overlap")
+    heap = struct.unpack("<1024I", dump_ram(stream, kernel[256] & 0xFFFFF000, 4096,
+                                           artifacts / f"{mode}-panic-heap-table.bin"))
+    heap_frames = [entry & 0xFFFFF000 for entry in heap if entry & 1]
+    if any(entry & ~0x60 & 0xFFF != 3 for entry in heap if entry & 1):
+        raise RuntimeError("Panic heap mappings lost supervisor/write permissions")
+    idle = struct.unpack("<I", dump_ram(stream, symbols["task_idle_stack_base"], 4,
+                                        artifacts / f"{mode}-panic-idle-stack.bin"))[0]
+    private = [*heap_frames, *range(idle, idle + 16384, 4096), *range(expected["base"], expected["top"], 4096)]
+    for frame in private:
+        if frame in frames:
+            raise RuntimeError("Panic owners overlap")
+        frames.add(frame)
+    claimed = bytearray(32768)
+    for frame in frames:
+        page = frame // 4096
+        if frame % 4096 or not managed[page // 8] & (1 << (page % 8)):
+            raise RuntimeError("Panic owner uses an unmanaged/unaligned frame")
+        claimed[page // 8] |= 1 << (page % 8)
+    if allocated != claimed or fields["free"] != fields["managed"] - len(frames):
+        raise RuntimeError("Panic physical ledger leaked or freed an owned frame")
+    # Inspect real PTEs under the worker's CR3, including mutable CPU storage
+    # and protected kernel sections. All these resources stay supervisor-only.
+    protected = [(address, True) for address in frames]
+    protected += [(symbols[name], True) for name in ("rum_gdt", "rum_tss", "idt", "__boot_stack_bottom")]
+    protected += [(symbols[name], False) for name in ("__text_start", "__rodata_start")]
+    cached = {}
+    for address, writable in protected:
+        index = address >> 22
+        if index not in cached:
+            cached[index] = struct.unpack("<1024I", dump_ram(stream, directory[index] & 0xFFFFF000, 4096,
+                                                           artifacts / f"{mode}-identity-table-{index}.bin"))
+        entry = cached[index][(address >> 12) & 1023]
+        if entry & ~0x60 != (address & 0xFFFFF000) | (3 if writable else 1):
+            raise RuntimeError(f"Worker resource mapping has incorrect permissions: {address:#x}, {entry:#x}")
+    (artifacts / f"{mode}-panic-ownership.json").write_text(json.dumps(fields, indent=2) + "\n")
 
 
 def storage_shell_test(stream, symbols, artifacts, mode, serial, project):
@@ -733,16 +924,19 @@ def snake_test(stream, symbols, artifacts, mode, serial):
     timer_test(stream, symbols, artifacts, mode)
 
 
-def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False):
+def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False, cpu=None, tasks=False, user_abi=None, task_fault=False):
+    if task_fault:
+        fault = "ud"
     serial_artifact = artifacts / f"{mode}-serial.log"
     vga_dump = artifacts / f"{mode}-vga.bin"
     screenshot = artifacts / f"{mode}.ppm"
-    image = project / ("build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
+    image = project / ("build/tests/task-fault.elf" if task_fault else f"build/tests/abi-{user_abi}.elf" if user_abi else "build/tests/task.elf" if tasks else f"build/tests/cpu-{cpu}.elf" if cpu else "build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
                        f"build/tests/fault-{fault}.elf" if fault else "build/rum.elf")
     symbols = elf_symbols(image)
-    marker = ("rum_storage_test_ok" if storage else "rum_paging_test_ok" if paging == "ok" else "rum_panic_halted" if paging else
+    boot_layout_test(symbols)
+    marker = ("rum_abi_test_ok" if user_abi else "rum_task_test_ok" if tasks else "rum_cpu_test_ok" if cpu else "rum_storage_test_ok" if storage else "rum_paging_test_ok" if paging == "ok" else "rum_panic_halted" if paging else
               "rum_irq_test_ok" if irq_test else "rum_panic_halted" if fault else "rum_boot_ok")
-    normal = not fault and not irq_test and not paging and not storage
+    normal = not fault and not irq_test and not paging and not storage and not cpu and not tasks and not user_abi
     with tempfile.TemporaryDirectory(prefix="rum-qmp-") as temporary:
         # Keep the live writer/readers on one filesystem. DrvFs can return
         # ENODATA when a WSL guest creates/truncates a log on the Windows drive.
@@ -768,7 +962,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
         try:
             deadline = time.monotonic() + 20
             while marker not in serial.read_text(errors="replace"):
-                if any(marker in serial.read_text(errors="replace") for marker in ("rum_paging_test_failed", "rum_storage_test_failed")):
+                if any(marker in serial.read_text(errors="replace") for marker in ("rum_paging_test_failed", "rum_storage_test_failed", "rum_cpu_test_failed", "rum_task_test_failed", "rum_abi_test_failed")):
                     raise RuntimeError(serial.read_text(errors="replace"))
                 if process.poll() is not None:
                     raise RuntimeError(f"QEMU exited: {process.stderr.read().decode(errors='replace')}")
@@ -777,7 +971,9 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                 time.sleep(0.1)
             family = socket.AF_INET if os.name == "nt" else socket.AF_UNIX
             with socket.socket(family, socket.SOCK_STREAM) as connection:
-                connection.settimeout(5)
+                # Dumps and screenshots write to the host filesystem; DrvFs
+                # can take longer than an ordinary monitor/register request.
+                connection.settimeout(20)
                 connection.connect(("127.0.0.1", port) if os.name == "nt" else monitor)
                 with connection.makefile("rwb") as stream:
                     greeting = json.loads(stream.readline())
@@ -791,7 +987,9 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                         stop_at_idle(stream)
                     else:
                         qmp_command(stream, "stop")
-                    registers = cpu_tables_test(stream, symbols, artifacts, mode, live=normal)
+                    registers = cpu_tables_test(stream, symbols, artifacts, mode, live=normal, user_abi=bool(user_abi))
+                    if user_abi:
+                        user_abi_memory_test(stream, symbols, artifacts, mode, registers, project, user_abi)
                     if normal:
                         physical_memory_test(stream, symbols, artifacts, mode, registers, serial.read_text(), project)
                         timer_test(stream, symbols, artifacts, mode)
@@ -801,12 +999,15 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                             for y in range(25)]
                     screen = "\n".join(rows)
                     (artifacts / f"{mode}-screen.txt").write_text(screen + "\n")
-                    expected_text = (("rum heap and RAM filesystem tests passed.",) if storage else
+                    expected_text = (("rum user ABI and startup tests passed.",) if user_abi else
+                                     ("rum kernel contexts and waiting tests passed.",) if tasks else
+                                     ("rum user CPU entry and policy tests passed.",) if cpu else
+                                     ("rum heap and RAM filesystem tests passed.",) if storage else
                                      ("rum physical allocator and paging tests passed.",) if paging == "ok" else
                                      ("rum kernel panic", "Page fault", "CPU halted.") if paging else
                                      ("rum IRQ return and spurious interrupt tests passed.",) if irq_test else
                                      ("rum kernel panic", FAULT_CASES[fault][2], "CPU halted.") if fault
-                                     else ("rum OS v0.1.0", "Hello, kernel world!", "[ok] Multiboot handoff",
+                                     else ("rum OS v0.2.0", "Hello, kernel world!", "[ok] Multiboot handoff",
                                            "[ok] Kernel GDT and segments", "[ok] IDT and CPU exception handlers",
                                            "[ok] PIT timer at 100 Hz", "[ok] PS/2 keyboard (US layout)",
                                            "[ok] Multiboot memory map", "[ok] Physical page allocator",
@@ -819,9 +1020,14 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                             raise RuntimeError(f"Missing VGA text {expected!r} ({mode})")
                     if paging and paging != "ok":
                         paging_fault_test(symbols, paging, serial.read_text(), registers)
+                        panic_diagnostics_test(stream, symbols, artifacts, mode, serial.read_text(), registers)
+                    elif paging == "ok":
+                        if "rum_paging_spaces_ok" not in serial.read_text():
+                            raise RuntimeError("Missing production paging-context checks")
                     elif fault:
                         fault_report_test(stream, symbols, artifacts, mode, fault,
                                           serial.read_text(), screen, registers)
+                        panic_diagnostics_test(stream, symbols, artifacts, mode, serial.read_text(), registers, owned=task_fault)
                     elif normal and interactive:
                         keyboard_test(stream, symbols, artifacts, mode, serial)
                         shell_test(stream, symbols, artifacts, mode, serial)
@@ -829,8 +1035,11 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                         snake_test(stream, symbols, artifacts, mode, serial)
                     qmp_command(stream, "quit")
             print(f"PASS: {mode}, GDT/IDT/segments, " +
-                  ("production heap/RAM files, alignment, reuse, realloc, limits, physical OOM rollback" if storage else
-                   "production paging, aliases/remap, frame accounting, init/runtime OOM recovery" if paging == "ok"
+                  ("separate user ELF, real ring-3 startup/int 0x80, arguments/BSS/return, segment permissions" if user_abi else
+                   "private kernel stacks, real context/CR3 switches, waiting/idle/IRQ wakeup, deferred cleanup" if tasks else
+                   "real ring-3 PIT/IRET, TSS stack, user registers/segments/DF, alignment, integer/I/O policy" if cpu else
+                   "production heap/RAM files, alignment, reuse, realloc, limits, physical OOM rollback" if storage else
+                   "production paging/contexts, shared heap/tables, CR3/IRQ return, lifecycle/limits/OOM recovery" if paging == "ok"
                    else "production page tables, real #PF, error/EIP/CR2, PG/WP, panic/halt" if paging
                    else "real exception, saved registers, error code, EIP, stack, VGA/serial panic, halt" if fault
                    else "IRQ return, saved registers/flags, spurious IRQ7/IRQ15" if irq_test
@@ -858,6 +1067,13 @@ def main():
     for fault in FAULT_CASES:
         boot_test(args.qemu, project, f"fault-{fault}", artifacts, fault=fault)
     boot_test(args.qemu, project, "irq", artifacts, irq_test=True)
+    for case in ("irq", "x87", "mmx", "sse", "io"):
+        boot_test(args.qemu, project, f"cpu-{case}", artifacts, cpu=case)
+    for ram in (16, 64):
+        boot_test(args.qemu, project, f"tasks-{ram}", artifacts, tasks=True, ram=ram)
+        boot_test(args.qemu, project, f"task-fault-{ram}", artifacts, task_fault=True, ram=ram)
+    for case in ("args", "limits", "hello"):
+        boot_test(args.qemu, project, f"abi-{case}", artifacts, user_abi=case)
     boot_test(args.qemu, project, "paging-ok", artifacts, paging="ok")
     for case in PAGING_FAULTS:
         boot_test(args.qemu, project, f"paging-{case}", artifacts, paging=case)

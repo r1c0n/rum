@@ -5,6 +5,12 @@
 static void (*handlers[16])(void);
 static volatile uint32_t irq_counts[16];
 static volatile uint32_t spurious_irqs;
+static volatile uint32_t handler_depth;
+
+bool irq_in_handler(void)
+{
+    return handler_depth != 0;
+}
 
 void irq_register(uint8_t irq, void (*handler)(void))
 {
@@ -30,9 +36,11 @@ void irq_dispatch(const struct exception_frame *frame)
         return;
     }
     ++irq_counts[irq];
-    if (handlers[irq])
+    if (handlers[irq]) {
+        ++handler_depth;
         handlers[irq]();
-    else
+        --handler_depth;
+    } else
         pic_mask(irq); /* Keep an unconfigured source from repeatedly firing. */
     pic_end_of_interrupt(irq);
 }

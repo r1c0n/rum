@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <rum/heap.h>
+#include <rum/diagnostics.h>
 #include <rum/ramfs.h>
 #include <rum/serial.h>
 #include <rum/shell.h>
@@ -89,6 +90,7 @@ static void execute(void)
               "  write <name> [text]  Create or replace a file.\n"
               "  rm <name>    Remove a file.\n"
               "  mem          Show heap and file usage.\n"
+              "  diag         Show task and memory diagnostics.\n"
               "  snake        Play ASCII Snake.\n");
     } else if (equal(command, "clear")) {
         if (*arguments) {
@@ -102,7 +104,7 @@ static void execute(void)
             print("Usage: about\n");
             return;
         }
-        print("rum OS v0.1.0\n"
+        print("rum OS v0.2.0\n"
               "An island of our own. A hobby kernel in C and x86 assembly.\n"
               "32-bit x86 | GRUB Multiboot | PIC, PIT and PS/2\n");
     } else if (equal(command, "echo")) {
@@ -145,6 +147,9 @@ static void execute(void)
         print("Heap: "); number(heap.mapped_bytes); print(" bytes mapped, ");
         number(heap.used_bytes); print(" bytes used, "); number(heap.allocations); print(" allocations\n");
         print("RAM files: "); number(files.files); print(" files, "); number(files.bytes); print(" bytes\n");
+    } else if (equal(command, "diag")) {
+        if (*arguments) { print("Usage: diag\n"); return; }
+        diagnostics_print();
     } else if (equal(command, "snake")) {
         if (*arguments) { print("Usage: snake\n"); return; }
         (void)snake_start(timer_ticks());
