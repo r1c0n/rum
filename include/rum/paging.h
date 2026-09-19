@@ -17,6 +17,11 @@ struct paging_statistics {
     uint32_t private_table_pages, user_pages;
 };
 
+struct paging_space_statistics {
+    uint32_t directory, private_table_pages, user_pages;
+    bool kernel;
+};
+
 /* Allocation-free, IRQ-safe snapshot. Shared table frames are counted once,
    not once per directory; zero before production paging initialization. */
 struct paging_statistics paging_stats(void);
@@ -26,6 +31,9 @@ bool paging_initialize(void);
 struct paging_space *paging_kernel_space(void);
 struct paging_space *paging_active_space(void);
 uint32_t paging_directory_address(const struct paging_space *space);
+/* Allocation-free ownership snapshot for one registered address space. */
+bool paging_space_stats(const struct paging_space *space,
+                        struct paging_space_statistics *statistics);
 /* Foreground only, after heap initialization. Own a new directory and metadata;
    borrow all kernel tables. No user mappings are created. NULL on failure. */
 struct paging_space *paging_space_create(void);
@@ -42,6 +50,12 @@ bool paging_switch_space(struct paging_space *space);
 bool paging_map_page(struct paging_space *space, uint32_t virtual, uint32_t physical, uint32_t flags);
 bool paging_unmap_page(struct paging_space *space, uint32_t virtual, uint32_t *physical);
 bool paging_translate(const struct paging_space *space, uint32_t virtual, uint32_t *physical);
+
+/* Shared supervisor kernel-entry stacks. A slot owns four independently
+   allocated, zeroed frames above an unmapped guard page. Allocation and release
+   are transactional; only an inactive stack may be released by its owner. */
+bool paging_kernel_stack_allocate(uint32_t slot);
+bool paging_kernel_stack_release(uint32_t slot);
 
 /* Private anonymous user pages. The address and page count must fit entirely
    inside the program range or the fixed user-stack range. Allocate zeroes every

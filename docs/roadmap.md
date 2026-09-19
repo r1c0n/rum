@@ -50,17 +50,17 @@ real page tables and PMM bitmap rather than relying only on paging API results.
 
 ### 2. Kernel entry stacks and process records
 
-- [ ] Move task kernel stacks into the reserved virtual stack slots and leave an
+- [x] Move task kernel stacks into the reserved virtual stack slots and leave an
   unmapped guard page between slots.
-- [ ] Add a dedicated double-fault entry stack so stack exhaustion produces a
+- [x] Add a dedicated double-fault entry stack so stack exhaustion produces a
   controlled report instead of a reset or unexplained hang.
-- [ ] Extend task records with a positive process ID, parent, address space,
+- [x] Extend task records with a positive process ID, parent, address space,
   trusted user frame, exit status and resource accounting.
-- [ ] Keep kernel-only tasks distinct from user processes while sharing the same
+- [x] Keep kernel-only tasks distinct from user processes while sharing the same
   scheduler and wait/event machinery.
-- [ ] Update TSS.ESP0 before every switch to a process and retain a valid kernel
+- [x] Update TSS.ESP0 before every switch to a process and retain a valid kernel
   entry stack throughout interrupt, syscall and fault handling.
-- [ ] Publish a process as runnable only after its mappings, arguments and initial
+- [x] Publish a process as runnable only after its mappings, arguments and initial
   CPU frame are complete.
 
 Construction remains private until the final publish step. Failure unwinds the

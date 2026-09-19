@@ -1,20 +1,22 @@
 # CPU exceptions
 
 rum uses a writable GDT with flat kernel code/data at selectors `0x08`/`0x10`,
-user code/data at `0x1B`/`0x23`, and a 32-bit TSS at `0x28`. Code and data
+user code/data at `0x1B`/`0x23`, a normal 32-bit TSS at `0x28`, and a
+double-fault TSS at `0x30`. Code and data
 segments cover the 32-bit address space. The user descriptors prepare for
 future processes; the normal kernel still runs entirely in ring 0.
 Startup saves the Multiboot arguments, loads GDTR, reloads CS with a far jump,
 reloads the data and stack segments, loads TR, and enters the kernel with an
 aligned stack. The TSS starts with the boot stack in ESP0 and kernel data in
 SS0. Its I/O-map offset is beyond the descriptor limit, denying user port I/O
-when IOPL is zero. `gdt_set_kernel_stack` updates ESP0 for a caller-owned,
-mapped supervisor stack. Loading TR sets the descriptor's busy bit, so the
-GDT must remain writable.
+when IOPL is zero. The scheduler keeps the normal TSS's ESP0 and CR3 synchronized
+with each software context switch. Loading TR and entering the double-fault task
+set the corresponding descriptor busy bits, so the GDT must remain writable.
 
 `idt_initialize` installs 32-bit ring-0 interrupt gates for exceptions 0–31
-and PIC IRQs 32–47 in a 256-entry IDT. Gates 48–255 are absent. Interrupt
-gates clear IF on entry; CPU faults can enter with device interrupts disabled.
+except vector 8, plus PIC IRQs 32–47, in a 256-entry IDT. Vector 8 is a task
+gate targeting the double-fault TSS; gates 48–255 are absent. Interrupt gates
+clear IF on entry, and CPU faults can enter with device interrupts disabled.
 
 ## Handler path
 
@@ -36,7 +38,12 @@ ring-3 entries add the interrupted ESP and SS in a 76-byte
 `exception_user_frame`. The saved CS privilege bits select the frame length.
 Stack helpers read the tail only for user entries. For ring 0, interrupted ESP
 comes from PUSHAD's saved ESP plus the normalized five-word CPU/stub frame.
-There is no separate double-fault stack yet.
+
+A double fault cannot trust the interrupted stack. The hardware task gate loads
+the kernel CR3, selectors, entry point and independent guarded stack from the
+second TSS. The entry reconstructs the failed EIP, registers and ESP from the
+normal TSS, prints the ordinary fatal report, and halts. It never returns to the
+failed task.
 
 ## User CPU policy
 
@@ -84,12 +91,17 @@ Fault fixtures keep device interrupts disabled.
 | --- | --- | --- |
 | Divide error | Divide by zero | `0 / 0` |
 | Invalid opcode | `ud2` with DF set | `6 / 0` |
-| General protection | Load DS with selector `0x30`, beyond the GDT | `13 / 0x30` |
+| General protection | Load DS with system selector `0x30` | `13 / 0x30` |
 | Page fault | Read unmapped `0x00400000` | `14 / 0`, CR2 `0x00400000` |
 
 The diagnostic page-fault fixture maps only the first 4 MiB. Additional test
 kernels use the [kernel paging implementation](memory.md) to fault on null
 access, unmapped aliases, and writes to read-only pages.
+
+The double-fault fixture moves ESP to the base of a worker stack and pushes into
+its unmapped guard. QEMU verifies TR `0x30`, the emergency stack and kernel CR3,
+the saved failed TSS, vector/error/EIP/ESP reporting, stack permissions and the
+halted CPU. This path is tested at both supported RAM sizes.
 
 QEMU tests inspect GDT/IDT contents, TR, the hardware TSS busy bit, the kernel
 entry stack and I/O-map offset. Paging tests verify GDT/TSS pages are writable

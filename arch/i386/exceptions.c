@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <rum/cpu.h>
 #include <rum/diagnostics.h>
+#include <rum/gdt.h>
 #include <rum/interrupts.h>
 #include <rum/memory.h>
 #include <rum/serial.h>
@@ -41,6 +42,10 @@ void idt_initialize(void)
             .offset_high = (uint16_t)(address >> 16),
         };
     }
+    idt[8] = (struct idt_gate) {
+        .selector = DOUBLE_FAULT_TSS_SELECTOR,
+        .attributes = 0x85, /* Present, ring 0, hardware task gate. */
+    };
     const struct idt_descriptor descriptor = {
         .limit = sizeof(idt) - 1,
         .base = (uintptr_t)idt,
@@ -113,4 +118,20 @@ _Noreturn void exception_dispatch(const struct exception_frame *frame)
     write("\n\n  CPU halted. Close QEMU to return to your host.\n");
     serial_writestring("rum_panic_halted\n");
     cpu_halt();
+}
+
+_Noreturn void double_fault_dispatch(void)
+{
+    /* A nested hardware task switch saved the failed context in rum_tss.
+       Shape it like the ordinary assembly frame so panic output stays useful. */
+    struct exception_frame frame = {
+        .gs = rum_tss.gs, .fs = rum_tss.fs, .es = rum_tss.es, .ds = rum_tss.ds,
+        .edi = rum_tss.edi, .esi = rum_tss.esi, .ebp = rum_tss.ebp,
+        .saved_esp = rum_tss.esp >= 20 ? rum_tss.esp - 20 : 0,
+        .ebx = rum_tss.ebx, .edx = rum_tss.edx, .ecx = rum_tss.ecx, .eax = rum_tss.eax,
+        .vector = 8, .error = 0, .eip = rum_tss.eip,
+        .cs = rum_tss.cs, .eflags = rum_tss.eflags,
+    };
+    serial_writestring("rum_double_fault_entry\n");
+    exception_dispatch(&frame);
 }

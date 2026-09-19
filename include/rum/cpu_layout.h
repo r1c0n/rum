@@ -7,6 +7,7 @@
 #define USER_CODE_SELECTOR   0x1B
 #define USER_DATA_SELECTOR   0x23
 #define TSS_SELECTOR         0x28
-#define GDT_ENTRY_COUNT      6
+#define DOUBLE_FAULT_TSS_SELECTOR 0x30
+#define GDT_ENTRY_COUNT      7
 
 #endif

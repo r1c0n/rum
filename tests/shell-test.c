@@ -212,7 +212,8 @@ int main(void)
     struct heap_statistics diag_before = heap_stats();
     receive("diag x\ndiag\n");
     assert(strstr(output, "Usage: diag\r\n") && strstr(output, "Task: 7 | CR3: 0x00123000"));
-    assert(strstr(output, "#7 running stack=0x0020c000..0x00210000 owned"));
+    assert(strstr(output, "Processes: 0 | 0 user tables, 0 user pages"));
+    assert(strstr(output, "#7 kernel running stack=0x0020c000..0x00210000 owned"));
     assert(strstr(output, "CR3=0x00123000 borrowed"));
     assert(heap_stats().allocations == diag_before.allocations);
     assert_status();

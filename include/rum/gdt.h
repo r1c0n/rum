@@ -42,9 +42,16 @@ _Static_assert(offsetof(struct i386_tss, iomap_base) == 102, "TSS I/O-map offset
 
 extern struct gdt_entry rum_gdt[GDT_ENTRY_COUNT];
 extern struct i386_tss rum_tss;
+extern struct i386_tss rum_double_fault_tss;
 void gdt_initialize(void); /* Bootstrap only; preserves the Multiboot arguments. */
 void gdt_load(const struct gdt_descriptor *descriptor);
 /* Caller owns a mapped supervisor stack. Its top must be nonzero and aligned. */
 bool gdt_set_kernel_stack(uint32_t top);
+/* Keep the software-scheduled task's ring-zero stack and CR3 in the hardware
+   TSS so a nested task switch can preserve a complete interrupted context. */
+bool gdt_set_kernel_context(uint32_t top, uint32_t directory);
+/* Configure the hardware task-gate target after its guarded stack and kernel
+   CR3 exist. The target never returns to the interrupted task. */
+bool gdt_set_double_fault_stack(uint32_t top, uint32_t kernel_directory);
 
 #endif
