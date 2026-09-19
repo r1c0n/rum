@@ -216,6 +216,23 @@ uint32_t paging_directory_address(const struct paging_space *space)
     return address;
 }
 
+bool paging_space_stats(const struct paging_space *space,
+                        struct paging_space_statistics *statistics)
+{
+    if (!statistics) return false;
+    uint32_t saved = cpu_interrupt_save();
+    *statistics = (struct paging_space_statistics){0};
+    bool success = known_space(space);
+    if (success) {
+        statistics->directory = space->directory_physical;
+        statistics->private_table_pages = space->user_tables;
+        statistics->user_pages = space->user_pages;
+        statistics->kernel = space == &kernel_space;
+    }
+    cpu_interrupt_restore(saved);
+    return success;
+}
+
 struct paging_space *paging_space_create(void)
 {
     uint32_t saved = cpu_interrupt_save();
