@@ -238,5 +238,6 @@ void paging_space_checks(void)
     }
     check(pmm_stats().free_pages == count && heap_stats().allocations == allocations &&
           heap_stats().used_bytes == used, "repeated lifecycle leaks no owned resources");
+    user_address_space_checks();
     serial_writestring("rum_paging_spaces_ok\n");
 }
