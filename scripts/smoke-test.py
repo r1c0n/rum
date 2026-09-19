@@ -291,6 +291,199 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
     (artifacts / f"{mode}-memory.json").write_text(json.dumps(report, indent=2) + "\n")
 
 
+def user_address_space_test(stream, symbols, artifacts, mode, serial_text):
+    """Walk the live page tables and physical ledger left by the kernel fixture."""
+    if "rum_user_memory_ok" not in serial_text or "rum_paging_spaces_ok" not in serial_text:
+        raise RuntimeError("Missing user-address-space kernel checks")
+
+    def symbol_bytes(name, length):
+        return dump_ram(stream, symbols[name], length, artifacts / f"{mode}-{name}.bin")
+
+    ready = struct.unpack("<I", symbol_bytes("paging_user_test_ready", 4))[0]
+    directories = struct.unpack("<2I", symbol_bytes("paging_user_test_directories", 8))
+    program = struct.unpack("<I", symbol_bytes("paging_user_test_program", 4))[0]
+    stack = struct.unpack("<I", symbol_bytes("paging_user_test_stack", 4))[0]
+    stats = struct.unpack("<7I", symbol_bytes("paging_user_test_stats", 28))
+    physical_stats = struct.unpack("<4I", symbol_bytes("paging_user_test_physical", 16))
+    spaces, directory_pages, shared_pages, kernel_cr3, active_cr3, private_pages, user_pages = stats
+    usable, managed_count, free_count, limit = physical_stats
+    if (ready != 1 or spaces != 3 or directory_pages != 3 or private_pages != 6 or
+            user_pages != 36 or active_cr3 != kernel_cr3 or
+            len(set((*directories, kernel_cr3))) != 3):
+        raise RuntimeError(f"Bad exported user-space ownership state: {stats}, {directories}")
+    registers = qmp_command(stream, "human-monitor-command", {"command-line": "info registers"})
+    hardware_cr3 = re.search(r"\bCR3=([0-9a-fA-F]+)", registers)
+    if not hardware_cr3 or int(hardware_cr3[1], 16) != kernel_cr3:
+        raise RuntimeError("User-space fixture did not return to the kernel CR3")
+
+    bitmap_bytes = (1 << 30) // 4096 // 8
+    managed = dump_ram(stream, symbols["managed"], bitmap_bytes,
+                       artifacts / f"{mode}-user-managed.bin")
+    allocated = dump_ram(stream, symbols["allocated"], bitmap_bytes,
+                         artifacts / f"{mode}-user-allocated.bin")
+
+    def bitmap_has(bitmap, frame):
+        page = frame // 4096
+        return frame % 4096 == 0 and page < len(bitmap) * 8 and bool(bitmap[page // 8] & (1 << (page % 8)))
+
+    owners = {}
+
+    def claim(frame, owner):
+        if frame >= limit or not bitmap_has(managed, frame):
+            raise RuntimeError(f"{owner} uses unmanaged frame {frame:#x}")
+        if frame in owners:
+            raise RuntimeError(f"Physical frame {frame:#x} is owned by both {owners[frame]} and {owner}")
+        owners[frame] = owner
+
+    def read_pages(frames, label):
+        frames = sorted(set(frames))
+        result = {}
+        start = index = 0
+        while start < len(frames):
+            end = start + 1
+            while end < len(frames) and frames[end] == frames[end - 1] + 4096:
+                end += 1
+            first, count = frames[start], end - start
+            raw = dump_ram(stream, first, count * 4096,
+                           artifacts / f"{mode}-{label}-{index}.bin")
+            for offset, frame in enumerate(frames[start:end]):
+                result[frame] = raw[offset * 4096:(offset + 1) * 4096]
+            start, index = end, index + 1
+        return result
+
+    directories_data = read_pages((kernel_cr3, *directories), "user-directories")
+    kernel = struct.unpack("<1024I", directories_data[kernel_cr3])
+    if any(kernel[512:]):
+        raise RuntimeError("Kernel directory contains a private/user mapping")
+    shared_indices = [index for index, entry in enumerate(kernel[:512]) if entry & 1]
+    if len(shared_indices) != shared_pages:
+        raise RuntimeError("Shared table statistics disagree with the kernel directory")
+    claim(kernel_cr3, "kernel directory")
+    for number, frame in enumerate(directories):
+        claim(frame, f"user directory {number}")
+
+    shared_frames = []
+    for index in shared_indices:
+        entry = kernel[index]
+        if entry & ~0x60 & 0xFFF != 3:
+            raise RuntimeError(f"Kernel PDE {index} is not supervisor/writable: {entry:#x}")
+        frame = entry & 0xFFFFF000
+        claim(frame, f"shared table {index}")
+        shared_frames.append(frame)
+    shared_data = read_pages(shared_frames, "user-shared-tables")
+    shared_tables = {}
+    for index, frame in zip(shared_indices, shared_frames):
+        table = struct.unpack("<1024I", shared_data[frame])
+        if any(entry & 5 == 5 for entry in table):
+            raise RuntimeError(f"Shared kernel table {index} exposes user-accessible pages")
+        shared_tables[index] = table
+    if not shared_tables.get(0) or shared_tables[0][0]:
+        raise RuntimeError("Page zero is mapped in the shared kernel half")
+
+    expected_addresses = {program, program + 4096, *(stack + offset for offset in range(0, 65536, 4096))}
+    expected_indices = {address >> 22 for address in expected_addresses}
+    mappings = []
+    private_table_frames = []
+    for number, directory_frame in enumerate(directories):
+        entries = struct.unpack("<1024I", directories_data[directory_frame])
+        for index in range(512):
+            if (entries[index] & ~0x60) != (kernel[index] & ~0x60):
+                raise RuntimeError(f"User directory {number} does not borrow kernel PDE {index}")
+        populated = {index for index, entry in enumerate(entries[512:768], 512) if entry}
+        if populated != expected_indices or any(entries[768:]):
+            raise RuntimeError(f"Unexpected private PDEs in user directory {number}: {populated}")
+        tables = {}
+        for index in sorted(populated):
+            entry = entries[index]
+            if entry & ~0x60 & 0xFFF != 7:
+                raise RuntimeError(f"Private PDE {index} has wrong permissions: {entry:#x}")
+            frame = entry & 0xFFFFF000
+            claim(frame, f"user {number} table {index}")
+            private_table_frames.append(frame)
+            tables[index] = frame
+        mappings.append((entries, tables))
+
+    if len(private_table_frames) != private_pages:
+        raise RuntimeError("Private page-table statistics disagree with the live directories")
+    private_data = read_pages(private_table_frames, "user-private-tables")
+    virtual_maps = []
+    user_frames = []
+    for number, (_, tables) in enumerate(mappings):
+        virtual_map = {}
+        for index, frame in tables.items():
+            table = struct.unpack("<1024I", private_data[frame])
+            for slot, entry in enumerate(table):
+                address = (index << 22) | (slot << 12)
+                if address not in expected_addresses:
+                    if entry:
+                        raise RuntimeError(f"Unexpected user PTE at {address:#x} in space {number}")
+                    continue
+                if entry & ~0x60 & 0xFFF != 7:
+                    raise RuntimeError(f"User PTE at {address:#x} has wrong permissions: {entry:#x}")
+                physical = entry & 0xFFFFF000
+                claim(physical, f"user {number} data {address:#x}")
+                user_frames.append(physical)
+                virtual_map[address] = physical
+        if set(virtual_map) != expected_addresses:
+            raise RuntimeError(f"User space {number} is missing expected private pages")
+        virtual_maps.append(virtual_map)
+    if len(user_frames) != user_pages or any(virtual_maps[0][address] == virtual_maps[1][address]
+                                             for address in expected_addresses):
+        raise RuntimeError("Same-address user mappings share frames or disagree with statistics")
+
+    heap_mapped = struct.unpack("<I", dump_ram(stream, symbols["heap_mapped"], 4,
+                                                artifacts / f"{mode}-user-heap-size.bin"))[0]
+    if not heap_mapped or heap_mapped % 4096 or heap_mapped > 4 * 1024 * 1024 or 256 not in shared_tables:
+        raise RuntimeError("Invalid heap mapping in user-space fixture")
+    heap_table = shared_tables[256]
+    heap_pages = heap_mapped // 4096
+    for slot, entry in enumerate(heap_table):
+        if slot >= heap_pages:
+            if entry:
+                raise RuntimeError("Heap table maps beyond committed heap pages")
+            continue
+        if entry & ~0x60 & 0xFFF != 3:
+            raise RuntimeError(f"Heap PTE {slot} is not supervisor/writable")
+        claim(entry & 0xFFFFF000, f"heap data {slot}")
+
+    claimed = bytearray(bitmap_bytes)
+    for frame in owners:
+        page = frame // 4096
+        claimed[page // 8] |= 1 << (page % 8)
+    if allocated != claimed or free_count != managed_count - len(owners):
+        raise RuntimeError("User spaces leaked, aliased, or omitted an allocated physical frame")
+    if managed_count != sum(byte.bit_count() for byte in managed) or usable < managed_count:
+        raise RuntimeError("Exported PMM statistics disagree with its managed bitmap")
+
+    user_data = read_pages(user_frames, "user-data")
+
+    def user_bytes(space, address, pages):
+        return b"".join(user_data[virtual_maps[space][address + offset * 4096]]
+                        for offset in range(pages))
+
+    first_program = bytearray(8192)
+    first_program[64:68] = b"rum!"
+    cross_offset = 4096 - 17
+    first_program[cross_offset:cross_offset + 96] = bytes(range(1, 97))
+    first_program[4094:4101] = b"island\0"
+    second_program = bytearray(8192)
+    second_program[cross_offset:cross_offset + 96] = b"\xA5" * 96
+    first_stack = bytearray(65536)
+    first_stack[-1] = 0x5A
+    if (user_bytes(0, program, 2) != first_program or
+            user_bytes(1, program, 2) != second_program or
+            user_bytes(0, stack, 16) != first_stack or
+            any(user_bytes(1, stack, 16))):
+        raise RuntimeError("User data isolation, zero-fill, padding, or stack contents are incorrect")
+
+    report = {"spaces": spaces, "shared_table_pages": shared_pages,
+              "private_table_pages": private_pages, "user_pages": user_pages,
+              "heap_pages": heap_pages, "owned_physical_pages": len(owners),
+              "free_physical_pages": free_count,
+              "program_address": f"{program:#010x}", "stack_address": f"{stack:#010x}"}
+    (artifacts / f"{mode}-user-address-spaces.json").write_text(json.dumps(report, indent=2) + "\n")
+
+
 def cpu_tables_test(stream, symbols, artifacts, mode, live=False, user_abi=False):
     registers = qmp_command(stream, "human-monitor-command", {"command-line": "info registers"})
     (artifacts / f"{mode}-cpu.txt").write_text(registers)
@@ -1024,6 +1217,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                     elif paging == "ok":
                         if "rum_paging_spaces_ok" not in serial.read_text():
                             raise RuntimeError("Missing production paging-context checks")
+                        user_address_space_test(stream, symbols, artifacts, mode, serial.read_text())
                     elif fault:
                         fault_report_test(stream, symbols, artifacts, mode, fault,
                                           serial.read_text(), screen, registers)
@@ -1039,7 +1233,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                    "private kernel stacks, real context/CR3 switches, waiting/idle/IRQ wakeup, deferred cleanup" if tasks else
                    "real ring-3 PIT/IRET, TSS stack, user registers/segments/DF, alignment, integer/I/O policy" if cpu else
                    "production heap/RAM files, alignment, reuse, realloc, limits, physical OOM rollback" if storage else
-                   "production paging/contexts, shared heap/tables, CR3/IRQ return, lifecycle/limits/OOM recovery" if paging == "ok"
+                   "owned user pages, checked copies, isolation, rollback, page-table/PMM ledger" if paging == "ok"
                    else "production page tables, real #PF, error/EIP/CR2, PG/WP, panic/halt" if paging
                    else "real exception, saved registers, error code, EIP, stack, VGA/serial panic, halt" if fault
                    else "IRQ return, saved registers/flags, spurious IRQ7/IRQ15" if irq_test
