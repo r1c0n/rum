@@ -1,211 +1,183 @@
 # Memory management
 
-rum uses GRUB's Multiboot v1 memory map to allocate physical RAM and enable
-32-bit, non-PAE paging. Physical allocation and the identity window are limited
-to addresses below `0x40000000` (1 GiB).
+rum uses the Multiboot v1 memory map for physical allocation and plain 32-bit,
+non-PAE paging for protection and address spaces. Both physical management and
+the kernel identity window stop at 1 GiB.
 
-Shared constants, reserved stack/user ranges, and resource ownership are
-described in [Memory layout and ownership](memory-layout.md).
+See [Memory map and ownership](memory-layout.md) for the address ranges and
+release rules summarized by this guide.
 
-## Physical allocator
+## Initialization order
 
-`include/rum/multiboot.h` describes the boot information using fixed-width
-physical addresses. The parser requires information flag 6 and a nonempty map;
-it does not infer free RAM from `mem_upper`. Entry sizes allow extensions to be
-skipped. Truncated entries, address overflow, and invalid metadata lengths
-are rejected. Boot information must reside in readable memory supplied by the
-bootloader.
+Memory services have a strict startup order:
 
-Only whole 4096-byte pages in type-1 RAM are available. Partial pages are
-excluded, and reserved entries take precedence over overlapping available
-entries. RAM above 1 GiB is ignored.
+1. `pmm_initialize` parses and reserves the Multiboot memory map.
+2. `paging_initialize` allocates the kernel directory and enables CR0.PG/WP.
+3. `heap_initialize` maps the first heap page.
+4. Additional address spaces, user pages, guarded stacks, and RAM files may then
+   be created.
 
-Two fixed bitmaps in kernel BSS use 64 KiB in total: one tracks managed pages,
-the other tracks allocations. Initialization reserves:
+Do not call a later layer while one of its dependencies is uninitialized.
 
-- The first MiB, including firmware and legacy device memory.
-- The entire kernel range, including BSS, stack, CPU tables, and allocator state.
-- Multiboot information, maps, strings, modules, symbol tables, and loaded ELF
-  section payloads.
-- Reported drive, BIOS configuration, APM/VBE, framebuffer, and palette data.
+## Physical page allocator
 
-Reservations cover every touched page, including unaligned objects. Boot
-strings must terminate within 4096 bytes, and kernel pages must be described
-as usable RAM before reservation. Boot resources remain reserved for the
-kernel's lifetime.
+Only complete 4 KiB pages from Multiboot type-1 regions are eligible. Reserved
+entries override overlapping available entries. RAM above 1 GiB, partial pages,
+the first MiB, the kernel, and all referenced bootloader structures are excluded.
 
-| API | Behavior |
+The allocator keeps separate managed and allocated bitmaps in kernel BSS. The
+managed count answers “could this page ever be allocated?”; the free count
+answers “is it available now?”
+
+| API | Use |
 | --- | --- |
-| `pmm_allocate_page()` | Return an aligned physical address, or zero on failure |
-| `pmm_free_page(address)` | Free an allocated page; reject invalid, reserved, or already-free pages |
-| `pmm_stats()` | Report usable, managed, and free pages and the RAM-window limit |
+| `pmm_allocate_page()` | Own one physical page; returns zero on exhaustion |
+| `pmm_free_page(address)` | Release one owned page; rejects invalid, reserved, or double frees |
+| `pmm_allocate_contiguous(pages)` | Own a physically adjacent run when a device or format requires it |
+| `pmm_free_contiguous(address, pages)` | Release an exactly owned contiguous run |
+| `pmm_is_managed` / `pmm_is_allocated` | Inspect page-ledger state |
+| `pmm_stats()` | Read usable, managed, free, and address-limit totals |
 
-Allocated pages contain uninitialized data. Allocation, freeing, and statistics
-snapshots briefly preserve and disable interrupts. The allocator supports a
-single CPU. Page directories and tables consume allocated pages like other
-kernel data. The serial marker `rum_memory_ok` records boot memory statistics.
+Allocated PMM pages contain unspecified bytes. A higher-level API must clear
+them before exposing them to user mode or treating them as an empty page table.
+All PMM operations preserve the caller's interrupt state and assume one CPU.
 
-## Paging
+## Kernel paging
 
-`arch/i386/paging.c` allocates and clears a page directory and 1024-entry page
-tables. It identity maps addresses from `0x1000` to the RAM-window limit,
-including gaps and reservations. This permits physical access while the
-allocator prevents reserved memory from being handed out. Page zero is unmapped.
+The kernel directory identity maps `0x1000` through the detected RAM window.
+Page zero stays absent. Kernel text and read-only constants are read-only;
+kernel data, BSS, page tables, stacks, and the VGA window are writable. CR0.WP
+makes those read-only permissions apply in ring 0 too.
 
-Shared kernel mappings are supervisor-only. Kernel `.text` and `.rodata` are
-read-only; data, BSS, stack, and page tables are writable. Private mappings in
-registered user spaces carry the user bit and may be read-only or writable.
-Legacy VGA/ROM pages from `0xa0000` to `0x100000` have caching disabled.
+All kernel mappings are supervisor-only. VGA and ROM addresses in
+`0xa0000`–`0x100000` use cache-disable. PAE, large pages, global pages, demand
+paging, swap, and execute-disable are not used.
 
-CR3 points to the physical directory. CR4 clears PAE, large-page, and global-page
-modes. CR0 enables PG and WP so ring-0 writes to read-only pages fault. This
-paging mode has no NX bit. Demand paging and swap are unsupported.
-
-Initialization failure frees allocated tables and leaves paging disabled.
-Invalid boot maps or paging failures are reported before the kernel halts.
+The permanent kernel space owns these shared mappings. Every private space has
+its own directory frame but borrows the kernel directory entries below
+`RUM_USER_BASE`. Creating or retiring a shared kernel page table updates every
+registered directory.
 
 ## Address spaces
 
-Paging operations take an opaque `struct paging_space *`. The permanent kernel
-space owns the identity and dynamic kernel tables. A new space owns its own
-directory frame and heap metadata, and borrows the kernel's tables below
-`RUM_USER_BASE` (`0x80000000`). Kernel code, CPU tables, the boot stack, and the
-heap therefore remain accessible with supervisor-only permissions under every
-directory. User and unassigned ranges start unmapped.
+`struct paging_space` is opaque. Treat a returned pointer as a registered handle,
+not as page-table memory.
 
-| API | Behavior |
+| API | Use |
 | --- | --- |
-| `paging_kernel_space()` | Return the permanent kernel space, or `NULL` before initialization |
-| `paging_active_space()` | Return the space currently loaded in CR3 |
-| `paging_directory_address(space)` | Return its physical directory address, or zero for an unregistered handle |
-| `paging_space_create()` | Create a directory borrowing kernel tables; require an initialized heap; return `NULL` on failure |
-| `paging_switch_space(space)` | Load a registered directory into CR3, preserve interrupt flags, and update active-space bookkeeping |
-| `paging_space_destroy(space)` | Release an inactive directory, private user pages/tables, and metadata; retain borrowed kernel resources |
+| `paging_kernel_space()` | Get the permanent kernel owner |
+| `paging_active_space()` | Get the handle whose directory is loaded in CR3 |
+| `paging_directory_address(space)` | Read a registered space's physical CR3 value |
+| `paging_space_stats(space, &stats)` | Read that space's directory and private ownership counts |
+| `paging_space_create()` | Create an empty private user space borrowing kernel mappings |
+| `paging_switch_space(space)` | Load a registered directory and update active bookkeeping |
+| `paging_space_destroy(space)` | Destroy an inactive private space and all of its private pages |
+| `paging_stats()` | Read global space, table, and user-page totals |
 
-Up to 16 additional spaces can coexist with the kernel directory. Creation
-checks that bound before allocation and publishes a handle only after its
-directory is ready. Allocation failure releases acquired metadata. Destruction
-refuses the kernel space, active space, unregistered handles, and unsupported
-private directory entries. A handle is invalid after successful destruction.
-Each space records its private table and data-page counts so destruction can
-validate and release only resources owned by that space.
+At most 16 private spaces can coexist. Creation requires the heap because the
+registry metadata lives there. Destruction rejects the kernel space, active
+space, unknown handles, and malformed ownership state. A handle becomes invalid
+after successful destruction.
 
-The heap always maps through the kernel owner, even when a different space is
-active. Existing tables are shared directly, so added heap pages appear in
-every space. Creating a new kernel table publishes its directory entry in all
-registered spaces. Removing the last mapping clears that entry everywhere and
-reloads the active CR3 before returning the empty table's frame to PMM.
-Registry updates and mapping changes preserve and briefly disable interrupts;
-creation, destruction, and mapping are foreground operations on a single CPU.
+Reloading CR3 on every switch discards non-global cached translations. This is
+also how changes made while a space was inactive become visible when it runs.
 
-Switching reloads CR3, discarding cached translations; global-page mode remains
-disabled. This also makes changes made while a directory was inactive visible
-on its next activation. See the [Intel SDM, Volume 3A, section 5.10.4.1](https://cdrdv2-public.intel.com/874240/325462-090-sdm-vol-1-2abcd-3abcd-4.pdf)
-for translation-cache invalidation rules.
+## Private user mappings
 
-Paging contexts can contain owned anonymous user pages and transfer into an
-atomically published process record. ELF loading and ring-3 entry follow in
-later 0.3.0 work.
+User pages may be mapped only in the program range
+`0x80000000`–`0xbfc00000` or the fixed stack range
+`0xbfff0000`–`0xc0000000`. Requests cannot cross between ranges. The stack guard,
+reserved gap, page zero, and addresses at or above `0xc0000000` are rejected.
 
-## User mapping and copy API
-
-`paging_user_allocate` maps zeroed private pages into an inactive or active
-registered user space. A request must be page-aligned and fit wholly inside the
-program range (`0x80000000`–`0xbfc00000`) or the fixed 64 KiB user stack
-(`0xbfff0000`–`0xc0000000`). The stack guard at `0xbffef000`, the unused gap,
-page zero, and addresses at or above `0xc0000000` are rejected.
-
-The 16 MiB per-space page budget is checked before allocation. Every data frame
-is cleared before its PTE is published. If a data frame or page table cannot be
-allocated, the operation removes only mappings created by that request and
-returns their frames. Existing mappings and their contents remain unchanged.
-
-| API | Behavior |
+| API | Use |
 | --- | --- |
-| `paging_user_allocate(space, address, pages, flags)` | Own and map zeroed anonymous pages; reject overlaps and roll back the full request on failure |
-| `paging_user_protect(space, address, pages, flags)` | Change write permission only after validating every page in the range |
-| `paging_user_release(space, address, pages)` | Remove and free every page, then reclaim newly empty private tables |
-| `paging_user_page_count(space)` | Return the number of private data pages charged to the space |
-| `paging_user_accessible(space, address, bytes, writable)` | Validate the complete byte range and requested access without copying |
-| `paging_copy_from_user` / `paging_copy_to_user` | Validate all covered pages before moving any byte across the kernel boundary |
-| `paging_copy_string_from_user` | Copy through the first NUL within capacity; leave outputs unchanged on failure |
+| `paging_user_allocate(space, address, pages, flags)` | Allocate, zero, own, and map a complete page range |
+| `paging_user_protect(space, address, pages, flags)` | Change write permission after validating the whole range |
+| `paging_user_release(space, address, pages)` | Unmap and free a complete owned range, then reclaim empty tables |
+| `paging_user_page_count(space)` | Read the space's charged data-page count |
 
-Zero-length buffer operations succeed for a valid user space without inspecting
-the address or buffer. Nonempty operations reject arithmetic overflow, holes,
-guard pages, addresses outside the user window, and writes spanning any
-read-only page. These helpers use supervisor identity aliases internally;
-drivers and other kernel code do not need to dereference raw user pointers.
+The per-space private-page budget is 16 MiB including the user stack. Allocation
+publishes nothing until each new frame is zero and its table is valid. If any
+step fails, only pages and tables acquired by that call are removed; earlier
+mappings stay intact.
 
-## Mapping API
+The i386 mode used by rum has no NX bit. Read-only pages are protected from
+writes, but executable ELF validation must reject writable executable segments
+in software.
 
-The API accepts aligned virtual addresses from `0x40000000` up to, but excluding,
-`0x7fc00000`, allocated physical frames, and writable or read-only permissions. The
-[heap](storage.md#heap) reserves `0x40000000`–`0x403fffff`; other callers must
-use addresses starting at `RUM_KERNEL_ALIAS_BASE` (`0x40400000`). Reserved
-kernel-stack, user, and unassigned ranges are rejected without allocating tables.
+## Safe user access
 
-`paging_map_page` preserves the identity window, rejects existing mappings,
-and creates shared tables on demand. Mapping and unmapping require the kernel
-space as their owner; calls using other spaces are rejected. `paging_translate`
-can inspect any registered space and returns a physical address including the
-byte offset.
+Kernel code must never directly trust a pointer supplied by user mode. Use the
+checked helpers:
 
-`paging_unmap_page` removes a mapping and can return its frame, but does not
-free the data frame. Empty dynamic tables are removed and their frames freed.
-Mapping changes invalidate TLB entries and preserve interrupt flags.
+| API | Use |
+| --- | --- |
+| `paging_user_accessible(space, address, bytes, writable)` | Validate the complete range and requested permission |
+| `paging_copy_from_user(space, destination, source, bytes)` | Validate all source pages, then copy into kernel memory |
+| `paging_copy_to_user(space, destination, source, bytes)` | Validate all destination pages, then copy from kernel memory |
+| `paging_copy_string_from_user(...)` | Copy a NUL-terminated string within a fixed capacity |
 
-Remove all dynamic aliases before freeing a frame, and never free active directory
-or table frames. Read-only aliases still have writable identity mappings;
-they do not provide isolation from other kernel code.
+Nonempty ranges reject overflow, holes, guards, addresses outside the user
+window, and a write touching any read-only page. Validation completes before
+the first byte is copied, so failure does not leave a partial destination.
+Zero-length operations succeed for a valid private space without inspecting
+the address.
+
+## Guarded kernel stacks
+
+`paging_kernel_stack_allocate(slot)` maps four cleared supervisor pages above
+that slot's unmapped guard. It is transactional: a failure returns all newly
+acquired frames and leaves the slot empty.
+
+`paging_kernel_stack_release(slot)` validates every mapping, unmaps and frees
+the four frames, and reclaims the shared table only when it becomes empty. The
+task system must switch away before calling it. Stack mappings are shared into
+all spaces because CR3 and ESP can change during the same context switch.
+
+## General kernel aliases
+
+The heap owns `0x40000000`–`0x40400000`. Other temporary or long-lived kernel
+aliases start at `RUM_KERNEL_ALIAS_BASE` and end before the stack window.
 
 ```c
 uint32_t frame = pmm_allocate_page();
-struct paging_space *space = paging_kernel_space();
-if (frame && paging_map_page(space, RUM_KERNEL_ALIAS_BASE, frame, PAGING_WRITABLE)) {
+struct paging_space *kernel = paging_kernel_space();
+
+if (frame && paging_map_page(kernel, RUM_KERNEL_ALIAS_BASE,
+                             frame, PAGING_WRITABLE)) {
     *(volatile uint32_t *)RUM_KERNEL_ALIAS_BASE = 42;
-    paging_unmap_page(space, RUM_KERNEL_ALIAS_BASE, NULL);
+    paging_unmap_page(kernel, RUM_KERNEL_ALIAS_BASE, NULL);
     pmm_free_page(frame);
 } else if (frame) {
     pmm_free_page(frame);
 }
 ```
 
-## Tests
+`paging_map_page` rejects overlaps and creates a shared table when needed.
+`paging_unmap_page` removes the alias and optionally returns the physical
+address; it does not free the data frame. `paging_translate` can inspect any
+registered space and includes the original byte offset in its result.
 
-Host tests cover map extensions, overlaps, rounding, boot reservations,
-malformed input, exhaustion, reuse, and invalid frees. They run the allocator
-with simulated boot structures and stubbed privileged instructions.
+A read-only alias does not make the same physical frame immutable through its
+writable identity mapping. These permissions protect interfaces and accidental
+access; kernel code still has full responsibility for its aliases.
 
-QEMU tests derive eligible pages from the actual Multiboot map, compare
-bitmaps, and inspect frame ownership, page tables, permissions, the null guard,
-and CR0/3/4. Boots at 16, 64, 256, and 1152 MiB check behavior across RAM sizes
-and the 1 GiB limit.
+## Diagnosing memory problems
 
-Isolated kernels test aliases, reserved ranges, translation, remapping, table
-accounting, and allocation-failure recovery. Context tests switch between two
-directories, grow the heap after creation, publish and retire new kernel
-tables, verify real CR3 values and live timer IRQs, and check bounded/repeated
-creation and destruction. Directory and metadata exhaustion must recover
-without leaking owned resources; retained heap pages are accounted separately.
+- Use `diag` to compare physical free pages, paging ownership, task ownership,
+  and active/record CR3 values.
+- A lower free-page count after heap churn is normal when mapped heap capacity
+  grew; freed heap blocks remain available inside the heap.
+- A failed mapping call should leave both PMM and paging counts unchanged.
+- A repeated process lifecycle should return directory, private-table, user-page,
+  and guarded-stack totals to the same baseline after reaping.
+- A page fault report's CR2 is the accessed address; its error bits distinguish
+  absence from a write-protection violation.
 
-User-memory cases allocate the same virtual program and stack pages in two
-spaces, verify complete zero-fill and distinct physical frames, cross page-table
-boundaries, change permissions, and exercise checked buffers and strings at
-holes and end addresses. Forced PMM exhaustion checks rollback after every
-partial acquisition. QMP then walks the live directories and tables, rebuilds
-the allocation ledger from owners, and compares it byte-for-byte with the PMM
-bitmap.
-
-Fault cases cover null reads, code/constant
-writes, unmapped aliases, and read-only alias writes. They verify CR2, error
-codes, faulting EIP, write protection, and the panic halt.
-Null and code/constant protection cases run under child CR3s. The serial markers
-`rum_user_memory_ok`, `rum_paging_spaces_ok`, and `rum_paging_fault_space_ok`
-confirm those checks ran.
-Reports and dumps are in `build/test-artifacts/`.
+Run `make test` after changing the Multiboot parser, PMM ledger, page-table
+ownership, permissions, TLB invalidation, user-copy rules, or rollback paths.
 
 ## References
 
 - [Multiboot v1 specification](https://www.gnu.org/software/grub/manual/multiboot/multiboot.html)
-- [GRUB Multiboot ABI header](https://github.com/rhboot/grub2/blob/master/include/multiboot.h)
-- [Intel system programming manual](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366821.pdf)
+- [Intel Software Developer Manuals](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html)

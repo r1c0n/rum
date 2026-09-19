@@ -1,149 +1,161 @@
-# Kernel tasks
+# Kernel tasks and process records
 
-rum uses cooperative kernel contexts. The boot context runs the shell and
-Snake; an idle context sleeps on its own stack when no task is runnable.
-The 16 worker records can describe a kernel task or a prepared user process.
-Timer IRQs wake tasks but do not preempt them. A worker must yield or wait to
-let another context execute.
+rum has a cooperative, single-CPU scheduler. The shell runs in the boot task,
+an idle task sleeps when no work is ready, and up to 16 worker records can hold
+a kernel task or a prepared user process.
 
-## Contexts and stacks
+There is no timer preemption. A running kernel task keeps the CPU until it
+yields, waits, exits, or takes an interrupt. Interrupt return resumes the same
+context unless foreground code later invokes the scheduler.
 
-`task_initialize` registers the borrowed boot stack and allocates the idle and
-double-fault stacks after paging is ready. Idle and every worker use a reserved
-virtual slot. The first page is unmapped; four independently allocated, zeroed
-pages above it form a 16 KiB supervisor stack. A failed partial allocation
-removes every mapping and returns every acquired frame before the slot can be
-published.
+## Task types
 
-The final reserved slot belongs to double-fault recovery. IDT vector 8 uses a
-hardware task gate whose TSS selects the kernel CR3 and this independent guarded
-stack. Exhausting a normal kernel stack therefore reaches a controlled panic
-instead of trying to report the fault through the already exhausted stack.
+| Kind | PID | Address space | Entry behavior |
+| --- | --- | --- | --- |
+| Boot | 0 | Borrows kernel space | Runs kernel initialization and foreground loop |
+| Idle | 0 | Borrows kernel space | Sleeps with `sti; hlt` |
+| Kernel worker | 0 | Borrows kernel space or owns a private space | Calls a trusted C entry function |
+| Process record | Positive | Owns a private space | Holds a trusted user frame and temporary kernel bootstrap |
 
-`kernel_context_switch` preserves the i386 C callee-saved registers, stack
-pointer and return address. New contexts enter C with the expected stack
-alignment and DF clear. A resumed yield/wait restores its saved interrupt
-flags; a new entry starts with interrupts enabled. Interrupt frames and user
-CPU-state restoration remain separate from this kernel context.
+The normal boot does not enter a production process in ring 3 yet. Process
+records already provide the ownership, PID, parent, frame, status, and cleanup
+model needed by that entry path.
 
-Before switching stacks, the scheduler changes CR3, active-space bookkeeping,
-current-task identity, TSS.ESP0 and the normal TSS CR3 with interrupts disabled.
-All directories share the supervisor kernel mappings, keeping both stacks
-mapped throughout the switch. This relies on rum's single-CPU target.
+## Guarded kernel stacks
 
-## API and ownership
+Idle and each worker use a slot in `0x7fc00000`–`0x80000000`. Every slot is:
 
-The interfaces are in `include/rum/task.h`:
+```text
+unmapped 4 KiB guard
+mapped 16 KiB supervisor stack
+```
 
-| Interface | Behavior |
-| --- | --- |
-| `task_create(entry, argument, space)` | Publish a runnable worker; zero means failure |
-| `task_create_process(process)` | Validate and atomically publish a prepared process record |
-| `task_current_id()` | Return the running task's ID; zero before initialization |
-| `task_query(id, information)` | Inspect kind, PID/parent, state, user frame, exit status and owners |
-| `task_yield()` | Cooperatively select the next runnable context |
-| `task_wait(event, sequence)` | Block only if no signal arrived since the snapshot |
-| `task_event_signal(event)` | Advance the sequence and wake every attached waiter |
-| `task_exit()` | Stop the worker and switch to another context |
-| `task_exit_with_status(status)` | Record a signed result, stop, and switch away |
-| `task_reap()` | Release exited workers from a surviving context |
+The four stack pages are allocated independently, cleared, and shared into all
+registered page directories as supervisor-only mappings. A partial allocation
+is rolled back before the task record becomes visible.
 
-Task IDs 1 and 2 identify boot and idle. Worker task IDs increase monotonically
-and are never recycled. User processes also receive a separate positive PID and
-record the creating task as their parent. Kernel tasks keep PID zero. Records
-occupy a fixed registry and become invalid after reclamation.
+The boot task borrows its linker-provided BSS stack. The final virtual slot is
+reserved for double-fault recovery and never belongs to a schedulable task. See
+[Double faults](exceptions.md#double-faults).
 
-Passing NULL to `task_create` borrows the kernel directory. Passing a registered,
-inactive private directory transfers its ownership only after successful
-creation. A directory cannot belong to two records. On failure, the caller keeps
-its directory and argument. The argument is always borrowed; its owner must
-keep it alive until the entry finishes.
+## Scheduler state changes
 
-`task_create_process` accepts a completed private space and a trusted user frame.
-It requires exact user selectors and EFLAGS `0x202`, a mapped program EIP, and a
-16-byte-aligned mapped user ESP with writable initial-stack words. The record
-copies the frame and accounts for its directory, private tables, user pages and
-kernel-stack pages. Until ring-3 entry is added, a trusted kernel bootstrap is
-stored with the record. The record becomes runnable only after validation and
-the complete guarded kernel stack succeed.
+A context switch runs with interrupts disabled and updates these values as one
+operation:
 
-Returning from an entry calls `task_exit`. Exit marks the task exited and
-switches away before cleanup. Kernel tasks are reclaimed by a resumed context
-or idle. Process records remain exited so their signed status and ownership can
-be inspected; an explicit `task_reap` then releases the inactive address space
-and guarded stack. Boot and idle remain permanent. Parent waiting and
-cancellation arrive with the foreground process-lifetime work.
+1. Previous and next task states.
+2. Active page-space bookkeeping and hardware CR3.
+3. Normal TSS ESP0 and CR3.
+4. Current task identity and stack-top diagnostics.
+5. The saved kernel stack pointer through `kernel_context_switch`.
 
-## Waiting and IRQ boundaries
+All spaces share kernel code, data, heap, and guarded stack mappings, so both
+the old and new stacks remain addressable during the switch.
 
-An event is a sequence counter and a broadcast wakeup source. Keep it alive
-until its waiters have resumed. Capture its sequence before checking the
-associated queue or predicate, then pass that snapshot to `task_wait`:
+`kernel_context_switch` preserves the i386 C callee-saved registers. New task
+entries begin with DF clear, correct C stack alignment, and interrupts enabled.
+
+## Creating a kernel task
+
+```c
+static void worker(void *argument)
+{
+    /* Do bounded foreground work. */
+    task_yield();
+    /* Returning exits with status zero. */
+}
+
+task_id id = task_create(worker, argument, NULL);
+```
+
+Passing `NULL` borrows the kernel address space. Passing a registered inactive
+private space transfers it only when creation succeeds. The same private space
+cannot belong to two live records. The `argument` pointer is borrowed and must
+remain valid until the entry finishes.
+
+Creation requires foreground context with IF set. A zero task ID means the
+entry, space, interrupt state, registry capacity, or stack allocation was
+invalid. On failure, the caller still owns the supplied space and argument.
+
+## Publishing a process record
+
+`task_create_process` accepts a `struct task_process` containing:
+
+- A completed, inactive private address space.
+- A trusted `exception_user_frame`.
+- A temporary trusted kernel bootstrap and optional borrowed argument.
+
+The frame must use the exact user selectors and EFLAGS `0x202`. Its EIP must be
+mapped in the user program range, and its 16-byte-aligned ESP must cover writable
+initial-stack words. The function copies the frame and records the directory,
+private-table, user-page, and kernel-stack ownership.
+
+The record becomes runnable only after validation and complete stack setup. A
+failed call publishes nothing and leaves the prepared address space with the
+caller. A successful record receives a monotonically increasing task ID, a
+positive process ID, and the current task as its parent.
+
+## Yielding, waiting, and waking
+
+Use `task_yield` when another runnable context should get a turn. Use an event
+when a task should sleep until state changes:
 
 ```c
 for (;;) {
-    uint32_t sequence = task_event_sequence(&event);
+    uint32_t observed = task_event_sequence(&event);
     if (queue_has_data()) break;
-    task_wait(&event, sequence);
+    if (!task_wait(&event, observed)) {
+        /* Invalid context or interrupt state. */
+    }
 }
 ```
 
-The wait checks the sequence and attaches the blocked task in one short
-interrupt-protected operation. A signal before attachment makes the wait
-return immediately; a signal afterwards makes the task runnable. Resumed
-callers recheck their predicate because another task may consume the data.
-Sequence comparison is modulo 32 bits, including wrap through zero.
+Capture the event sequence before checking the predicate. `task_wait` compares
+the same sequence while attaching the waiter with interrupts disabled. A signal
+between the check and wait therefore makes the call return without sleeping.
 
-The foreground loop snapshots the shared work event while checking timer and
-keyboard state. IRQ0 and accepted keyboard characters signal that event.
-If nothing needs processing, boot waits and the scheduler selects idle. Idle
-checks for runnable tasks with IF clear, then uses `sti; hlt`, preserving
-the interrupt shadow that closes the sleep boundary.
+`task_event_signal` is IRQ-safe. It advances the sequence and makes every task
+waiting on that event runnable. Woken tasks must recheck their predicate because
+another task can consume the resource first.
 
-Creating, yielding and waiting require foreground execution with IF enabled.
-Do not suspend while holding a lock or another task's resource. Signals are
-IRQ-safe and perform no allocation, stack switch, or reclamation.
-`irq_in_handler` lets the task API reject creation, blocking, switching and
-reaping from device handlers. Invalid calls to the nonreturning exit interface
-halt; only workers may exit. Event signaling never runs an entry inside an IRQ.
+Do not yield or wait while holding a lock, owning temporary interrupt-disabled
+state, or exposing another task's partially updated resource.
 
-## Tests
+## Exit and cleanup
 
-`task_snapshot_read` copies every occupied record, state counts, process count,
-owned stack/directory/user page counts and lifecycle counters under interrupt protection.
-It performs no allocation and is safe from device IRQs. Before initialization,
-it returns false with a zeroed result. Reclamation keeps resource release and
-record clearing in the same protected operation, so snapshots cannot show an
-owner whose frames have already been freed. See [kernel diagnostics](diagnostics.md)
-for the `diag` command and panic reporting.
+Returning from a kernel entry is equivalent to `task_exit()`. Call
+`task_exit_with_status(status)` to retain a signed result. Exit first marks the
+record and switches to a surviving context; it never frees the stack or CR3
+that the CPU is still using.
 
-`build/tests/task.elf` links the production scheduler, switch assembly, PMM,
-paging, TSS, timer and PIC. At 16 and 64 MiB RAM it checks:
+Exited kernel workers can be reclaimed automatically by a resumed task or
+idle. Exited process records remain visible so a parent can observe their
+status. An explicit `task_reap()` destroys their inactive address space,
+unmaps and frees the guarded stack, clears the record, and makes its slot
+available again. Task IDs and process IDs are not recycled.
 
-- Callee-saved registers, ESP, C alignment, DF/IF, actual CR3 and TSS.ESP0
-  through repeated switches between two private address spaces.
-- Idle, emergency and worker guarded-stack allocation failure, retained caller
-  ownership, the 16-task limit, stale IDs, and repeated stack/directory cleanup.
-- Signals before waiting, sequence wrap, blocked states, broadcast wakeups,
-  real PIT delivery during idle, and repeated IRQ sleep boundaries.
-- Reclamation after exiting to boot or idle, and rejection of IRQ-context
-  and IF-clear operations.
-- Every partial stack budget, success with an exact four-page budget, and
-  unchanged ownership after failed creation.
-- Process selector/EFLAGS/EIP/ESP validation, positive PID and parent records,
-  immutable user-frame copies, resource accounting, signed exit-status retention,
-  one-owner address spaces and explicit complete cleanup.
-- Allocation-free task/resource snapshots across switches and from timer IRQs.
+## Inspecting task state
 
-`build/tests/task-fault.elf` triggers a real invalid-opcode exception from an
-owned worker context. QEMU checks the original register report, current task,
-CR3/TSS, stack bounds, protected mappings and every claimed physical frame.
+`task_query(id, &information)` returns one record with its kind, state, IDs,
+stack bounds, directory, trusted frame, exit status, and resource ownership.
 
-`build/tests/task-double-fault.elf` deliberately pushes through a worker's guard
-page. QEMU verifies the hardware task gate, emergency CR3/stack, saved failed TSS,
-supervisor-only mappings, serial/VGA report and final halted CPU state.
+`task_snapshot_read(&snapshot)` copies the complete fixed registry without
+allocating. It is safe from IRQ context and includes state totals, process and
+memory counts, and lifecycle counters. The shell's `diag` command renders this
+information; see [Kernel diagnostics](diagnostics.md).
 
-Normal boot checks independently audit PMM ownership of the idle pages and
-verify the CPU's ESP and TSS stack against boot/idle bounds. Interactive shell,
-keyboard, timer and Snake tests continue to exercise the normal foreground loop.
-Logs and QEMU artifacts are in `build/test-artifacts/`.
+## Common mistakes
+
+- **Task creation returns zero:** confirm IF is enabled, the entry is non-null,
+  the private space is registered and inactive, and a registry slot is free.
+- **A process definition is rejected:** verify selectors, EFLAGS `0x202`, EIP
+  mapping, 16-byte ESP alignment, and writable stack coverage.
+- **A waiter never wakes:** capture the event sequence before checking the shared
+  predicate and signal the same event after changing that predicate.
+- **A cleanup path faults:** never destroy the active CR3 or unmap the currently
+  executing stack. Switch first, reap second.
+- **Memory counts grow after repeated workers:** compare task and paging totals
+  before publication and after reaping with `diag`.
+
+Run `make test` after changing scheduling, context assembly, task states, stack
+mapping, process publication, event waits, or cleanup.

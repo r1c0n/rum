@@ -65,14 +65,18 @@ input with `Ctrl+Alt+G`.
 - GRUB Multiboot v1 boot with VGA text and COM1 output.
 - Writable GDT/TSS, IDT, shared interrupt entry, and CPU exception diagnostics.
 - PIC interrupts, a 100 Hz PIT timer, and PS/2 keyboard input.
-- Cooperative kernel tasks with private stacks, event waits and deferred cleanup.
+- Cooperative kernel tasks with guarded virtual stacks, event waits, and deferred cleanup.
+- A dedicated double-fault task and emergency stack for controlled overflow reports.
 - A physical allocator for 4 KiB pages below 1 GiB.
-- Supervisor paging with a null-page guard and read-only kernel code/constants.
+- Supervisor paging with protected kernel pages and private user address spaces.
+- Process records with positive PIDs, trusted user frames, and owned-resource accounting.
 - A page-backed heap with aligned allocation, resizing, and free-block reuse.
 - A flat RAM filesystem with build-time file embedding.
+- A separate freestanding user ELF build and public ABI.
 
-rum is a single-CPU, ring-0 system. Commands and Snake run inside the kernel;
-there are no user processes or persistent disk storage.
+rum is a single-CPU system. The normal boot still runs the shell and Snake in
+ring 0; production user-program launching and persistent disk storage are not
+connected yet.
 
 ## Building and testing
 
@@ -136,7 +140,7 @@ qemu-system-i386 -m 64M -cdrom rum.iso
 | `assets/ramfs/` | Embedded boot files |
 | `scripts/` | Toolchain setup, environment checks, embedding, and QEMU tests |
 | `tests/` | Host tests and isolated test kernels |
-| `docs/` | Setup, usage, and implementation notes |
+| `docs/` | Setup, usage, architecture, and contributor guides |
 
 The project follows the boot and toolchain approach in
 [OSDev Bare Bones](https://wiki.osdev.org/Bare_Bones). GRUB loads the kernel;

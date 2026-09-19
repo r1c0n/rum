@@ -106,6 +106,38 @@ information, and assembly stubs have symbols.
 Run `.\rum.ps1 panic` or `make panic` to boot the isolated invalid-opcode test
 kernel. Use the regular run action to return to rum.
 
+## Troubleshooting
+
+Run the environment check first:
+
+```powershell
+.\rum.ps1 doctor
+```
+
+or from Ubuntu:
+
+```sh
+make doctor
+```
+
+- **WSL says the distribution does not exist:** run `wsl --list --verbose` and
+  pass the listed name with `-Distro <name>`.
+- **Windows cannot find QEMU:** add the directory containing
+  `qemu-system-i386.exe` to `PATH`, reopen PowerShell, and rerun `doctor`.
+- **The cross-compiler is missing:** rerun `./rum.ps1 setup` or
+  `bash scripts/build-toolchain.sh`. An interrupted toolchain build resumes from
+  its temporary build directory.
+- **GRUB ISO creation fails:** rerun `scripts/install-deps.sh`; the build needs
+  GRUB BIOS modules, `xorriso`, and Mtools, not only the GRUB command line.
+- **The compiler build runs out of memory:** lower `JOBS`, for example
+  `JOBS=2 bash scripts/build-toolchain.sh`.
+- **QEMU opens but no keyboard input reaches rum:** click inside its display. Use
+  `Ctrl+Alt+G` to release captured input.
+- **A test left QEMU running:** close the window or stop the launching terminal,
+  then rerun the failed command. Generated logs remain under
+  `build/test-artifacts/`.
+- **A stale build behaves unexpectedly:** run `make clean`, then `make`.
+
 ## References
 
 - [OSDev Bare Bones](https://wiki.osdev.org/Bare_Bones)
