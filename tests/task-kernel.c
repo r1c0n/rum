@@ -185,7 +185,7 @@ static void release_pages(uint32_t head)
 
 static __attribute__((noinline)) void allocation_boundaries(uint32_t baseline)
 {
-    /* Repeat each insufficient contiguous-stack budget. Failed creation cannot
+    /* Repeat each insufficient guarded-stack budget. Failed creation cannot
        publish a task or claim the caller's private directory/metadata. */
     for (unsigned round = 0; round < 3; ++round) {
         for (uint32_t remaining = 0; remaining < RUM_KERNEL_STACK_SIZE / RUM_PAGE_SIZE; ++remaining) {

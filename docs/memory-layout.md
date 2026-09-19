@@ -29,11 +29,11 @@ guard and gap, and unassigned addresses are rejected before a page table is
 allocated. Boundary constants keep shared kernel tables separate from private
 user tables.
 
-Reserving a range does not allocate or map it. Separate directories now borrow
-shared kernel tables. Cooperative tasks allocate unguarded physical stacks
-inside the supervisor identity window; the reserved virtual stack window is
-still unmapped. User mappings are private to their address space; process
-records and guarded kernel-stack mappings are subsequent work. See
+Reserving a range does not allocate or map it. Separate directories borrow
+shared kernel tables. Idle and worker contexts use guarded virtual slots in the
+kernel-stack window; each mapped stack page owns an independent physical frame.
+The final slot is the double-fault emergency stack. User mappings are private to
+their address space, and completed spaces can transfer into process records. See
 [Address spaces](memory.md#address-spaces) and [Kernel tasks](tasks.md).
 
 ## Stack and process limits
@@ -55,11 +55,12 @@ remaining process policies become runtime checks with their corresponding
 subsystems. Allocation can fail below any limit when physical RAM or kernel
 metadata is exhausted.
 
-Future virtual kernel stack slot `n` starts at
+Virtual kernel stack slot `n` starts at
 `RUM_KERNEL_STACK_BASE + n * RUM_KERNEL_STACK_STRIDE`. Its first page is
-reserved as a guard, followed by the 16 KiB stack. Slot addresses must be
-unique across live kernel contexts because kernel mappings will be shared.
-Install guards together with the independent double-fault recovery path.
+an unmapped guard, followed by the 16 KiB stack. Slot addresses are unique
+across live kernel contexts because every address space shares these supervisor
+mappings. Slots 0 and 17 belong to idle and double-fault recovery; worker record
+index 2 starts at slot 1.
 
 Private spaces use a user stack at `0xbfff0000`–`0xc0000000`, growing downward
 from `RUM_USER_STACK_TOP`. The page at `0xbffef000` is its guard. Other pages in
@@ -81,15 +82,16 @@ without freeing the data page.
 | Heap frames | Kernel heap; kept mapped for reuse after individual allocations are freed |
 | Kernel metadata allocations | Allocating subsystem; release with `kfree` after references are removed |
 | Paging-context directory and metadata | Address space; release only while inactive; borrowed kernel tables remain owned by the kernel |
-| Worker stack frames | Kernel task; four contiguous PMM pages, released after switching away |
-| Idle stack frames | Kernel task system; four PMM pages retained for the kernel lifetime |
+| Worker stack frames | Task/process record; four independent PMM pages, unmapped and released only after switching away |
+| Idle stack frames | Kernel task system; four independent PMM pages retained for the kernel lifetime |
+| Double-fault stack frames | Kernel task system; final guarded slot retained for the kernel lifetime |
 | Task records | Fixed kernel registry; reuse only after exited resources have been reclaimed; IDs are never recycled |
-| Transferred task directory | Kernel task; transfer only on successful setup, release while inactive after exit |
+| Transferred task/process directory | Record; transfer only on successful publication, release while inactive after exit |
 | Private user tables | Address space; reclaim when empty or when the inactive space is destroyed |
 | Private program and user-stack frames | Address space; zero before publishing and release on explicit removal or space destruction |
 | Shared kernel table references | Kernel paging; context destruction never frees the referenced tables or kernel data frames |
-| Future guarded kernel stack slot | Kernel context; remove mappings and release the slot only after switching away |
-| Future process record and argument copies | Process manager; release after handles, execution state, and memory have been detached |
+| Guarded kernel stack slot | Kernel context; remove mappings and release frames only after switching away |
+| Process record and trusted user frame | Fixed registry; retain through exit-status observation, then clear after all owned memory is detached |
 | Future file handles | Process handle table; close on exit and failed process construction |
 
 User memory is page-backed rather than a heap payload. Clear each private

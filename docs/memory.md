@@ -103,8 +103,9 @@ disabled. This also makes changes made while a directory was inactive visible
 on its next activation. See the [Intel SDM, Volume 3A, section 5.10.4.1](https://cdrdv2-public.intel.com/874240/325462-090-sdm-vol-1-2abcd-3abcd-4.pdf)
 for translation-cache invalidation rules.
 
-Paging contexts can now contain owned anonymous user pages. ELF loading,
-process records, and ring-3 entry follow in later 0.3.0 work.
+Paging contexts can contain owned anonymous user pages and transfer into an
+atomically published process record. ELF loading and ring-3 entry follow in
+later 0.3.0 work.
 
 ## User mapping and copy API
 

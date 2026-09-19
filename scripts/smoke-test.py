@@ -768,7 +768,8 @@ def shell_test(stream, symbols, artifacts, mode, serial):
     expect("borrowed\r\n> ")
     report = serial.read_bytes()[start:].decode()
     if "Usage: diag" not in report or "Task: 1 | CR3:" not in report or \
-            "Tasks: 2 live, 4 owned stack pages, 0 owned directories" not in report:
+            "Tasks: 2 live, 4 owned stack pages, 4 emergency stack pages, 0 owned directories" not in report or \
+            "Processes: 0 | 0 user tables, 0 user pages" not in report:
         raise RuntimeError(f"Bad shell diagnostics: {report}")
     cr3 = re.search(r"Task: 1 \| CR3: 0x([0-9a-f]{8})", report)
     esp0 = re.search(r"TSS.ESP0: 0x([0-9a-f]{8})", report)
