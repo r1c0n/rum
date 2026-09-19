@@ -71,13 +71,14 @@ input with `Ctrl+Alt+G`.
 - Supervisor paging with protected kernel pages and private user address spaces.
 - Process records with positive PIDs, trusted user frames, and owned-resource accounting.
 - Production ring-3 entry with isolated user-fault recovery and recorded fault state.
+- A versioned `int 0x80` ABI with process exit, PID lookup, and validated console I/O.
 - A page-backed heap with aligned allocation, resizing, and free-block reuse.
 - A flat RAM filesystem with build-time file embedding.
 - A separate freestanding user ELF build and public ABI.
 
 rum is a single-CPU system. The normal boot still runs the shell and Snake in
-ring 0; ELF loading, production syscalls, shell-driven program launching, and
-persistent disk storage are not connected yet.
+ring 0; ELF loading, shell-driven program launching, and persistent disk storage
+are not connected yet.
 
 ## Building and testing
 
@@ -92,8 +93,9 @@ persistent disk storage are not connected yet.
 | `.\rum.ps1 clean` | `make clean` | Remove generated build files |
 
 Build outputs are `build/rum.elf` and `build/rum.iso`. Tests cover game rules,
-shell input, memory allocation, RAM files, boot checks, CPU faults, and device
-interrupts. QEMU tests exercise the keyboard and timer and save logs, memory
+shell input, memory allocation, RAM files, boot checks, CPU faults, ring-3
+syscalls, and device interrupts. QEMU tests exercise the keyboard and timer and
+save logs, memory
 dumps, and screenshots in `build/test-artifacts/`.
 
 ## Packaging

@@ -71,7 +71,8 @@ void kernel_main(uint32_t magic, uint32_t information)
 
     uint32_t user_esp = RUM_USER_STACK_TOP - 32;
     const uint32_t stack[] = {0, 0, 0, 0};
-    check(paging_copy_to_user(space, user_esp, stack, sizeof stack), "initialize user stack");
+    check(paging_copy_to_user(space, user_esp, stack, sizeof stack) &&
+          paging_copy_to_user(space, RUM_USER_END - 1, "Z", 1), "initialize user stack");
     struct exception_user_frame frame;
     cpu_user_frame_initialize(&frame, RUM_USER_BASE, user_esp);
     cpu_interrupt_enable();
@@ -102,7 +103,7 @@ void kernel_main(uint32_t magic, uint32_t information)
     check(worker_runs == 1 && !task_query(other, &info), "other runnable task progressed");
     check((timer_ticks() - ticks) >= 3, "PIT progressed during blocking read");
 
-    rum_result_t results[18];
+    rum_result_t results[19];
     check(paging_copy_from_user(space, results, USER_DATA, sizeof results), "copy syscall results");
     check(results[0] == 1 && results[1] == 1, "getpid and register preservation");
     check(results[2] == -RUM_ENOSYS && results[3] == -RUM_EBADF &&
@@ -113,8 +114,8 @@ void kernel_main(uint32_t magic, uint32_t information)
           results[11] == -RUM_EFAULT, "user range and permission validation");
     check(results[12] == 128 && results[13] == 1 && results[14] == 3,
           "partial cross-page writes and stderr");
-    check(results[15] == 1 && results[16] == 'x' && results[17] == 0,
-          "blocking keyboard read and non-returning exit");
+    check(results[15] == 1 && results[16] == 1 && results[17] == 'x' && results[18] == 0,
+          "last user byte, cross-page blocking read, and non-returning exit");
 
     check(task_reap() == 1 && !task_query(process, &info) &&
           pmm_stats().free_pages == baseline, "syscall process cleanup");

@@ -2,9 +2,9 @@
 
 rum can build freestanding i386 user executables with a separate startup,
 runtime, linker script, and public include tree. The task system can enter a
-prepared process in ring 3 and recover its user faults. The normal kernel does
-not load or launch ELF executables yet, and the syscall wrappers remain in
-isolated test kernels until the production dispatcher is completed.
+prepared process in ring 3, recover its user faults, and serve ABI version 1
+through the production syscall dispatcher. The normal kernel does not load or
+launch ELF executables yet.
 
 This distinction matters: a successful `make user` proves that an ELF follows
 rum's ABI, not that typing its name in the kernel shell will run it.
@@ -89,8 +89,23 @@ means success. A negative result is the negation of a `RUM_E*` value from
 `errno`.
 
 Read and write calls may return fewer bytes than requested. A zero-length call
-returns zero without using the buffer. A zero-byte read with nonzero capacity
-means end of input.
+returns zero without using the buffer. The current console backend transfers at
+most 128 bytes per call, so callers must handle partial results.
+
+`rum_write` accepts standard output and standard error. It verifies the complete
+arithmetic range, then checks and copies only the chunk it will transfer through
+a kernel buffer. Console code and drivers never receive a raw user pointer.
+
+`rum_read` accepts standard input and requires a writable user range. If no
+decoded character is queued, the calling process sleeps on a keyboard-specific
+event. Keyboard IRQs remain enabled while it waits, PIT ticks continue, and
+other runnable tasks can execute. The call returns after copying one or more
+available characters, up to its 128-byte limit.
+
+An unsupported number returns `-RUM_ENOSYS`, an invalid standard handle returns
+`-RUM_EBADF`, and an overflowing, unmapped, supervisor-only, or wrongly
+protected buffer returns `-RUM_EFAULT`. These checks return an ABI error rather
+than turning bad user input into a kernel fault.
 
 ## Process arguments and initial stack
 
@@ -155,9 +170,13 @@ clear.
 
 ## Troubleshooting
 
-- **A program builds but cannot be run from the shell:** production ELF loading
-  and syscall dispatch are not connected to the normal shell yet. Ring-3 task
-  entry alone does not parse or map an ELF file.
+- **A program builds but cannot be run from the shell:** ELF loading and launch
+  support are not connected to the normal shell yet. The syscall path does not
+  parse or map an ELF file by itself.
+- **A read appears to stop the process:** standard input is blocking. Type a
+  supported character in the QEMU window; timer interrupts continue meanwhile.
+- **A write returns less than requested:** loop over the unconsumed bytes. The
+  console backend currently copies at most 128 bytes per call.
 - **Private kernel headers are missing:** user code may include only
   `user/include/rum/user.h` and copied `rum/abi/` headers.
 - **The ELF checker rejects a segment:** inspect program headers with

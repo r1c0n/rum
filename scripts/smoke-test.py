@@ -1323,7 +1323,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                     for expected in expected_text:
                         if expected not in screen:
                             raise RuntimeError(f"Missing VGA text {expected!r} ({mode})")
-                    if syscalls and ("W" * 128 + "errrum_syscall_test_ok") not in serial.read_text():
+                    if syscalls and ("W" * 128 + "errZrum_syscall_test_ok") not in serial.read_text():
                         raise RuntimeError("Production stdout/stderr bytes or final marker are incomplete")
                     if double_fault:
                         double_fault_test(stream, symbols, artifacts, mode, serial.read_text(), registers)

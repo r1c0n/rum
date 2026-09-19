@@ -27,12 +27,15 @@ double-fault descriptor is also changed by the hardware when its task gate is
 used.
 
 The IDT contains ring-0 interrupt gates for exceptions 0–31 and PIC vectors
-`0x20`–`0x2f`. Vector 8 is the exception: it is a hardware task gate targeting
-the double-fault TSS. Unused entries are absent.
+`0x20`–`0x2f`, plus a ring-3 interrupt gate at `0x80` for system calls. Vector 8
+is the exception: it is a hardware task gate targeting the double-fault TSS.
+Unused entries are absent. Only the `0x80` gate has descriptor privilege level
+3, so user code cannot invoke exception or device vectors with `int`.
 
 ## Common interrupt frame
 
-Most CPU exceptions and all device IRQs enter through the same assembly path:
+CPU exceptions, device IRQs, and system calls enter through the same assembly
+path:
 
 1. The CPU saves EIP, CS, and EFLAGS. A privilege change also saves user ESP and
    SS. Some exceptions include a hardware error code.
@@ -40,9 +43,9 @@ Most CPU exceptions and all device IRQs enter through the same assembly path:
    then pushes the vector number.
 3. Common assembly clears DF, saves general and segment registers, loads kernel
    data selectors, and aligns the stack for C.
-4. `interrupt_dispatch` routes PIC vectors to the IRQ layer and exceptions to
-   the exception handler.
-5. A returning IRQ restores the saved state and executes `iret`.
+4. `interrupt_dispatch` routes PIC vectors to the IRQ layer, vector `0x80` to
+   the syscall dispatcher, and exceptions to the exception handler.
+5. A returning entry restores the saved state and executes `iret`.
 
 `struct exception_frame` is the 68-byte common prefix. A ring-3 entry uses
 `struct exception_user_frame`, which adds the saved user ESP and SS for a total
@@ -102,7 +105,7 @@ frame into the process record.
 `interrupt_enter` accepts a complete trusted frame and transfers it to
 `interrupt_return`, which restores the frame with `iret`. Production process
 tasks use this path. The normal shell does not construct a process yet because
-ELF loading and syscall dispatch are later roadmap steps.
+ELF loading and launch support are later roadmap steps.
 
 rum uses an integer-only CPU policy. Kernel and user builds disable
 x87, MMX, SSE, and SSE2 code generation. CR0 and CR4 are configured so actual

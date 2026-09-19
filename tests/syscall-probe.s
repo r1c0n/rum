@@ -4,7 +4,7 @@
 
 .set USER_DATA, RUM_USER_BASE + RUM_PAGE_SIZE
 .set CROSS_BUFFER, USER_DATA + RUM_PAGE_SIZE - 64
-.set READ_BUFFER, USER_DATA + 0x200
+.set READ_BUFFER, USER_DATA + RUM_PAGE_SIZE - 8
 .set ERROR_BUFFER, USER_DATA + 0x300
 .set USER_HOLE, USER_DATA + 2 * RUM_PAGE_SIZE
 
@@ -121,20 +121,28 @@ syscall_probe_start:
     int $RUM_SYSCALL_VECTOR
     mov %eax, USER_DATA + 56
 
-    /* This call blocks until the QEMU test injects keyboard input. */
+    /* The final byte below the exclusive user limit remains addressable. */
+    mov $RUM_SYS_WRITE, %eax
+    mov $RUM_STDOUT, %ebx
+    mov $(RUM_USER_END - 1), %ecx
+    mov $1, %edx
+    int $RUM_SYSCALL_VECTOR
+    mov %eax, USER_DATA + 60
+
+    /* This writable range crosses a page and blocks until QEMU sends input. */
     mov $RUM_SYS_READ, %eax
     mov $RUM_STDIN, %ebx
     mov $READ_BUFFER, %ecx
     mov $16, %edx
     int $RUM_SYSCALL_VECTOR
-    mov %eax, USER_DATA + 60
-    movzbl READ_BUFFER, %eax
     mov %eax, USER_DATA + 64
+    movzbl READ_BUFFER, %eax
+    mov %eax, USER_DATA + 68
 
     mov $RUM_SYS_EXIT, %eax
     mov $-37, %ebx
     int $RUM_SYSCALL_VECTOR
-    movl $1, USER_DATA + 68
+    movl $1, USER_DATA + 72
     ud2
 syscall_probe_end:
 
