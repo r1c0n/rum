@@ -21,19 +21,20 @@ and is covered by the kernel's permanent physical reservation. The first MiB
 is also reserved; page zero remains unmapped. The identity mapping ends at
 the detected RAM limit, which may be below the window's cap.
 
-The current mapping API accepts only the heap and general kernel alias
-ranges. Heap callers own the heap range; other callers start at
-`RUM_KERNEL_ALIAS_BASE`. Reserved stacks, user addresses, and unassigned
-addresses are rejected before any page table is allocated. Boundary constants
-are aligned to whole page-table spans to keep future shared kernel tables
-separate from private user tables.
+The kernel alias API accepts only the heap and general kernel alias ranges.
+Heap callers own the heap range; other callers start at
+`RUM_KERNEL_ALIAS_BASE`. The private user API accepts whole pages in the program
+range and fixed user-stack range. Kernel-stack reservations, the user-stack
+guard and gap, and unassigned addresses are rejected before a page table is
+allocated. Boundary constants keep shared kernel tables separate from private
+user tables.
 
 Reserving a range does not allocate or map it. Separate directories now borrow
 shared kernel tables. Cooperative tasks allocate unguarded physical stacks
 inside the supervisor identity window; the reserved virtual stack window is
-still unmapped. Processes, private user mappings, and guarded stack mapping
-APIs are subsequent work. See [Address spaces](memory.md#address-spaces) and
-[Kernel tasks](tasks.md).
+still unmapped. User mappings are private to their address space; process
+records and guarded kernel-stack mappings are subsequent work. See
+[Address spaces](memory.md#address-spaces) and [Kernel tasks](tasks.md).
 
 ## Stack and process limits
 
@@ -49,9 +50,10 @@ APIs are subsequent work. See [Address spaces](memory.md#address-spaces) and
 | Open file handles per process | 32, including standard streams |
 
 The task registry currently permits 16 workers plus permanent boot and idle
-contexts. The remaining process policies become runtime checks with their
-corresponding subsystems. Allocation can fail below any limit when physical
-RAM or kernel metadata is exhausted.
+contexts. Paging enforces the 16 MiB private-page budget per address space. The
+remaining process policies become runtime checks with their corresponding
+subsystems. Allocation can fail below any limit when physical RAM or kernel
+metadata is exhausted.
 
 Future virtual kernel stack slot `n` starts at
 `RUM_KERNEL_STACK_BASE + n * RUM_KERNEL_STACK_STRIDE`. Its first page is
@@ -59,10 +61,10 @@ reserved as a guard, followed by the 16 KiB stack. Slot addresses must be
 unique across live kernel contexts because kernel mappings will be shared.
 Install guards together with the independent double-fault recovery path.
 
-Each process will use a private user stack at `0xbfff0000`–`0xc0000000`, growing
-downward from `RUM_USER_STACK_TOP`. The page at `0xbffef000` is its guard.
-Other pages in the user-stack window stay reserved and unmapped. These
-virtual addresses can be reused across processes with separate directories.
+Private spaces use a user stack at `0xbfff0000`–`0xc0000000`, growing downward
+from `RUM_USER_STACK_TOP`. The page at `0xbffef000` is its guard. Other pages in
+the user-stack window stay reserved and unmapped. Separate spaces can reuse
+these virtual addresses while owning different physical frames.
 
 ## Ownership
 
@@ -83,8 +85,8 @@ without freeing the data page.
 | Idle stack frames | Kernel task system; four PMM pages retained for the kernel lifetime |
 | Task records | Fixed kernel registry; reuse only after exited resources have been reclaimed; IDs are never recycled |
 | Transferred task directory | Kernel task; transfer only on successful setup, release while inactive after exit |
-| Future private user tables | Address space; release while inactive after private mappings are removed |
-| Future private program and user-stack frames | Address space; allocate directly from PMM and release after removing all mappings |
+| Private user tables | Address space; reclaim when empty or when the inactive space is destroyed |
+| Private program and user-stack frames | Address space; zero before publishing and release on explicit removal or space destruction |
 | Shared kernel table references | Kernel paging; context destruction never frees the referenced tables or kernel data frames |
 | Future guarded kernel stack slot | Kernel context; remove mappings and release the slot only after switching away |
 | Future process record and argument copies | Process manager; release after handles, execution state, and memory have been detached |
@@ -130,8 +132,8 @@ bookkeeping, interrupt return under child directories, lifecycle limits, and
 allocation-failure cleanup. They distinguish retained heap pages from leaked
 directory frames and live metadata.
 
-Before these changes, commit `6985f698` passed the seven C host tests, embedded
-file generator tests, and all 19 QEMU cases. The 64 MiB GRUB boot reported
-16,255 usable pages, 16,035 managed pages, and 16,016 free pages; paging used
-18 frames. The heap mapped one page with 880 live payload bytes and two files.
-Memory reports for subsequent runs are in `build/test-artifacts/*-memory.json`.
+User-space tests cover distinct frames at identical virtual addresses, zeroed
+program and stack pages, guard holes, permission changes, full-range validation,
+page-budget enforcement, partial PMM failure, teardown, and preservation of
+existing mappings. QMP inspects the actual directories, tables and PMM bitmaps;
+reports are written to `build/test-artifacts/*-user-address-spaces.json`.

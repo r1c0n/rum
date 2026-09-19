@@ -23,17 +23,17 @@ the kernel shell or another process.
 
 ### 1. User address spaces
 
-- [ ] Add ownership-aware operations for mapping, protecting and removing private
+- [x] Add ownership-aware operations for mapping, protecting and removing private
   user pages in a registered paging space.
-- [ ] Keep every shared kernel mapping supervisor-only in every process directory.
-- [ ] Map program segments within `RUM_USER_BASE`–`RUM_USER_PROGRAM_END` and a
+- [x] Keep every shared kernel mapping supervisor-only in every process directory.
+- [x] Map program segments within `RUM_USER_BASE`–`RUM_USER_PROGRAM_END` and a
   private 64 KiB stack below `RUM_USER_STACK_TOP`.
-- [ ] Leave `RUM_USER_STACK_GUARD_BASE` unmapped and keep page zero unmapped.
-- [ ] Enforce the per-process mapped-page budget before committing any mapping.
-- [ ] Zero each new physical frame, including segment padding, BSS and unused
+- [x] Leave `RUM_USER_STACK_GUARD_BASE` unmapped and keep page zero unmapped.
+- [x] Enforce the per-process mapped-page budget before committing any mapping.
+- [x] Zero each new physical frame, including segment padding, BSS and unused
   stack bytes, before making it visible to ring 3.
-- [ ] Add checked copy-in, copy-out and string-copy helpers for user ranges.
-- [ ] Roll back only pages acquired by the failed operation and leave existing
+- [x] Add checked copy-in, copy-out and string-copy helpers for user ranges.
+- [x] Roll back only pages acquired by the failed operation and leave existing
   mappings unchanged.
 
 User mappings need independent read/write and user/supervisor permissions.

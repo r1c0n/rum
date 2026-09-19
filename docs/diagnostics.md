@@ -6,7 +6,8 @@ It reports:
 
 - Current task ID, hardware CR3, CR0, kernel ESP and TSS.ESP0.
 - Current stack bounds and the task record's directory address.
-- Registered page directories and shared kernel page tables.
+- Registered page directories, shared kernel tables, private user tables and
+  private user data pages.
 - Free and managed physical pages, owned task stacks and directories.
 - Worker creation, exit, reclamation and actual context-switch counters.
 - Heap allocations, mapped/used bytes, and RAM file counts/sizes.
@@ -24,11 +25,12 @@ Boot borrows its reserved assembly stack. Idle and workers own four physical
 pages each for their 16 KiB kernel stacks. A worker can borrow the kernel
 directory or own a private directory transferred at successful creation.
 
-Paging counts each directory once and each shared kernel table once. The task
-directory count is a subset of the paging directory count; do not add them
-together. Paging can also contain inactive directories still owned by callers.
-Physical free/managed counts cover all allocatable frames, including heap pages
-and paging structures. Reserved kernel/boot memory is outside that managed set.
+Paging counts each directory, shared kernel table, private user table and private
+user data page once. The task directory count is a subset of the paging directory
+count; do not add them together. Paging can also contain inactive directories
+still owned by callers. Physical free/managed counts cover all allocatable
+frames, including heap pages and paging structures. Reserved kernel/boot memory
+is outside that managed set.
 
 Freed heap blocks remain mapped for reuse, so mapped heap bytes can stay above
 live payload bytes after cleanup. This is different from unreclaimed task stack
@@ -41,7 +43,8 @@ Two extra VGA lines identify the task, hardware CR3, TSS.ESP0 and kernel stack
 bounds. Serial also receives `rum_diag_cpu` and `rum_diag_resources` records.
 Their `diag_` field names distinguish current kernel state from interrupted
 registers. In particular, `diag_kesp` samples the panic handler's stack;
-the existing `esp` field is the interrupted stack pointer.
+the existing `esp` field is the interrupted stack pointer. `diag_usertables`
+and `diag_userpages` retain private paging ownership counts.
 
 Diagnostics show both hardware CR3 and registered/task-record directory
 addresses rather than assuming they agree. Before subsystem initialization,

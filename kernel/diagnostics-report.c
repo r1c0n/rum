@@ -54,7 +54,9 @@ void diagnostics_render(const struct kernel_diagnostics *snapshot, diagnostics_w
         write(" | record CR3: "); hex(write, task->directory); write("\n");
     }
     write("Paging: "); decimal(write, snapshot->paging.directory_pages); write(" directories, ");
-    decimal(write, snapshot->paging.shared_table_pages); write(" shared tables | active: ");
+    decimal(write, snapshot->paging.shared_table_pages); write(" shared tables, ");
+    decimal(write, snapshot->paging.private_table_pages); write(" private tables\n");
+    write("User pages: "); decimal(write, snapshot->paging.user_pages); write(" | active: ");
     hex(write, snapshot->paging.active_directory); write("\n");
     write("Physical: "); decimal(write, snapshot->physical.free_pages); write(" free / ");
     decimal(write, snapshot->physical.managed_pages); write(" managed pages\n");
@@ -114,6 +116,8 @@ void diagnostics_panic(void)
     field(serial_writestring, "diag_owneddirs", snapshot.tasks.directory_pages);
     field(serial_writestring, "diag_dirs", snapshot.paging.directory_pages);
     field(serial_writestring, "diag_tables", snapshot.paging.shared_table_pages);
+    field(serial_writestring, "diag_usertables", snapshot.paging.private_table_pages);
+    field(serial_writestring, "diag_userpages", snapshot.paging.user_pages);
     field(serial_writestring, "diag_free", snapshot.physical.free_pages);
     field(serial_writestring, "diag_managed", snapshot.physical.managed_pages);
     field(serial_writestring, "diag_created", snapshot.tasks.created);
