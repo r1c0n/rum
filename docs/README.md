@@ -29,8 +29,10 @@ process while preserving its fault record for the parent. The production
 `int 0x80` dispatcher provides process exit, PID lookup, and checked console
 input and output.
 
-Separate user ELF programs also build successfully, but the normal shell does
-not load or launch them yet. File changes remain in RAM and disappear on reboot.
+Stripped user ELF programs are embedded in the normal boot RAM filesystem. The
+kernel loader validates them again, builds private mappings and an initial user
+stack, and can hand the prepared image to the process system. The normal shell
+does not launch them yet. File changes remain in RAM and disappear on reboot.
 
 ## User guides
 

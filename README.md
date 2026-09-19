@@ -74,11 +74,11 @@ input with `Ctrl+Alt+G`.
 - A versioned `int 0x80` ABI with process exit, PID lookup, and validated console I/O.
 - A page-backed heap with aligned allocation, resizing, and free-block reuse.
 - A flat RAM filesystem with build-time file embedding.
-- A separate freestanding user ELF build and public ABI.
+- A separate freestanding user ELF build, production loader, and public ABI.
 
 rum is a single-CPU system. The normal boot still runs the shell and Snake in
-ring 0; ELF loading, shell-driven program launching, and persistent disk storage
-are not connected yet.
+ring 0; shell-driven program launching and persistent disk storage are not
+connected yet.
 
 ## Building and testing
 

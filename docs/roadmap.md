@@ -121,14 +121,14 @@ another runnable context continue making progress.
 
 ### 5. ELF loading and initial stack
 
-- [ ] Parse the validated static little-endian i386 ELF32 subset from a RAM file.
-- [ ] Recheck type, machine, program-header bounds, load ranges, alignment,
+- [x] Parse the validated static little-endian i386 ELF32 subset from a RAM file.
+- [x] Recheck type, machine, program-header bounds, load ranges, alignment,
   permissions, file sizes and entry point inside the kernel before mapping.
-- [ ] Allocate distinct pages for every load segment and copy only its file bytes.
-- [ ] Zero BSS, page padding and the rest of the initial user stack.
-- [ ] Validate a bounded `rum_arguments` packet and build the documented
+- [x] Allocate distinct pages for every load segment and copy only its file bytes.
+- [x] Zero BSS, page padding and the rest of the initial user stack.
+- [x] Validate a bounded `rum_arguments` packet and build the documented
   `argc`/`argv`/empty-`envp` stack with 16-byte alignment.
-- [ ] Link stripped executables into the boot RAM filesystem while retaining
+- [x] Link stripped executables into the boot RAM filesystem while retaining
   symbol-rich copies and linker maps under `build/user/debug/`.
 
 The loader accepts no interpreter, dynamic linking, relocation, TLS or shared
