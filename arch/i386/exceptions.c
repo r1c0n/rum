@@ -1,6 +1,7 @@
 /* Install the IDT and report fatal CPU exceptions. */
 #include <stdbool.h>
 #include <rum/cpu.h>
+#include <rum/abi/syscall.h>
 #include <rum/diagnostics.h>
 #include <rum/gdt.h>
 #include <rum/interrupts.h>
@@ -28,6 +29,7 @@ _Static_assert(sizeof(struct idt_descriptor) == 6, "32-bit IDTR operand size");
 static struct idt_gate idt[256] __attribute__((aligned(16)));
 extern const uintptr_t exception_stub_table[32];
 extern const uintptr_t irq_stub_table[16];
+extern void syscall_entry(void);
 static bool panicking;
 
 void idt_initialize(void)
@@ -46,6 +48,14 @@ void idt_initialize(void)
     idt[8] = (struct idt_gate) {
         .selector = DOUBLE_FAULT_TSS_SELECTOR,
         .attributes = 0x85, /* Present, ring 0, hardware task gate. */
+    };
+    uintptr_t syscall = (uintptr_t)syscall_entry;
+    idt[RUM_SYSCALL_VECTOR] = (struct idt_gate) {
+        .offset_low = (uint16_t)syscall,
+        .selector = KERNEL_CODE_SELECTOR,
+        .reserved = 0,
+        .attributes = 0xEE, /* Present, ring 3, 32-bit interrupt gate. */
+        .offset_high = (uint16_t)(syscall >> 16),
     };
     const struct idt_descriptor descriptor = {
         .limit = sizeof(idt) - 1,

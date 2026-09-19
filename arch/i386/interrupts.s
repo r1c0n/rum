@@ -1,4 +1,5 @@
 #include <rum/cpu_layout.h>
+#include <rum/abi/syscall.h>
 .section .text, "ax"
 .code32
 
@@ -66,6 +67,15 @@ irq_\line:
 .irp line,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
     IRQ \line
 .endr
+
+/* The only software interrupt callable from ring 3. */
+.global syscall_entry
+.type syscall_entry, @function
+syscall_entry:
+    pushl $0
+    pushl $RUM_SYSCALL_VECTOR
+    jmp interrupt_common
+.size syscall_entry, . - syscall_entry
 
 .global interrupt_common
 .type interrupt_common, @function

@@ -210,6 +210,16 @@ bool task_current_is_process(void)
     return ready && current && current->kind == TASK_PROCESS;
 }
 
+rum_pid_t task_current_process_id(void)
+{
+    return task_current_is_process() ? current->process_id : 0;
+}
+
+struct paging_space *task_current_process_space(void)
+{
+    return task_current_is_process() ? current->space : NULL;
+}
+
 static struct task_information information(const struct task *task)
 {
     return (struct task_information){ .id = task->id, .process_id = task->process_id,

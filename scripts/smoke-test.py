@@ -567,12 +567,12 @@ def cpu_tables_test(stream, symbols, artifacts, mode, live=False, user_abi=False
         if ((high << 16 | low) != symbols[target]
                 or (selector, reserved, attributes) != (8, 0, 0x8E)):
             raise RuntimeError(f"Wrong IDT gate {vector}")
-    if user_abi:
-        low, selector, reserved, attributes, high = struct.unpack_from("<HHBBH", idt, 128 * 8)
-        if ((high << 16 | low) != symbols["abi_test_syscall"] or
-                (selector, reserved, attributes) != (8, 0, 0xEE)):
-            raise RuntimeError("Wrong fixture user syscall gate")
-    if any(idt[48 * 8:128 * 8]) or any(idt[(129 if user_abi else 128) * 8:]):
+    low, selector, reserved, attributes, high = struct.unpack_from("<HHBBH", idt, 128 * 8)
+    syscall_target = symbols["abi_test_syscall"] if user_abi else symbols["syscall_entry"]
+    if ((high << 16 | low) != syscall_target or
+            (selector, reserved, attributes) != (8, 0, 0xEE)):
+        raise RuntimeError("Wrong ring-3 syscall gate")
+    if any(idt[48 * 8:128 * 8]) or any(idt[129 * 8:]):
         raise RuntimeError("Unexpected IDT gates above the PIC range")
     return registers
 
