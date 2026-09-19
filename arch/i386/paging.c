@@ -14,6 +14,7 @@
 #define USER_ENTRIES (RUM_USER_END / RUM_PAGE_TABLE_SPAN)
 #define PRIVATE_TABLE_WORDS ((USER_ENTRIES - KERNEL_ENTRIES + 31u) / 32u)
 #define USER_PAGE_LIMIT (RUM_PROCESS_USER_BYTES / PAGE_SIZE)
+#define STACK_PAGES (RUM_KERNEL_STACK_SIZE / PAGE_SIZE)
 
 extern const char __text_start[], __text_end[], __rodata_start[], __rodata_end[];
 struct paging_space {
@@ -101,6 +102,32 @@ static void publish_kernel_entry(uint32_t index, uint32_t entry)
 {
     for (struct paging_space *space = &kernel_space; space; space = space->next)
         directory(space)[index] = entry;
+}
+
+static bool kernel_table_valid(uint32_t index)
+{
+    uint32_t entry = directory(&kernel_space)[index];
+    return (entry & (FRAME_MASK | 0x63u)) == entry &&
+           (entry & (PRESENT | PAGING_WRITABLE | USER)) == (PRESENT | PAGING_WRITABLE);
+}
+
+static bool table_empty(const uint32_t *entries)
+{
+    for (uint32_t i = 0; i < ENTRIES; ++i)
+        if (entries[i]) return false;
+    return true;
+}
+
+static void reclaim_empty_kernel_table(uint32_t index)
+{
+    if (!(directory(&kernel_space)[index] & PRESENT)) return;
+    uint32_t *entries = table(directory(&kernel_space)[index]);
+    if (!table_empty(entries)) return;
+    uint32_t frame = directory(&kernel_space)[index] & FRAME_MASK;
+    publish_kernel_entry(index, 0);
+    /* Discard cached table references before reusing its frame. */
+    reload_directory(active_space);
+    if (!pmm_free_page(frame)) cpu_halt();
 }
 
 static bool read_only(uint32_t physical)
@@ -327,20 +354,102 @@ bool paging_unmap_page(struct paging_space *space, uint32_t virtual, uint32_t *p
             *entry = 0;
             invalidate(virtual);
             success = true;
-            bool empty = true;
-            for (uint32_t i = 0; i < ENTRIES; ++i)
-                if (entries[i] & PRESENT) { empty = false; break; }
-            if (empty) {
-                uint32_t frame = directory(space)[index] & FRAME_MASK;
-                publish_kernel_entry(index, 0);
-                /* Discard cached table references before reusing its frame. */
-                reload_directory(active_space);
-                (void)pmm_free_page(frame);
-            }
+            reclaim_empty_kernel_table(index);
         }
     }
     cpu_interrupt_restore(saved);
     return success;
+}
+
+static bool kernel_stack_range(uint32_t slot, uint32_t *base)
+{
+    if (slot >= RUM_KERNEL_STACK_SLOTS) return false;
+    uint32_t address = RUM_KERNEL_STACK_SLOT_BASE(slot);
+    if (address < RUM_KERNEL_STACK_BASE ||
+        address > RUM_KERNEL_STACK_END - RUM_KERNEL_STACK_SIZE) return false;
+    if (base) *base = address;
+    return true;
+}
+
+bool paging_kernel_stack_allocate(uint32_t slot)
+{
+    uint32_t base;
+    if (!enabled || !kernel_stack_range(slot, &base)) return false;
+    uint32_t saved = cpu_interrupt_save(), index = base >> 22;
+    uint32_t guard = RUM_KERNEL_STACK_GUARD(slot);
+    bool valid = !paging_translate(&kernel_space, guard, NULL);
+    uint32_t existing = directory(&kernel_space)[index];
+    if (existing && !kernel_table_valid(index)) valid = false;
+    if (valid && existing) {
+        uint32_t *entries = table(existing);
+        if (entries[(guard >> 12) & 1023]) valid = false;
+        for (uint32_t page = 0; page < STACK_PAGES; ++page)
+            if (entries[((base >> 12) & 1023) + page]) valid = false;
+    }
+    bool created_table = false;
+    if (valid && !existing) {
+        uint32_t frame = pmm_allocate_page();
+        if (frame) {
+            memset((void *)(uintptr_t)frame, 0, PAGE_SIZE);
+            publish_kernel_entry(index, frame | PRESENT | PAGING_WRITABLE);
+            created_table = true;
+        } else valid = false;
+    }
+    uint32_t mapped = 0;
+    while (valid && mapped < STACK_PAGES) {
+        uint32_t frame = pmm_allocate_page();
+        if (!frame) break;
+        memset((void *)(uintptr_t)frame, 0, PAGE_SIZE);
+        uint32_t address = base + mapped * PAGE_SIZE;
+        table(directory(&kernel_space)[index])[(address >> 12) & 1023] =
+            frame | PRESENT | PAGING_WRITABLE;
+        if (active_space) invalidate(address);
+        ++mapped;
+    }
+    bool success = valid && mapped == STACK_PAGES;
+    if (!success) {
+        while (mapped) {
+            --mapped;
+            uint32_t address = base + mapped * PAGE_SIZE;
+            uint32_t *entry = &table(directory(&kernel_space)[index])[(address >> 12) & 1023];
+            uint32_t frame = *entry & FRAME_MASK;
+            *entry = 0;
+            if (active_space) invalidate(address);
+            if (!pmm_free_page(frame)) cpu_halt();
+        }
+        if (created_table) reclaim_empty_kernel_table(index);
+    }
+    cpu_interrupt_restore(saved);
+    return success;
+}
+
+bool paging_kernel_stack_release(uint32_t slot)
+{
+    uint32_t base;
+    if (!enabled || !kernel_stack_range(slot, &base)) return false;
+    uint32_t saved = cpu_interrupt_save(), index = base >> 22;
+    bool valid = kernel_table_valid(index) &&
+                 !paging_translate(&kernel_space, RUM_KERNEL_STACK_GUARD(slot), NULL);
+    uint32_t *entries = valid ? table(directory(&kernel_space)[index]) : NULL;
+    for (uint32_t page = 0; valid && page < STACK_PAGES; ++page) {
+        uint32_t entry = entries[((base >> 12) & 1023) + page];
+        if ((entry & (FRAME_MASK | 0x63u)) != entry ||
+            (entry & (PRESENT | PAGING_WRITABLE | USER)) != (PRESENT | PAGING_WRITABLE) ||
+            !pmm_is_allocated(entry & FRAME_MASK)) valid = false;
+    }
+    if (valid) {
+        for (uint32_t page = 0; page < STACK_PAGES; ++page) {
+            uint32_t address = base + page * PAGE_SIZE;
+            uint32_t *entry = &entries[(address >> 12) & 1023];
+            uint32_t frame = *entry & FRAME_MASK;
+            *entry = 0;
+            if (active_space) invalidate(address);
+            if (!pmm_free_page(frame)) cpu_halt();
+        }
+        reclaim_empty_kernel_table(index);
+    }
+    cpu_interrupt_restore(saved);
+    return valid;
 }
 
 bool paging_translate(const struct paging_space *space, uint32_t virtual, uint32_t *physical)

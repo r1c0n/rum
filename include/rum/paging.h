@@ -43,6 +43,12 @@ bool paging_map_page(struct paging_space *space, uint32_t virtual, uint32_t phys
 bool paging_unmap_page(struct paging_space *space, uint32_t virtual, uint32_t *physical);
 bool paging_translate(const struct paging_space *space, uint32_t virtual, uint32_t *physical);
 
+/* Shared supervisor kernel-entry stacks. A slot owns four independently
+   allocated, zeroed frames above an unmapped guard page. Allocation and release
+   are transactional; only an inactive stack may be released by its owner. */
+bool paging_kernel_stack_allocate(uint32_t slot);
+bool paging_kernel_stack_release(uint32_t slot);
+
 /* Private anonymous user pages. The address and page count must fit entirely
    inside the program range or the fixed user-stack range. Allocate zeroes every
    frame before publishing it and rolls the whole request back on failure.
