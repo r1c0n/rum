@@ -20,7 +20,7 @@ struct task_information {
 struct task_snapshot {
     task_id current;
     uint32_t count, states[TASK_EXITED + 1];
-    uint32_t stack_pages, directory_pages;
+    uint32_t stack_pages, emergency_stack_pages, directory_pages;
     uint32_t created, exited, reaped, switches;
     struct task_information tasks[RUM_TASK_CAPACITY];
 };

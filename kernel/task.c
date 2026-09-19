@@ -11,6 +11,7 @@
 #define BOOT 0u
 #define IDLE 1u
 #define TASK_SLOTS RUM_TASK_CAPACITY
+#define EMERGENCY_STACK_SLOT (RUM_KERNEL_STACK_SLOTS - 1u)
 
 struct task {
     task_id id;
@@ -29,7 +30,7 @@ static bool ready;
 static uint32_t created, exited, reaped, switches;
 static struct task_event work_event;
 /* Debug symbols also let QEMU checks audit the actual stack owners. */
-volatile uint32_t task_idle_stack_base, task_current_stack_top;
+volatile uint32_t task_idle_stack_base, task_emergency_stack_base, task_current_stack_top;
 extern const char __boot_stack_bottom[], __boot_stack_top[];
 static _Noreturn void start_task(void);
 static _Noreturn void idle_loop(void *argument);
@@ -57,6 +58,17 @@ bool task_initialize(void)
     struct task idle = { .id = 2, .state = TASK_RUNNABLE,
         .entry = idle_loop, .space = paging_kernel_space() };
     if (!new_stack(&idle, 0)) return false;
+    if (!paging_kernel_stack_allocate(EMERGENCY_STACK_SLOT)) {
+        (void)paging_kernel_stack_release(0);
+        return false;
+    }
+    uint32_t emergency_base = RUM_KERNEL_STACK_SLOT_BASE(EMERGENCY_STACK_SLOT);
+    if (!gdt_set_double_fault_stack(RUM_KERNEL_STACK_SLOT_TOP(EMERGENCY_STACK_SLOT),
+                                    paging_directory_address(paging_kernel_space()))) {
+        (void)paging_kernel_stack_release(EMERGENCY_STACK_SLOT);
+        (void)paging_kernel_stack_release(0);
+        return false;
+    }
     uint32_t saved = cpu_interrupt_save();
     tasks[BOOT] = (struct task){ .id = 1, .state = TASK_RUNNING,
         .stack_base = (uintptr_t)__boot_stack_bottom, .stack_top = (uintptr_t)__boot_stack_top,
@@ -64,14 +76,17 @@ bool task_initialize(void)
     tasks[IDLE] = idle;
     prepare_stack(&tasks[IDLE]);
     current = &tasks[BOOT];
-    if (!gdt_set_kernel_stack(current->stack_top)) {
+    if (!gdt_set_kernel_context(current->stack_top,
+                                paging_directory_address(current->space))) {
         current = NULL;
         memset(tasks, 0, sizeof tasks);
         cpu_interrupt_restore(saved);
+        (void)paging_kernel_stack_release(EMERGENCY_STACK_SLOT);
         (void)paging_kernel_stack_release(0);
         return false;
     }
     task_idle_stack_base = idle.stack_base;
+    task_emergency_stack_base = emergency_base;
     task_current_stack_top = current->stack_top;
     ready = true;
     cpu_interrupt_restore(saved);
@@ -147,6 +162,7 @@ bool task_snapshot_read(struct task_snapshot *snapshot)
     *snapshot = (struct task_snapshot){0};
     if (ready) {
         snapshot->current = current->id;
+        snapshot->emergency_stack_pages = STACK_PAGES;
         snapshot->created = created; snapshot->exited = exited;
         snapshot->reaped = reaped; snapshot->switches = switches;
         for (uint32_t i = 0; i < TASK_SLOTS; ++i) {
@@ -205,7 +221,9 @@ static void schedule(void)
     if (previous->state == TASK_RUNNING) previous->state = TASK_RUNNABLE;
     next->state = TASK_RUNNING;
     if (next == previous) return;
-    if (!paging_switch_space(next->space) || !gdt_set_kernel_stack(next->stack_top)) cpu_halt();
+    if (!paging_switch_space(next->space) ||
+        !gdt_set_kernel_context(next->stack_top,
+                                paging_directory_address(next->space))) cpu_halt();
     current = next;
     task_current_stack_top = next->stack_top;
     ++switches;

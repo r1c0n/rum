@@ -62,6 +62,7 @@ void diagnostics_render(const struct kernel_diagnostics *snapshot, diagnostics_w
     decimal(write, snapshot->physical.managed_pages); write(" managed pages\n");
     write("Tasks: "); decimal(write, snapshot->tasks.count); write(" live, ");
     decimal(write, snapshot->tasks.stack_pages); write(" owned stack pages, ");
+    decimal(write, snapshot->tasks.emergency_stack_pages); write(" emergency stack pages, ");
     decimal(write, snapshot->tasks.directory_pages); write(" owned directories\n");
     write("Lifecycle: "); decimal(write, snapshot->tasks.created); write(" created, ");
     decimal(write, snapshot->tasks.exited); write(" exited, "); decimal(write, snapshot->tasks.reaped);
@@ -113,6 +114,7 @@ void diagnostics_panic(void)
     serial_writestring("\nrum_diag_resources");
     field(serial_writestring, "diag_live", snapshot.tasks.count);
     field(serial_writestring, "diag_stacks", snapshot.tasks.stack_pages);
+    field(serial_writestring, "diag_emergencystacks", snapshot.tasks.emergency_stack_pages);
     field(serial_writestring, "diag_owneddirs", snapshot.tasks.directory_pages);
     field(serial_writestring, "diag_dirs", snapshot.paging.directory_pages);
     field(serial_writestring, "diag_tables", snapshot.paging.shared_table_pages);

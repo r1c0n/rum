@@ -17,6 +17,7 @@ void task_test_worker(void *argument);
 bool task_test_registers(void);
 extern const uint32_t task_test_entry_alignment;
 extern const char __kernel_start[], __kernel_end[], __boot_stack_top[];
+extern volatile uint32_t task_emergency_stack_base;
 static struct task_event done, timed;
 static volatile uint32_t finished, irq_checks, irq_target;
 static uint32_t worker_runs[2];
@@ -145,8 +146,6 @@ static uint32_t consume_until(uint32_t remaining)
     return head;
 }
 
-static uint32_t consume_pages(void) { return consume_until(0); }
-
 static void release_pages(uint32_t head)
 {
     while (head) {
@@ -216,14 +215,22 @@ void kernel_main(uint32_t magic, uint32_t information)
     check(pmm_initialize((const void *)(uintptr_t)information, (uintptr_t)__kernel_start,
                          (uintptr_t)__kernel_end) && paging_initialize() && heap_initialize(), "memory startup");
     uint32_t initial = pmm_stats().free_pages;
-    uint32_t consumed = consume_pages();
-    check(!task_initialize() && pmm_stats().free_pages == 0 && !task_current_id(), "idle-stack OOM rollback");
-    release_pages(consumed);
-    check(pmm_stats().free_pages == initial && task_initialize(), "task initialization retry");
+    for (uint32_t remaining = 0; remaining < 9; ++remaining) {
+        uint32_t consumed = consume_until(remaining);
+        check(!task_initialize() && pmm_stats().free_pages == remaining && !task_current_id(),
+              "idle/emergency stack OOM rollback");
+        release_pages(consumed);
+        check(pmm_stats().free_pages == initial, "failed task initialization returns every frame");
+    }
+    check(task_initialize(), "task initialization retry");
     check(!task_initialize() && task_current_id() == 1, "one-time initialization and boot task");
     struct task_information info;
     check(task_query(2, &info) && info.stack_top - info.stack_base == RUM_KERNEL_STACK_SIZE,
           "private idle stack");
+    check(task_emergency_stack_base == RUM_KERNEL_STACK_SLOT_BASE(RUM_KERNEL_STACK_SLOTS - 1) &&
+          !paging_translate(paging_kernel_space(),
+                            RUM_KERNEL_STACK_GUARD(RUM_KERNEL_STACK_SLOTS - 1), NULL),
+          "dedicated guarded emergency stack");
     cpu_interrupt_enable();
     context_check();
     uint32_t baseline = pmm_stats().free_pages;
@@ -321,6 +328,7 @@ void kernel_main(uint32_t magic, uint32_t information)
     check(task_wait(&timed, sequence), "idle survives owned-context exit");
     irq_target = 0;
     check(task_snapshot_read(&snapshot) && snapshot.count == 2 && snapshot.stack_pages == 4 &&
+          snapshot.emergency_stack_pages == 4 &&
           !snapshot.directory_pages && snapshot.created == snapshot.exited &&
           snapshot.created == snapshot.reaped && snapshot.switches > snapshot.created &&
           paging_stats().directory_pages == 1, "final ownership and lifecycle ledger");
