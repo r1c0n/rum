@@ -63,6 +63,8 @@ bool task_initialize(void);
    Kernel entries return normally to exit; there is no timer preemption. */
 task_id task_create(void (*entry)(void *), void *argument, struct paging_space *owned_space);
 task_id task_create_process(const struct task_process *process);
+/* Atomically publishes and registers the sole foreground process. */
+task_id task_create_foreground_process(const struct task_process *process);
 task_id task_current_id(void);
 bool task_current_is_process(void);
 rum_pid_t task_current_process_id(void);
@@ -80,7 +82,6 @@ _Noreturn void task_exit_from_user_fault(const struct exception_frame *frame,
 /* Foreground process lifetime. Only a process's parent can register, wait for,
    clear, or reap it. Cancellation is IRQ-safe and becomes termination only at
    a trusted kernel boundary before returning to user mode. */
-bool task_foreground_begin(task_id id);
 bool task_foreground_end(task_id id);
 bool task_cancel_foreground(void);
 void task_cancel_current_if_requested(void);

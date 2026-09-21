@@ -166,12 +166,13 @@ task_id task_create(void (*entry)(void *), void *argument, struct paging_space *
     return id;
 }
 
-task_id task_create_process(const struct task_process *process)
+static task_id create_process(const struct task_process *process, bool make_foreground)
 {
     if (!ready || !process || irq_in_handler()) return 0;
     uint32_t saved = cpu_interrupt_save();
     struct paging_space_statistics space = {0};
     bool valid = (saved & IF) && next_id && next_process_id <= RUM_ABI_PID_MAX &&
+        (!make_foreground || !foreground) &&
         paging_space_stats(process->space, &space) && !space.kernel &&
         process->space != paging_active_space() && valid_user_frame(process->space, &process->user_frame);
     struct task *slot = valid ? available_slot(process->space) : NULL;
@@ -197,9 +198,20 @@ task_id task_create_process(const struct task_process *process)
     *slot = constructed;
     prepare_stack(slot);
     task_id id = slot->id;
+    if (make_foreground) foreground = id;
     ++created;
     cpu_interrupt_restore(saved);
     return id;
+}
+
+task_id task_create_process(const struct task_process *process)
+{
+    return create_process(process, false);
+}
+
+task_id task_create_foreground_process(const struct task_process *process)
+{
+    return create_process(process, true);
 }
 
 task_id task_current_id(void)
@@ -414,26 +426,6 @@ _Noreturn void task_exit_from_user_fault(const struct exception_frame *frame,
 _Noreturn void task_exit(void)
 {
     task_exit_with_status(0);
-}
-
-bool task_foreground_begin(task_id id)
-{
-    if (!ready || !id || irq_in_handler()) return false;
-    uint32_t saved = cpu_interrupt_save();
-    bool registered = false;
-    if (!foreground) {
-        for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
-            struct task *task = &tasks[i];
-            if (task->id == id && task->kind == TASK_PROCESS &&
-                task->parent == current->id && task->state != TASK_EXITED) {
-                foreground = id;
-                registered = true;
-                break;
-            }
-        }
-    }
-    cpu_interrupt_restore(saved);
-    return registered;
 }
 
 bool task_foreground_end(task_id id)

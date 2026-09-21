@@ -19,6 +19,34 @@ static size_t output_length;
 static uint32_t ticks;
 uint32_t timer_ticks(void) { return ticks; }
 
+static enum process_launch_error launch(const char *program, const char *arguments,
+                                        struct process_result *result)
+{
+    *result = (struct process_result){ .process_id = 17 };
+    if (!strcmp(program, "hello")) {
+        assert(!strcmp(arguments, "one  two"));
+        result->termination = TASK_TERMINATION_EXIT;
+        result->exit_status = -42;
+        return PROCESS_LAUNCH_OK;
+    }
+    if (!strcmp(program, "fault")) {
+        result->termination = TASK_TERMINATION_FAULT;
+        result->fault = (struct task_fault){
+            .vector = 14, .error = 5, .address = 0x1234,
+            .instruction = 0x10000000, .stack = 0xBFFFFFF0,
+        };
+        return PROCESS_LAUNCH_OK;
+    }
+    if (!strcmp(program, "spin")) {
+        result->termination = TASK_TERMINATION_CANCELLED;
+        return PROCESS_LAUNCH_OK;
+    }
+    if (!strcmp(program, "args")) return PROCESS_LAUNCH_INVALID_ARGUMENTS;
+    if (!strcmp(program, "busy")) return PROCESS_LAUNCH_RESOURCES;
+    if (!strcmp(program, "internal")) return PROCESS_LAUNCH_INTERNAL;
+    return PROCESS_LAUNCH_EXECUTABLE;
+}
+
 /* Hardware capture is exercised by QEMU; host tests use the real formatter
    against a fixed snapshot and the real shell/console. */
 bool diagnostics_capture(struct kernel_diagnostics *result)
@@ -61,6 +89,7 @@ static void reset(void)
     output[0] = '\0';
     terminal_initialize();
     terminal_status("uptime: 7s");
+    shell_set_launcher(launch);
     shell_initialize();
 }
 
@@ -187,7 +216,8 @@ int main(void)
     reset();
     receive("  help \t\n");
     assert(strstr(output, "Commands:\r\n"));
-    for (const char **name = (const char *[]){"help ", "clear ", "about ", "echo <text>", NULL}; *name; ++name)
+    for (const char **name = (const char *[]){"help ", "clear ", "about ", "echo <text>",
+                                               "run <program> [args]", NULL}; *name; ++name)
         assert(strstr(output, *name));
     receive("about\n");
     assert(strstr(output, "rum OS v0.2.0\r\n"));
@@ -227,6 +257,18 @@ int main(void)
     assert(strstr(output, "\r\ncorrected\r\n> "));
     receive("echo\twith tabs\n");
     assert(strstr(output, "\r\nwith tabs\r\n> "));
+
+    reset();
+    receive("run\nrun hello one  two\nrun fault\nrun spin\n");
+    assert(strstr(output, "Usage: run <program> [args]\r\n"));
+    assert(strstr(output, "Process 17 exited with status -42.\r\n"));
+    assert(strstr(output, "Process 17 faulted: vector 14, error 0x00000005, eip 0x10000000, address 0x00001234, stack 0xbffffff0.\r\n"));
+    assert(strstr(output, "Process 17 cancelled by Ctrl+C.\r\n"));
+    receive("run missing\nrun args\nrun busy\nrun internal\n");
+    assert(strstr(output, "Cannot launch missing: file is missing or is not a valid executable.\r\n"));
+    assert(strstr(output, "Cannot launch: too many or oversized arguments.\r\n"));
+    assert(strstr(output, "Cannot launch busy: process resources unavailable.\r\n"));
+    assert(strstr(output, "Cannot finish process cleanup.\r\n"));
 
     reset();
     receive("helpful\nHELP\nhelp x\nabout x\nclear x\n");
