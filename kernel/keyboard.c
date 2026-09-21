@@ -66,6 +66,10 @@ static void keyboard_interrupt(void)
         if (status & 0xE0) continue;
         char character = keyboard_decode(&decoder, scancode);
         if (!character) continue;
+        if (character == '\x03' && task_cancel_foreground()) {
+            task_event_signal(task_work_event());
+            continue;
+        }
         uint32_t next = (head + 1) & (QUEUE_SIZE - 1);
         if (next == tail) {
             ++dropped; /* Drop newest; never overwrite unread characters. */

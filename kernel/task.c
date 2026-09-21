@@ -31,6 +31,7 @@ struct task {
     struct task_fault fault;
     struct task_resources resources;
     struct task_event *waiting;
+    bool cancellation_requested;
 };
 static struct task tasks[TASK_SLOTS];
 static struct task *current;
@@ -38,7 +39,8 @@ static task_id next_id = 3;
 static rum_pid_t next_process_id = 1;
 static bool ready;
 static uint32_t created, exited, reaped, switches;
-static struct task_event work_event;
+static task_id foreground;
+static struct task_event work_event, process_event;
 /* Debug symbols also let QEMU checks audit the actual stack owners. */
 volatile uint32_t task_idle_stack_base, task_emergency_stack_base, task_current_stack_top;
 extern const char __boot_stack_bottom[], __boot_stack_top[];
@@ -229,6 +231,7 @@ static struct task_information information(const struct task *task)
         .user_frame = task->user_frame, .termination = task->termination,
         .exit_status = task->exit_status, .fault = task->fault,
         .resources = task->resources,
+        .cancellation_requested = task->cancellation_requested,
         .directory = paging_directory_address(task->space), .owns_space = task->owns_space,
         .owns_stack = task != &tasks[BOOT] };
 }
@@ -276,31 +279,52 @@ bool task_snapshot_read(struct task_snapshot *snapshot)
     return ready;
 }
 
+/* Call with interrupts disabled. */
+static bool reap_slot(struct task *task)
+{
+    if (!task || task->state != TASK_EXITED || task == current ||
+        (task->owns_space && task->space == paging_active_space())) return false;
+    if (task->owns_space && !paging_space_destroy(task->space)) return false;
+    if (!paging_kernel_stack_release(task->stack_slot)) cpu_halt();
+    *task = (struct task){0};
+    ++reaped;
+    return true;
+}
+
 static uint32_t reap_exited(bool include_processes)
 {
     if (!ready || irq_in_handler()) return 0;
     uint32_t count = 0;
     for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
         struct task *task = &tasks[i];
-        if (task->state != TASK_EXITED || task == current ||
-            (task->kind == TASK_PROCESS && !include_processes) ||
-            (task->owns_space && task->space == paging_active_space())) continue;
+        if (task->kind == TASK_PROCESS && !include_processes) continue;
         /* Kernel-space borrowers share the active directory; only owned
            private directories must be inactive before release. */
         /* Keep owner records and released frames consistent for IRQ snapshots.
            Reclamation never waits for a device or switches execution. */
         uint32_t saved = cpu_interrupt_save();
-        if (task->owns_space && !paging_space_destroy(task->space)) {
-            cpu_interrupt_restore(saved);
-            continue;
-        }
-        if (!paging_kernel_stack_release(task->stack_slot)) cpu_halt();
-        *task = (struct task){0};
-        ++reaped;
+        bool released = reap_slot(task);
         cpu_interrupt_restore(saved);
-        ++count;
+        if (released) ++count;
     }
     return count;
+}
+
+bool task_reap_process(task_id id)
+{
+    if (!ready || !id || irq_in_handler()) return false;
+    uint32_t saved = cpu_interrupt_save();
+    bool released = false;
+    for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
+        struct task *task = &tasks[i];
+        if (task->id == id && task->kind == TASK_PROCESS &&
+            task->parent == current->id && foreground != id) {
+            released = reap_slot(task);
+            break;
+        }
+    }
+    cpu_interrupt_restore(saved);
+    return released;
 }
 
 uint32_t task_reap(void)
@@ -347,17 +371,36 @@ bool task_yield(void)
     return true;
 }
 
-_Noreturn void task_exit_with_status(rum_result_t status)
+static _Noreturn void terminate_current(enum task_termination termination,
+                                        rum_result_t status,
+                                        const struct exception_frame *frame,
+                                        uint32_t fault_address)
 {
     if (!ready || irq_in_handler() || current == &tasks[BOOT] || current == &tasks[IDLE]) cpu_halt();
     (void)cpu_interrupt_save();
     current->waiting = NULL;
-    current->termination = TASK_TERMINATION_EXIT;
+    current->termination = termination;
     current->exit_status = status;
+    if (frame) {
+        current->user_frame = *(const struct exception_user_frame *)frame;
+        current->fault = (struct task_fault){
+            .vector = frame->vector,
+            .error = frame->error,
+            .address = frame->vector == 14 ? fault_address : 0,
+            .instruction = frame->eip,
+            .stack = exception_frame_esp(frame),
+        };
+    }
     current->state = TASK_EXITED;
     ++exited;
+    if (current->kind == TASK_PROCESS) task_event_signal(&process_event);
     schedule();
     cpu_halt(); /* An exited context can never become runnable again. */
+}
+
+_Noreturn void task_exit_with_status(rum_result_t status)
+{
+    terminate_current(TASK_TERMINATION_EXIT, status, NULL, 0);
 }
 
 _Noreturn void task_exit_from_user_fault(const struct exception_frame *frame,
@@ -365,26 +408,111 @@ _Noreturn void task_exit_from_user_fault(const struct exception_frame *frame,
 {
     if (!ready || !current || current->kind != TASK_PROCESS || !frame ||
         !exception_frame_from_user(frame) || irq_in_handler()) cpu_halt();
-    (void)cpu_interrupt_save();
-    current->waiting = NULL;
-    current->termination = TASK_TERMINATION_FAULT;
-    current->user_frame = *(const struct exception_user_frame *)frame;
-    current->fault = (struct task_fault){
-        .vector = frame->vector,
-        .error = frame->error,
-        .address = frame->vector == 14 ? fault_address : 0,
-        .instruction = frame->eip,
-        .stack = exception_frame_esp(frame),
-    };
-    current->state = TASK_EXITED;
-    ++exited;
-    schedule();
-    cpu_halt();
+    terminate_current(TASK_TERMINATION_FAULT, 0, frame, fault_address);
 }
 
 _Noreturn void task_exit(void)
 {
     task_exit_with_status(0);
+}
+
+bool task_foreground_begin(task_id id)
+{
+    if (!ready || !id || irq_in_handler()) return false;
+    uint32_t saved = cpu_interrupt_save();
+    bool registered = false;
+    if (!foreground) {
+        for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
+            struct task *task = &tasks[i];
+            if (task->id == id && task->kind == TASK_PROCESS &&
+                task->parent == current->id && task->state != TASK_EXITED) {
+                foreground = id;
+                registered = true;
+                break;
+            }
+        }
+    }
+    cpu_interrupt_restore(saved);
+    return registered;
+}
+
+bool task_foreground_end(task_id id)
+{
+    if (!ready || !id || irq_in_handler()) return false;
+    uint32_t saved = cpu_interrupt_save();
+    bool cleared = false;
+    if (foreground == id) {
+        for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
+            if (tasks[i].id == id && tasks[i].kind == TASK_PROCESS &&
+                tasks[i].parent == current->id && tasks[i].state == TASK_EXITED) {
+                foreground = 0;
+                cleared = true;
+                break;
+            }
+        }
+    }
+    cpu_interrupt_restore(saved);
+    return cleared;
+}
+
+bool task_cancel_foreground(void)
+{
+    uint32_t saved = cpu_interrupt_save();
+    bool requested = false;
+    if (ready && foreground) {
+        for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
+            struct task *task = &tasks[i];
+            if (task->id != foreground || task->kind != TASK_PROCESS ||
+                task->state == TASK_EXITED || task->state == TASK_UNUSED) continue;
+            task->cancellation_requested = true;
+            if (task->state == TASK_BLOCKED) {
+                task->waiting = NULL;
+                task->state = TASK_RUNNABLE;
+            }
+            requested = true;
+            break;
+        }
+    }
+    cpu_interrupt_restore(saved);
+    return requested;
+}
+
+static bool current_cancelled(void)
+{
+    uint32_t saved = cpu_interrupt_save();
+    bool requested = ready && current && current->kind == TASK_PROCESS &&
+                     current->cancellation_requested;
+    cpu_interrupt_restore(saved);
+    return requested;
+}
+
+void task_cancel_current_if_requested(void)
+{
+    if (current_cancelled())
+        terminate_current(TASK_TERMINATION_CANCELLED, 0, NULL, 0);
+}
+
+void task_cancel_on_user_return(const struct exception_frame *frame)
+{
+    if (frame && exception_frame_from_user(frame))
+        task_cancel_current_if_requested();
+}
+
+bool task_wait_process(task_id id, struct task_information *result)
+{
+    if (!ready || !id || !result || irq_in_handler()) return false;
+    task_id parent = current->id;
+    for (;;) {
+        uint32_t observed = task_event_sequence(&process_event);
+        struct task_information item;
+        if (!task_query(id, &item) || item.kind != TASK_PROCESS || item.parent != parent)
+            return false;
+        if (item.state == TASK_EXITED) {
+            *result = item;
+            return true;
+        }
+        if (!task_wait(&process_event, observed)) return false;
+    }
 }
 
 uint32_t task_event_sequence(const struct task_event *event)
@@ -430,8 +558,10 @@ struct task_event *task_work_event(void)
 static _Noreturn void start_task(void)
 {
     (void)reap_exited(false);
-    if (current->kind == TASK_PROCESS)
+    if (current->kind == TASK_PROCESS) {
+        task_cancel_current_if_requested();
         interrupt_enter(&current->user_frame);
+    }
     cpu_interrupt_enable();
     current->entry(current->argument);
     task_exit();

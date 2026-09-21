@@ -43,6 +43,8 @@ int main(void)
 
     assert(keyboard_decode(&state, 0x1D) == 0);
     assert(keyboard_decode(&state, 0x1E) == 0);
+    assert(keyboard_decode(&state, 0x2E) == '\x03');
+    assert(keyboard_decode(&state, 0xAE) == 0);
     assert(keyboard_decode(&state, 0x9D) == 0);
     assert(keyboard_decode(&state, 0x38) == 0);
     assert(keyboard_decode(&state, 0x1E) == 0);

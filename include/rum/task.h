@@ -11,7 +11,12 @@
 typedef uint32_t task_id;
 enum task_state { TASK_UNUSED, TASK_RUNNABLE, TASK_RUNNING, TASK_BLOCKED, TASK_EXITED };
 enum task_kind { TASK_KERNEL, TASK_PROCESS };
-enum task_termination { TASK_TERMINATION_NONE, TASK_TERMINATION_EXIT, TASK_TERMINATION_FAULT };
+enum task_termination {
+    TASK_TERMINATION_NONE,
+    TASK_TERMINATION_EXIT,
+    TASK_TERMINATION_FAULT,
+    TASK_TERMINATION_CANCELLED,
+};
 struct task_event { volatile uint32_t sequence; };
 struct task_resources {
     uint32_t kernel_stack_pages, directory_pages, user_table_pages, user_pages;
@@ -31,6 +36,7 @@ struct task_information {
     rum_result_t exit_status;
     struct task_fault fault;
     struct task_resources resources;
+    bool cancellation_requested;
     bool owns_space, owns_stack;
 };
 
@@ -71,6 +77,16 @@ _Noreturn void task_exit_with_status(rum_result_t status); /* IF may be clear. *
 /* Only a CPL-3 exception belonging to the running process may use this path. */
 _Noreturn void task_exit_from_user_fault(const struct exception_frame *frame,
                                          uint32_t fault_address);
+/* Foreground process lifetime. Only a process's parent can register, wait for,
+   clear, or reap it. Cancellation is IRQ-safe and becomes termination only at
+   a trusted kernel boundary before returning to user mode. */
+bool task_foreground_begin(task_id id);
+bool task_foreground_end(task_id id);
+bool task_cancel_foreground(void);
+void task_cancel_current_if_requested(void);
+void task_cancel_on_user_return(const struct exception_frame *frame);
+bool task_wait_process(task_id id, struct task_information *information);
+bool task_reap_process(task_id id);
 uint32_t task_reap(void); /* Foreground; only exited, inactive resources. */
 
 /* Keep the event alive until all waiters resume. Capture its sequence before

@@ -48,6 +48,7 @@ static rum_result_t console_read(struct paging_space *space, rum_handle_t handle
 
     char buffer[CONSOLE_CHUNK];
     for (;;) {
+        task_cancel_current_if_requested();
         struct task_event *event = keyboard_input_event();
         uint32_t observed = task_event_sequence(event);
         uint32_t count = 0;
@@ -57,6 +58,7 @@ static rum_result_t console_read(struct paging_space *space, rum_handle_t handle
             return (rum_result_t)count;
         }
         if (!task_wait(event, observed)) return error(RUM_EIO);
+        task_cancel_current_if_requested();
     }
 }
 
