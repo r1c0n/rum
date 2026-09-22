@@ -169,15 +169,15 @@ RAM files and Snake must remain usable.
 
 ### 7. 0.3.0 integration and documentation
 
-- [ ] Run host, user-ELF and all existing QEMU cases on every supported RAM size.
-- [ ] Add production process cases for normal exit, every user fault class,
+- [x] Run host, user-ELF and all existing QEMU cases on every supported RAM size.
+- [x] Add production process cases for normal exit, every user fault class,
   invalid syscalls, invalid buffers, limits, cancellation and repeated cleanup.
-- [ ] Test both GRUB ISO and direct ELF boot with and without launching a process.
-- [ ] Record process/task ownership in `diag` and panic logs without exposing
+- [x] Test both GRUB ISO and direct ELF boot with and without launching a process.
+- [x] Record process/task ownership in `diag` and panic logs without exposing
   kernel pointers through the user ABI.
-- [ ] Document process lifetime, user memory, syscall errors, launch syntax and
+- [x] Document process lifetime, user memory, syscall errors, launch syntax and
   the supported ELF subset.
-- [ ] Verify the release package on Windows and Linux and keep `rum.iso` usable
+- [x] Verify the release package on Windows and Linux and keep `rum.iso` usable
   without debug artifacts.
 
 0.3.0 is ready when the normal kernel shell can launch the embedded `hello` ELF,
