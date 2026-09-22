@@ -62,11 +62,11 @@ file is preserved by an unsuccessful replacement.
 
 ## Contributor notes
 
-`kernel/snake_model.c` contains deterministic game rules without display, heap,
+`kernel/ui/snake_model.c` contains deterministic game rules without display, heap,
 or filesystem dependencies. The body uses a fixed-capacity coordinate ring.
 Food selection starts from a seeded pseudo-random cell and scans for free space.
 
-`kernel/snake.c` owns the heap-allocated session, controls, score loading/saving,
+`kernel/ui/snake.c` owns the heap-allocated session, controls, score loading/saving,
 and VGA rendering. It draws without moving the shell cursor or overwriting the
 uptime row. The foreground loop uses PIT ticks for movement and routes keyboard
 input to the game while it is active; IRQ handlers never update game state.
