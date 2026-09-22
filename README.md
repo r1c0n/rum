@@ -3,8 +3,8 @@
 A small hobby operating system written in C and x86 assembly, named after
 the Scottish island of Rùm.
 
-rum boots through GRUB into a VGA text console with a shell, RAM files, and
-ASCII Snake. It runs on a 32-bit x86 BIOS machine in QEMU.
+rum boots through GRUB into a VGA text console with a shell, RAM files, protected
+user programs, and ASCII Snake. It runs on a 32-bit x86 BIOS machine in QEMU.
 
 ![ASCII Snake running in rum](docs/images/snake.png)
 
@@ -48,6 +48,7 @@ The bottom row shows uptime.
 | `rm <name>` | Remove a file |
 | `mem` | Show heap and filesystem usage |
 | `diag` | Inspect tasks, paging, stacks and memory usage |
+| `run <program> [args]` | Run an embedded user ELF in the foreground |
 | `snake` | Play ASCII Snake |
 
 Snake uses **WASD** to move, **P** to pause, **R** to restart, and **Q** to return
@@ -75,10 +76,10 @@ input with `Ctrl+Alt+G`.
 - A page-backed heap with aligned allocation, resizing, and free-block reuse.
 - A flat RAM filesystem with build-time file embedding.
 - A separate freestanding user ELF build, production loader, and public ABI.
+- Foreground user-process launch, waiting, fault reporting, cleanup, and Ctrl+C.
 
-rum is a single-CPU system. The normal boot still runs the shell and Snake in
-ring 0; shell-driven program launching and persistent disk storage are not
-connected yet.
+rum is a single-CPU system. The shell and Snake still run in ring 0; programs
+started with `run` execute in ring 3. Persistent disk storage is planned work.
 
 ## Building and testing
 
@@ -94,7 +95,7 @@ connected yet.
 
 Build outputs are `build/rum.elf` and `build/rum.iso`. Tests cover game rules,
 shell input, memory allocation, RAM files, boot checks, CPU faults, ring-3
-syscalls, and device interrupts. QEMU tests exercise the keyboard and timer and
+syscalls, foreground process outcomes, cleanup, and device interrupts. QEMU tests exercise the keyboard and timer and
 save logs, memory
 dumps, and screenshots in `build/test-artifacts/`.
 

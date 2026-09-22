@@ -144,17 +144,17 @@ exit return every private frame.
 
 ### 6. Foreground launch and process lifetime
 
-- [ ] Add a kernel-shell launch command for an embedded program and bounded
+- [x] Add a kernel-shell launch command for an embedded program and bounded
   arguments.
-- [ ] Start one foreground child, transfer console input to it and block the parent
+- [x] Start one foreground child, transfer console input to it and block the parent
   on a process-exit event.
-- [ ] Return the child's full signed exit status or fault reason to the parent.
-- [ ] Reap all program pages, private tables, directory, kernel stack and metadata
+- [x] Return the child's full signed exit status or fault reason to the parent.
+- [x] Reap all program pages, private tables, directory, kernel stack and metadata
   after switching away from the child.
-- [ ] Add a cancellation flag checked at safe return-to-user boundaries.
-- [ ] Decode Ctrl+C and terminate a foreground child, including a CPU-bound loop,
+- [x] Add a cancellation flag checked at safe return-to-user boundaries.
+- [x] Decode Ctrl+C and terminate a foreground child, including a CPU-bound loop,
   before restoring input to the parent shell.
-- [ ] Keep failed launch, normal exit, user fault and cancellation cleanup on the
+- [x] Keep failed launch, normal exit, user fault and cancellation cleanup on the
   same ownership path.
 
 The initial model remains deliberately small: one foreground child per parent,

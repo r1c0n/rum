@@ -82,8 +82,9 @@ The decoder supports a US QWERTY keyboard with:
 - Enter, keypad Enter, Tab, and Backspace.
 
 Navigation keys, function keys, keyboard LEDs, Num Lock behavior, and alternate
-layouts are unsupported. Ctrl and Alt combinations are ignored. Pause and Print
-Screen sequences are consumed without producing text.
+layouts are unsupported. Ctrl+C requests foreground-process cancellation; other
+Ctrl and Alt combinations are ignored. Pause and Print Screen sequences are
+consumed without producing text.
 
 Decoded characters enter a 128-slot ring buffer with 127 usable entries. If the
 buffer is full, the newest character is dropped and the diagnostic drop counter
@@ -93,6 +94,11 @@ characters to the [shell](shell.md) or [Snake](snake.md).
 A decoded character also signals a keyboard-specific task event. Blocking
 standard-input reads wait on this event rather than the general work event, so
 timer ticks do not cause needless wakeups.
+
+Ctrl+C is consumed by IRQ1 when a foreground process exists. The handler only
+sets its cancellation flag and makes a blocked process runnable. The common
+interrupt-return path performs termination at a safe boundary before user code
+runs again, which also covers CPU-bound programs interrupted by the PIT.
 
 ## Adding an IRQ source
 

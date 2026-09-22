@@ -5,8 +5,7 @@
 #include <rum/abi/process.h>
 #include <rum/abi/layout.h>
 
-/* Initial process policy for the forthcoming userspace implementation. These
-   caps become runtime checks when the corresponding resources are introduced. */
+/* Process resource policy shared by the loader, launcher, and task registry. */
 #define RUM_PROCESS_LIMIT          16
 #define RUM_PROCESS_USER_BYTES     RUM_ABI_MEMORY_BYTES
 #define RUM_PROCESS_ARGUMENT_LIMIT RUM_ABI_ARGUMENT_LIMIT

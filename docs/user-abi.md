@@ -4,11 +4,9 @@ rum builds freestanding i386 user executables with a separate startup, runtime,
 linker script, and public include tree. The kernel validates and maps stripped
 ELF files from its RAM filesystem, constructs their initial stacks, enters the
 prepared process in ring 3, recovers user faults, and serves ABI version 1
-through the production syscall dispatcher. The normal shell does not launch
-programs yet.
-
-Typing an ELF filename in the kernel shell does not run it yet; foreground
-launch and process waiting are the next stage of userspace work.
+through the production syscall dispatcher. The normal shell launches one
+foreground process with `run`, waits for its result, and reclaims its complete
+address space and kernel task state before restoring the prompt.
 
 ## Building user programs
 
@@ -61,6 +59,32 @@ int main(int argc, char **argv)
 `write` may complete partially. Production programs should loop until all bytes
 are written or an error is returned; `user/programs/hello.c` shows the complete
 pattern.
+
+## Launching a program
+
+At the rum prompt, use a build name or the full RAM filename:
+
+```text
+> run hello first second
+Hello from rum userspace!
+Process 1 exited with status 0.
+
+> run nonzero
+Process 2 exited with status -37.
+```
+
+The shell treats spaces and tabs as argument separators and does not implement
+quotes or escapes. The typed program name becomes `argv[0]`. If the exact RAM
+filename is absent, `run` tries the same name with `.elf` appended.
+
+Only one foreground child is supported. Its parent sleeps on a process-exit
+event while the child owns console input. Normal exit preserves the full signed
+status. A user exception preserves its vector, error code, fault address, EIP,
+and user stack pointer. Ctrl+C records a cancellation request; a blocking child
+is woken, and a CPU-bound child observes the request on the next timer or
+keyboard return before ring 3 resumes. Every outcome switches away from the
+child before releasing its user pages, private tables, directory, guarded
+kernel stack, and task record.
 
 ## Loading an executable
 
@@ -189,11 +213,13 @@ clear.
 
 ## Troubleshooting
 
-- **A program builds but cannot be run from the shell:** the ELF is embedded and
-  loadable, but the foreground shell command and parent wait path are not
-  implemented yet.
+- **`run` cannot find a program:** use `ls` to confirm that `<name>.elf` is in the
+  RAM filesystem, then rebuild with the name in `USER_PROGRAMS`.
+- **`run` rejects an existing file:** the file is not a supported static i386 ELF
+  or failed the runtime validator. Inspect the symbol-rich build with `readelf`.
 - **A read appears to stop the process:** standard input is blocking. Type a
-  supported character in the QEMU window; timer interrupts continue meanwhile.
+  supported character in the QEMU window or press Ctrl+C; timer interrupts
+  continue meanwhile.
 - **A write returns less than requested:** loop over the unconsumed bytes. The
   console backend currently copies at most 128 bytes per call.
 - **Private kernel headers are missing:** user code may include only

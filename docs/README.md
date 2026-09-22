@@ -27,12 +27,13 @@ controlled double-fault path. Prepared processes enter ring 3 through the
 production interrupt-return path, and a user exception terminates only that
 process while preserving its fault record for the parent. The production
 `int 0x80` dispatcher provides process exit, PID lookup, and checked console
-input and output.
+input and output. The shell can launch one foreground user process, wait for its
+result, report its signed status or fault, and cancel it with Ctrl+C.
 
 Stripped user ELF programs are embedded in the normal boot RAM filesystem. The
 kernel loader validates them again, builds private mappings and an initial user
-stack, and can hand the prepared image to the process system. The normal shell
-does not launch them yet. File changes remain in RAM and disappear on reboot.
+stack, and hands the image to the process system for `run`. File changes remain
+in RAM and disappear on reboot.
 
 ## User guides
 
