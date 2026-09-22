@@ -161,4 +161,4 @@ The project follows the boot and toolchain approach in
 `arch/i386/boot.s` sets up its stack and CPU segments before calling C.
 
 See the [documentation](docs/README.md) for subsystem details and debugging.
-Protected userspace and persistent-storage plans are in the [roadmap](docs/roadmap.md).
+Persistent storage and userspace-shell plans are in the [roadmap](docs/roadmap.md).

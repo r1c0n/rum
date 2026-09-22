@@ -57,8 +57,8 @@ in RAM and disappear on reboot.
 | [User ABI and ELF programs](user-abi.md) | Building user code and following the public syscall, stack, and ELF contracts |
 
 The [roadmap](roadmap.md) is project planning rather than a description of
-released behavior. It tracks release integration and the planned persistent
-storage and userspace-shell work.
+released behavior. It tracks the planned persistent storage and userspace-shell
+work for 0.4.0.
 
 ## Boot flow
 
