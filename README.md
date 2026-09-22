@@ -95,9 +95,10 @@ started with `run` execute in ring 3. Persistent disk storage is planned work.
 
 Build outputs are `build/rum.elf` and `build/rum.iso`. Tests cover game rules,
 shell input, memory allocation, RAM files, boot checks, CPU faults, ring-3
-syscalls, foreground process outcomes, cleanup, and device interrupts. QEMU tests exercise the keyboard and timer and
-save logs, memory
-dumps, and screenshots in `build/test-artifacts/`.
+syscalls, foreground process outcomes, cleanup, and device interrupts. Every
+isolated QEMU case runs with 16 and 64 MiB. The suite also boots the GRUB ISO
+and direct ELF at 16, 64, 256, and 1152 MiB. Logs, memory dumps, and screenshots
+are saved in `build/test-artifacts/`.
 
 ## Packaging
 
@@ -117,6 +118,9 @@ On Linux or in WSL:
 make
 python3 scripts/package.py
 ```
+
+Validate the archive and its embedded ISO with `make test-package` on Linux or
+WSL, or `py -3 tests/package-test.py` on Windows.
 
 This creates `rum.zip` in the repository directory, replacing an existing
 archive. Its contents are:
