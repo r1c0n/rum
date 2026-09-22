@@ -227,7 +227,7 @@ int main(void)
                                                "run <program> [args]", NULL}; *name; ++name)
         assert(strstr(output, *name));
     receive("about\n");
-    assert(strstr(output, "rum OS v0.2.0\r\n"));
+    assert(strstr(output, "rum OS v0.3.0\r\n"));
     assert_status();
     reset();
     receive("ls\ncat welcome.txt\nwrite notes.txt hello  from rum\ncat /notes.txt\nmem\n");

@@ -122,7 +122,7 @@ static void execute(void)
             print("Usage: about\n");
             return;
         }
-        print("rum OS v0.2.0\n"
+        print("rum OS v0.3.0\n"
               "An island of our own. A hobby kernel in C and x86 assembly.\n"
               "32-bit x86 | GRUB Multiboot | PIC, PIT and PS/2\n");
     } else if (equal(command, "echo")) {
