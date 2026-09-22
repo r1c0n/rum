@@ -8,7 +8,7 @@
 
 /* EAX = number/result; EBX, ECX, EDX = up to three 32-bit arguments.
    Return preserves every general register except EAX. Flags are unspecified.
-   Kernel-side pointer validation and dispatch are subsequent work. */
+   The kernel validates all handles and user pointers before using them. */
 #define RUM_SYS_EXIT   0 /* EBX: signed exit status; does not return. */
 #define RUM_SYS_READ   1 /* EBX: handle, ECX: address, EDX: byte capacity. */
 #define RUM_SYS_WRITE  2 /* EBX: handle, ECX: address, EDX: byte count. */

@@ -3,10 +3,16 @@
 A small hobby operating system written in C and x86 assembly, named after
 the Scottish island of Rùm.
 
-rum boots through GRUB into a VGA text console with a shell, RAM files, and
-ASCII Snake. It runs on a 32-bit x86 BIOS machine in QEMU.
+rum boots through GRUB into a VGA text console with a shell, RAM files, protected
+user programs, and ASCII Snake. It runs on a 32-bit x86 BIOS machine in QEMU.
 
-![ASCII Snake running in rum](docs/images/snake.png)
+## Screenshots
+
+| Boot sequence | Shell |
+| --- | --- |
+| ![rum completing its boot sequence](docs/images/boot.png) | ![The rum command shell](docs/images/shell.png) |
+| **RAM filesystem** | **ASCII Snake** |
+| ![Creating and reading a RAM file in rum](docs/images/storage.png) | ![ASCII Snake running in rum](docs/images/snake.png) |
 
 ## Getting started
 
@@ -48,6 +54,7 @@ The bottom row shows uptime.
 | `rm <name>` | Remove a file |
 | `mem` | Show heap and filesystem usage |
 | `diag` | Inspect tasks, paging, stacks and memory usage |
+| `run <program> [args]` | Run an embedded user ELF in the foreground |
 | `snake` | Play ASCII Snake |
 
 Snake uses **WASD** to move, **P** to pause, **R** to restart, and **Q** to return
@@ -65,14 +72,20 @@ input with `Ctrl+Alt+G`.
 - GRUB Multiboot v1 boot with VGA text and COM1 output.
 - Writable GDT/TSS, IDT, shared interrupt entry, and CPU exception diagnostics.
 - PIC interrupts, a 100 Hz PIT timer, and PS/2 keyboard input.
-- Cooperative kernel tasks with private stacks, event waits and deferred cleanup.
+- Cooperative kernel tasks with guarded virtual stacks, event waits, and deferred cleanup.
+- A dedicated double-fault task and emergency stack for controlled overflow reports.
 - A physical allocator for 4 KiB pages below 1 GiB.
-- Supervisor paging with a null-page guard and read-only kernel code/constants.
+- Supervisor paging with protected kernel pages and private user address spaces.
+- Process records with positive PIDs, trusted user frames, and owned-resource accounting.
+- Production ring-3 entry with isolated user-fault recovery and recorded fault state.
+- A versioned `int 0x80` ABI with process exit, PID lookup, and validated console I/O.
 - A page-backed heap with aligned allocation, resizing, and free-block reuse.
 - A flat RAM filesystem with build-time file embedding.
+- A separate freestanding user ELF build, production loader, and public ABI.
+- Foreground user-process launch, waiting, fault reporting, cleanup, and Ctrl+C.
 
-rum is a single-CPU, ring-0 system. Commands and Snake run inside the kernel;
-there are no user processes or persistent disk storage.
+rum is a single-CPU system. The shell and Snake still run in ring 0; programs
+started with `run` execute in ring 3. Persistent disk storage is planned work.
 
 ## Building and testing
 
@@ -87,9 +100,11 @@ there are no user processes or persistent disk storage.
 | `.\rum.ps1 clean` | `make clean` | Remove generated build files |
 
 Build outputs are `build/rum.elf` and `build/rum.iso`. Tests cover game rules,
-shell input, memory allocation, RAM files, boot checks, CPU faults, and device
-interrupts. QEMU tests exercise the keyboard and timer and save logs, memory
-dumps, and screenshots in `build/test-artifacts/`.
+shell input, memory allocation, RAM files, boot checks, CPU faults, ring-3
+syscalls, foreground process outcomes, cleanup, and device interrupts. Every
+isolated QEMU case runs with 16 and 64 MiB. The suite also boots the GRUB ISO
+and direct ELF at 16, 64, 256, and 1152 MiB. Logs, memory dumps, and screenshots
+are saved in `build/test-artifacts/`.
 
 ## Packaging
 
@@ -109,6 +124,9 @@ On Linux or in WSL:
 make
 python3 scripts/package.py
 ```
+
+Validate the archive and its embedded ISO with `make test-package` on Linux or
+WSL, or `py -3 tests/package-test.py` on Windows.
 
 This creates `rum.zip` in the repository directory, replacing an existing
 archive. Its contents are:
@@ -136,11 +154,11 @@ qemu-system-i386 -m 64M -cdrom rum.iso
 | `assets/ramfs/` | Embedded boot files |
 | `scripts/` | Toolchain setup, environment checks, embedding, and QEMU tests |
 | `tests/` | Host tests and isolated test kernels |
-| `docs/` | Setup, usage, and implementation notes |
+| `docs/` | Setup, usage, architecture, and contributor guides |
 
 The project follows the boot and toolchain approach in
 [OSDev Bare Bones](https://wiki.osdev.org/Bare_Bones). GRUB loads the kernel;
 `arch/i386/boot.s` sets up its stack and CPU segments before calling C.
 
 See the [documentation](docs/README.md) for subsystem details and debugging.
-Protected userspace and persistent-storage plans are in the [roadmap](docs/roadmap.md).
+Persistent storage and userspace-shell plans are in the [roadmap](docs/roadmap.md).

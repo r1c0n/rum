@@ -1,73 +1,120 @@
 # Kernel diagnostics
 
-Enter `diag` at the shell prompt to inspect the current kernel context and
-resource usage. The command takes no arguments and writes to VGA and COM1.
-It reports:
+Use the `diag` shell command when rum boots but something about memory or task
+state looks wrong. It takes a consistent, allocation-free snapshot and prints
+it to both VGA and COM1.
 
-- Current task ID, hardware CR3, CR0, kernel ESP and TSS.ESP0.
-- Current stack bounds and the task record's directory address.
-- Registered page directories and shared kernel page tables.
-- Free and managed physical pages, owned task stacks and directories.
-- Worker creation, exit, reclamation and actual context-switch counters.
-- Heap allocations, mapped/used bytes, and RAM file counts/sizes.
-- Each occupied task slot's state, stack bounds, directory and ownership.
+```text
+> diag
+Task: 1 | CR3: 0x00131000 | TSS.ESP0: 0x00211000
+Kernel ESP: 0x00210400 | CR0: 0x8001001f
+...
+```
 
-The boot shell is task 1; idle is task 2. Workers receive increasing IDs.
-Exited records remain listed until a surviving context reclaims them.
-The lifecycle counters exclude the permanent boot/idle contexts and wrap as
-unsigned 32-bit values. The switch counter excludes yields that keep the same
-context running.
+Addresses and counts vary with the build, RAM size, and current task.
 
-## Reading ownership
+## Reading `diag`
 
-Boot borrows its reserved assembly stack. Idle and workers own four physical
-pages each for their 16 KiB kernel stacks. A worker can borrow the kernel
-directory or own a private directory transferred at successful creation.
+| Output | Meaning |
+| --- | --- |
+| `Task` | Scheduler ID of the running context; boot is 1 and idle is 2 |
+| `CR3` | Page-directory address actually loaded in the CPU |
+| `TSS.ESP0` | Top of the ring-0 entry stack for the current context |
+| `Kernel ESP` | Stack pointer sampled while the snapshot was taken |
+| `Current stack` | Valid lower and upper bounds for the running kernel stack |
+| `record CR3` | Directory owned or borrowed by the current task record |
+| `Paging` | Directory, shared kernel-table, and private user-table counts |
+| `User pages` | Private user data pages across registered address spaces |
+| `Physical` | Free pages compared with pages managed by the allocator |
+| `Tasks` | Live records and their owned kernel-stack/directory pages |
+| `Processes` | Published user-process records and their private user resources |
+| `Lifecycle` | Created, exited, reaped, and actual context-switch totals |
+| `Heap` | Live payload, mapped capacity, reusable space, and allocation count |
+| `RAM files` | Current file count and total payload bytes |
 
-Paging counts each directory once and each shared kernel table once. The task
-directory count is a subset of the paging directory count; do not add them
-together. Paging can also contain inactive directories still owned by callers.
-Physical free/managed counts cover all allocatable frames, including heap pages
-and paging structures. Reserved kernel/boot memory is outside that managed set.
+Each task entry also shows whether its stack and directory are owned or
+borrowed. Kernel tasks have PID zero. A published process has a positive PID,
+a parent task, an owned private directory, and accounted user pages. Process
+entries show their scheduler state, termination kind, cancellation state, and
+owned directory, stack, user-page, and private-table counts. An exited process
+also shows its hexadecimal exit status, cancellation result, or fault vector,
+error code, and user EIP.
 
-Freed heap blocks remain mapped for reuse, so mapped heap bytes can stay above
-live payload bytes after cleanup. This is different from unreclaimed task stack
-or directory frames, which should return to the physical allocator.
+## What healthy output looks like
 
-## Panic reports
+During an ordinary shell session:
 
-Fatal exceptions retain their saved register and fault-address reports.
-Two extra VGA lines identify the task, hardware CR3, TSS.ESP0 and kernel stack
-bounds. Serial also receives `rum_diag_cpu` and `rum_diag_resources` records.
-Their `diag_` field names distinguish current kernel state from interrupted
-registers. In particular, `diag_kesp` samples the panic handler's stack;
-the existing `esp` field is the interrupted stack pointer.
+- Hardware `CR3`, active paging `CR3`, and the current record's `CR3` agree.
+- `Kernel ESP` lies between the current stack bounds.
+- `TSS.ESP0` equals the upper stack bound.
+- Exactly one task is `running`; boot and idle remain present.
+- The normal shell has zero published processes and zero task-owned user pages.
+- Free physical pages may decrease when the heap grows, even after individual
+  heap allocations are freed. Heap pages stay mapped for reuse.
 
-Diagnostics show both hardware CR3 and registered/task-record directory
-addresses rather than assuming they agree. Before subsystem initialization,
-ownership counts and task ID are zero. Hardware registers and TSS remain
-available, including when an isolated fault fixture uses its own page tables.
-Reporting never releases resources or changes the active address space.
+An exited process remains visible until the kernel observes its signed status
+or fault record and explicitly reaps it. Its directory, user pages, and guarded
+kernel stack remain owned during that interval. After reaping, the record and
+all of those counts should disappear together.
 
-## Implementation and tests
+Do not add paging and task directory totals together. A task-owned directory is
+already included in the paging total. Paging may also contain an unpublished
+space that a loader is still constructing.
 
-`diagnostics_capture` gathers a copied snapshot under interrupt protection,
-restores the caller's IF state, then lets reporting run separately. Capture
-uses stack storage without heap allocation, blocking, switching or cleanup.
-Call it from foreground code or a fatal exception. It walks heap metadata;
-device handlers should use the bounded IRQ-safe `task_snapshot_read` instead.
-`paging_stats` also returns an allocation-free, interrupt-protected snapshot.
+## Panic output
 
-QEMU task fixtures verify snapshots against actual CR3, TSS, stack bounds and
-PMM ownership through context switches and IRQ delivery. Allocation fixtures
-repeat zero-, one-, two- and three-page budgets, reject four scattered free
-pages, then run a worker with exactly four contiguous free pages. Failed setup
-retains caller ownership; completed teardown restores the frame baseline.
+A fatal kernel exception prints the saved CPU state first, followed by the
+current task, CR3, TSS.ESP0, and kernel-stack bounds. Page faults also include
+CR2 and a plain-language access description. A user exception does not use this
+panic report; it becomes the process fault record described above.
 
-`build/tests/task-fault.elf` faults on an owned worker stack under a private CR3.
-Monitor checks compare the report with hardware, pre-fault expectations and
-actual PMM bits. They reconstruct directory, shared-table, heap and stack
-ownership, check supervisor permissions and kernel section protection, and
-verify that panic reporting preserves every frame. These tests run at 16 and
-64 MiB. Serial logs, ownership JSON, memory dumps and screenshots are retained
-in `build/test-artifacts/`.
+COM1 receives two machine-readable lines:
+
+- `rum_diag_cpu` contains the task kind, PID, parent, status, hardware and record
+  CR3 values, current kernel ESP, TSS.ESP0, and stack bounds.
+- `rum_diag_resources` contains task/process lifecycle and memory ownership
+  counts, including emergency-stack, paging, heap, and RAM-file resources.
+
+These reports intentionally contain kernel addresses for local debugging. They
+are available only through the kernel shell and serial console. The public user
+ABI exposes process IDs and syscall results, never kernel pointers, page-table
+addresses, stack bounds, or ownership records.
+
+The exception's `esp` value is the interrupted stack pointer. `diag_kesp` is the
+stack pointer used while producing diagnostics. They describe different moments
+and are not expected to match.
+
+For a double fault, diagnostics run from the dedicated emergency stack and the
+kernel page directory. The report reconstructs the failed context from the
+normal TSS before halting.
+
+## Investigating a problem
+
+If rum panics:
+
+1. Copy the complete COM1 output from the launching terminal.
+2. Resolve the reported EIP against the matching ELF:
+
+   ```sh
+   .tools/cross/bin/i686-elf-addr2line -e build/rum.elf -f 0xADDRESS
+   ```
+
+3. Compare hardware CR3 with `diag_recordcr3` and `diag_activecr3`.
+4. Check that `diag_kesp` is within `diag_base..diag_top`.
+5. Look for resource totals that fail to return to their earlier values after
+   repeated creation and cleanup.
+
+The full QEMU suite stores serial logs, screenshots, register dumps, and memory
+ownership reports in `build/test-artifacts/`. Run `make test` to regenerate them.
+
+## Diagnostics API
+
+`diagnostics_capture` writes a `struct kernel_diagnostics` supplied by the
+caller. It does not allocate, block, switch tasks, or reclaim resources, and it
+restores the caller's interrupt state. Use it from foreground code or a fatal
+exception. Device IRQ handlers should use the smaller, bounded
+`task_snapshot_read` interface instead.
+
+`diagnostics_render` formats an existing snapshot through a writer callback.
+`diagnostics_print` captures and writes a normal report, while
+`diagnostics_panic` emits the compact fatal report used by exception handling.

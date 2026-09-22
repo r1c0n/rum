@@ -1,10 +1,13 @@
 /* Install the IDT and report fatal CPU exceptions. */
 #include <stdbool.h>
 #include <rum/cpu.h>
+#include <rum/abi/syscall.h>
 #include <rum/diagnostics.h>
+#include <rum/gdt.h>
 #include <rum/interrupts.h>
 #include <rum/memory.h>
 #include <rum/serial.h>
+#include <rum/task.h>
 #include <rum/terminal.h>
 
 struct idt_gate {
@@ -26,6 +29,7 @@ _Static_assert(sizeof(struct idt_descriptor) == 6, "32-bit IDTR operand size");
 static struct idt_gate idt[256] __attribute__((aligned(16)));
 extern const uintptr_t exception_stub_table[32];
 extern const uintptr_t irq_stub_table[16];
+extern void syscall_entry(void);
 static bool panicking;
 
 void idt_initialize(void)
@@ -41,6 +45,18 @@ void idt_initialize(void)
             .offset_high = (uint16_t)(address >> 16),
         };
     }
+    idt[8] = (struct idt_gate) {
+        .selector = DOUBLE_FAULT_TSS_SELECTOR,
+        .attributes = 0x85, /* Present, ring 0, hardware task gate. */
+    };
+    uintptr_t syscall = (uintptr_t)syscall_entry;
+    idt[RUM_SYSCALL_VECTOR] = (struct idt_gate) {
+        .offset_low = (uint16_t)syscall,
+        .selector = KERNEL_CODE_SELECTOR,
+        .reserved = 0,
+        .attributes = 0xEE, /* Present, ring 3, 32-bit interrupt gate. */
+        .offset_high = (uint16_t)(syscall >> 16),
+    };
     const struct idt_descriptor descriptor = {
         .limit = sizeof(idt) - 1,
         .base = (uintptr_t)idt,
@@ -81,10 +97,12 @@ _Noreturn void exception_dispatch(const struct exception_frame *frame)
     __asm__ volatile ("cli" : : : "memory");
     if (panicking)
         cpu_halt();
-    panicking = true;
     /* Read CR2 before console output in case the original fault was #PF. */
     uint32_t fault_address;
     __asm__ volatile ("mov %%cr2, %0" : "=r"(fault_address));
+    if (exception_frame_from_user(frame) && task_current_is_process())
+        task_exit_from_user_fault(frame, fault_address);
+    panicking = true;
     terminal_initialize();
     terminal_set_color(VGA_LIGHT_RED, VGA_BLACK);
     write("\n  rum kernel panic\n\n  ");
@@ -113,4 +131,20 @@ _Noreturn void exception_dispatch(const struct exception_frame *frame)
     write("\n\n  CPU halted. Close QEMU to return to your host.\n");
     serial_writestring("rum_panic_halted\n");
     cpu_halt();
+}
+
+_Noreturn void double_fault_dispatch(void)
+{
+    /* A nested hardware task switch saved the failed context in rum_tss.
+       Shape it like the ordinary assembly frame so panic output stays useful. */
+    struct exception_frame frame = {
+        .gs = rum_tss.gs, .fs = rum_tss.fs, .es = rum_tss.es, .ds = rum_tss.ds,
+        .edi = rum_tss.edi, .esi = rum_tss.esi, .ebp = rum_tss.ebp,
+        .saved_esp = rum_tss.esp >= 20 ? rum_tss.esp - 20 : 0,
+        .ebx = rum_tss.ebx, .edx = rum_tss.edx, .ecx = rum_tss.ecx, .eax = rum_tss.eax,
+        .vector = 8, .error = 0, .eip = rum_tss.eip,
+        .cs = rum_tss.cs, .eflags = rum_tss.eflags,
+    };
+    serial_writestring("rum_double_fault_entry\n");
+    exception_dispatch(&frame);
 }

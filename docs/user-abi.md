@@ -1,146 +1,241 @@
-# User ABI and executables
+# User ABI and ELF programs
 
-User sources live in `user/`. They build as separate static i386 executables
-with their own startup, runtime, flags, linker script and objects. The normal
-boot still runs the kernel shell; loading these programs as processes requires
-the user mapping, syscall and process-lifetime interfaces on the roadmap.
+rum builds freestanding i386 user executables with a separate startup, runtime,
+linker script, and public include tree. The kernel validates and maps stripped
+ELF files from its RAM filesystem, constructs their initial stacks, enters the
+prepared process in ring 3, recovers user faults, and serves ABI version 1
+through the production syscall dispatcher. The normal shell launches one
+foreground process with `run`, waits for its result, and reclaims its complete
+address space and kernel task state before restoring the prompt.
 
-## Building
+## Building user programs
 
 ```sh
-make user       # Build and validate the runtime assets and debug executables
-make test-user  # Also check malformed ELF inputs and symbol/header separation
-make test       # Include ring-3 startup fixtures and the existing boot checks
+make user
 ```
 
-In PowerShell, use `.\rum.ps1 user`. A normal `.\rum.ps1 build` or `make`
-also builds the user assets. The existing `i686-elf` toolchain supplies GCC,
-assembler, linker, `objcopy`, `nm` and `readelf`; `make doctor` checks them.
+PowerShell users can run:
 
-| Path | Contents |
+```powershell
+./rum.ps1 user
+```
+
+The build produces:
+
+| Path | Purpose |
 | --- | --- |
-| `include/rum/abi/` | Public headers shared by kernel and user code |
-| `user/include/rum/user.h` | C declarations for the user runtime |
-| `user/lib/` | Startup and syscall wrappers |
-| `user/programs/hello.c` | Console greeting, including partial-write handling |
-| `user/linker.ld` | Static ELF32 program layout |
-| `build/user/include/` | Generated public include tree; excludes private kernel headers |
-| `build/user/debug/` | Executables with symbols, DWARF and linker maps |
-| `build/user/ramfs/` | Stripped runtime ELF assets |
-| `build/user/embedded-files.c` | Validation of combined source/generated boot assets |
+| `build/user/debug/<name>.elf` | Symbol-rich executable for GDB and `addr2line` |
+| `build/user/debug/<name>.map` | Linker map |
+| `build/user/ramfs/<name>.elf` | Stripped, validated runtime asset |
+| `build/user/include/rum/abi/` | Generated public headers only |
 
-The user link uses `-nostdlib`, its own startup, and target `libgcc` for compiler
-helpers. It does not link a host C library, host startup or kernel objects.
-The integer-only CPU policy also applies to user sources: no x87, MMX or SSE
-state may be used until the kernel can preserve it.
+Private kernel headers are deliberately absent from the user include tree.
+User code links with `-nostdlib`, rum's startup and syscall wrappers, and target
+`libgcc`; it does not link a host C library or any kernel object.
 
-## Syscalls
+## Adding a program
 
-`rum/abi/syscall.h` defines ABI version 1. Invoke `int 0x80` with the number
-in EAX and up to three 32-bit arguments in EBX, ECX and EDX. EAX carries the
-result; the kernel return contract preserves the other general registers.
-Flags are unspecified. The C primitive preserves EBX for its own caller and
-follows the usual i386 callee-saved-register convention.
+1. Add `user/programs/name.c` with a normal
+   `int main(int argc, char **argv)` entry.
+2. Include `<rum/user.h>` for the supported runtime calls.
+3. Add `name` to `USER_PROGRAMS` in the Makefile.
+4. Run `make user` and fix any compiler or ELF-validator error.
+5. Debug with the ELF under `build/user/debug/`, not the stripped asset.
 
-| Number | Name | Arguments | Result |
+A minimal program looks like this:
+
+```c
+#include <rum/user.h>
+
+int main(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    static const char text[] = "hello from userspace\n";
+    return rum_write(RUM_STDOUT, text, sizeof text - 1) < 0;
+}
+```
+
+`write` may complete partially. Production programs should loop until all bytes
+are written or an error is returned; `user/programs/hello.c` shows the complete
+pattern.
+
+## Launching a program
+
+At the rum prompt, use a build name or the full RAM filename:
+
+```text
+> run hello first second
+Hello from rum userspace!
+Process 1 exited with status 0.
+
+> run nonzero
+Process 2 exited with status -37.
+```
+
+The shell treats spaces and tabs as argument separators and does not implement
+quotes or escapes. The typed program name becomes `argv[0]`. If the exact RAM
+filename is absent, `run` tries the same name with `.elf` appended.
+
+Only one foreground child is supported. Its parent sleeps on a process-exit
+event while the child owns console input. Normal exit preserves the full signed
+status. A user exception preserves its vector, error code, fault address, EIP,
+and user stack pointer. Ctrl+C records a cancellation request; a blocking child
+is woken, and a CPU-bound child observes the request on the next timer or
+keyboard return before ring 3 resumes. Every outcome switches away from the
+child before releasing its user pages, private tables, directory, guarded
+kernel stack, and task record.
+
+## Loading an executable
+
+Normal kernel builds merge the stripped files from `build/user/ramfs/` with the
+ordinary files from `assets/ramfs/`. Symbol-rich ELFs and linker maps stay under
+`build/user/debug/` and are not embedded.
+
+`elf_load_ramfs` reads one of those borrowed RAM-file images and applies the same
+checks as `elf_load_process`. The loader validates the complete ELF and argument
+packet before creating an address space. It then allocates distinct zeroed pages
+for each LOAD segment, copies only file-backed bytes, applies final read/write
+permissions, maps the fixed 64 KiB stack, and builds `argc`, `argv`, and an empty
+`envp` at a 16-byte-aligned ESP.
+
+On success, the returned `struct task_process` is complete but unpublished. The
+caller transfers its address space to `task_create_process`; if publication is
+not attempted or fails, the caller must destroy the space. A load failure leaves
+the output empty and rolls back its directory, page tables, and user pages.
+
+## Syscall convention
+
+ABI version 1 uses `int 0x80`:
+
+| Register | Meaning |
+| --- | --- |
+| EAX | Syscall number on entry; signed result on return |
+| EBX | First argument |
+| ECX | Second argument |
+| EDX | Third argument |
+
+Every general register except EAX is preserved by the kernel return contract.
+Flags are unspecified. The user C primitive also preserves the usual i386
+callee-saved registers.
+
+| Number | Wrapper | Arguments | Result |
 | --- | --- | --- | --- |
-| 0 | `exit` | Signed status | Does not return |
-| 1 | `read` | Handle, writable user address, capacity | Bytes read |
-| 2 | `write` | Handle, readable user address, count | Bytes written |
-| 3 | `getpid` | None | Positive process ID |
+| 0 | `rum_exit(status)` | Signed exit status | Does not return |
+| 1 | `rum_read(handle, buffer, capacity)` | Writable user buffer | Bytes read |
+| 2 | `rum_write(handle, buffer, bytes)` | Readable user buffer | Bytes written |
+| 3 | `rum_getpid()` | None | Positive process ID |
 
-Handles 0, 1 and 2 identify standard input, output and error. A nonnegative
-result means success; a negative value is a rum error from `rum/abi/error.h`.
-These error numbers are independent of host `errno`. There is no global errno
-variable. Addresses, sizes, handles and process IDs are unsigned 32-bit values;
-results and exit statuses are signed 32-bit values.
-Process IDs exposed through syscalls must not exceed `0x7fffffff`, so they
-remain distinguishable from negative errors.
+Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
+means success. A negative result is the negation of a `RUM_E*` value from
+`include/rum/abi/error.h`; these values are rum-specific and do not set a global
+`errno`.
 
-Read/write may complete partially. The caller advances its buffer and retries
-as appropriate. A zero-capacity request should return zero without dereferencing
-the buffer; a zero-byte read with a nonzero capacity means end of input.
-The future kernel dispatcher must validate handles, numbers, ranges and page
-permissions, and return `-RUM_ENOSYS` for unsupported calls. Defining this ABI
-does not install a syscall gate in the normal kernel.
+Read and write calls may return fewer bytes than requested. A zero-length call
+returns zero without using the buffer. The current console backend transfers at
+most 128 bytes per call, so callers must handle partial results.
 
-## Arguments and first entry
+`rum_write` accepts standard output and standard error. It verifies the complete
+arithmetic range, then checks and copies only the chunk it will transfer through
+a kernel buffer. Console code and drivers never receive a raw user pointer.
 
-The process argument limit is 32, including `argv[0]`, with at most 4096 bytes
-of strings including their terminating NULs. The public `struct rum_arguments`
-is a fixed 4232-byte launch packet: argc, exact string byte count, 32 offsets
-and 4096 inline bytes. Offsets describe tightly packed strings in order, starting
-at zero. Validate the copied packet before constructing a stack; these offsets
-are not pointers. No launch syscall is assigned yet.
+`rum_read` accepts standard input and requires a writable user range. If no
+decoded character is queued, the calling process sleeps on a keyboard-specific
+event. Keyboard IRQs remain enabled while it waits, PIT ticks continue, and
+other runnable tasks can execute. The call returns after copying one or more
+available characters, up to its 128-byte limit.
 
-Each process reserves a 64 KiB user stack ending at `0xc0000000`, with the
-preceding page left unmapped. At first entry, ESP is 16-byte aligned and points
-to this sequence of 32-bit words:
+An unsupported number returns `-RUM_ENOSYS`, an invalid standard handle returns
+`-RUM_EBADF`, and an overflowing, unmapped, supervisor-only, or wrongly
+protected buffer returns `-RUM_EFAULT`. These checks return an ABI error rather
+than turning bad user input into a kernel fault.
+
+## Process arguments and initial stack
+
+The launch packet `struct rum_arguments` contains copied bytes, never kernel or
+host pointers. Limits are:
+
+- 1–32 arguments, including `argv[0]`.
+- 4096 total string bytes, including NUL terminators.
+- Tightly packed strings described by offsets from the inline byte array.
+
+At ELF entry, ESP is 16-byte aligned and points to:
 
 ```text
 argc
-argv[0], ..., argv[argc - 1]  (user addresses of NUL-terminated strings)
-0                           (argv terminator)
-0                           (empty envp)
-alignment padding, then argument strings higher in the stack
+argv[0] ... argv[argc - 1]   user addresses of NUL-terminated strings
+0                            argv terminator
+0                            empty envp
+padding and argument strings
 ```
 
-There is no return address or auxiliary vector at ELF entry. Use fresh user
-registers/selectors and EFLAGS `0x202`, as described in [CPU policy](exceptions.md).
-`_start` clears DF and EBP, extracts argc/argv, aligns the call stack and calls
-`int main(int argc, char **argv)`. C entry has ESP modulo 16 equal to 12 because
-CALL pushes a return address. Returning from main passes its full signed result
-to `rum_exit`; an unexpectedly returning exit faults with `ud2`.
+There is no return address or auxiliary vector. `_start` clears DF and EBP,
+extracts argc/argv, aligns the C call stack, and invokes `main`. Returning from
+`main` passes the full signed result to `rum_exit`.
 
-## ELF subset and asset limits
+The user stack occupies `0xbfff0000`–`0xc0000000`; the preceding page at
+`0xbffef000` is always unmapped as a guard.
 
-The initial format is System V little-endian ELF32 `ET_EXEC`, machine i386,
-with at most 16 program headers. Programs use fixed addresses beginning at
-`0x80000000`, below `0xbfc00000`. No interpreter, dynamic linking, TLS or
-constructor/destructor runtime is supported. The linker separates RX text,
-read-only constants and RW data/BSS onto distinct pages and supplies a
-nonexecutable GNU-stack descriptor.
+## Supported ELF format
 
-The host checker uses program headers, not section names, to validate loading.
-Nonempty LOAD segments must fit the user program range, be sorted, have no
-shared pages, and have congruent file/virtual offsets modulo page size and
-their power-of-two alignment. File bytes cannot exceed memory bytes; the entry
-must be inside file-backed executable bytes. BSS and unused page bytes must
-be zeroed by the future loader. Reject writable executable segments.
+The validator accepts a deliberately small subset:
 
-The mapped-page budget is 16 MiB including the user stack. Existing i386 paging
-can enforce writable/supervisor permissions but has no NX bit; rejecting WX
-ELFs does not make writable data physically nonexecutable on this target.
+- System V, little-endian ELF32.
+- `ET_EXEC` for machine i386.
+- Static fixed-address segments; no interpreter or dynamic linking.
+- At most 16 program headers.
+- Load addresses in `0x80000000`–`0xbfc00000`.
+- Sorted nonempty LOAD segments with no overlapping pages.
+- File size no larger than memory size.
+- Entry point inside file-backed executable bytes.
+- Separate executable, read-only, and writable pages; writable executable
+  segments are rejected.
+- No TLS, relocation runtime, shared libraries, constructors, or destructors.
 
-Each runtime asset must fit the RAM filesystem's 64 KiB file limit. Stripping
-keeps the debug executable separately, and the checker compares load addresses,
-sizes, permissions, alignment and bytes between both copies. `objcopy` may
-discard empty LOAD headers without changing the load image.
+The linker places text, constants, and data/BSS on distinct pages and emits a
+nonexecutable GNU-stack descriptor. The loader zeroes BSS, segment padding, and
+unused stack bytes before publication. i386 non-PAE paging has no NX bit, so
+rejecting writable executable input remains a software policy.
 
-The asset generator checks the combined `assets/ramfs/` and `build/user/ramfs/`
-set for filename collisions, the 64-file limit, names and individual sizes.
-This combined C file is a build check; it is not linked into the normal kernel
-until process launching is available. Debug ELFs and maps stay out of the
-runtime asset directory and release ISO.
+Each stripped asset must also fit the RAM filesystem's 64 KiB per-file limit.
+The debug and stripped ELFs are compared to ensure stripping did not change the
+load image.
 
-## Verification
+## CPU restrictions
 
-Host checks cover fixed-width layouts, kernel/public constants, maximum stack
-arguments, isolated include paths, symbols and 30 malformed ELF/stripping
-cases. Asset tests cover combined limits and duplicate names.
+User programs are compiled without x87, MMX, SSE, or SSE2. The kernel does not
+save extended register state, so instructions that use it fault. Use integer
+code and compiler-provided integer helpers from target `libgcc`.
 
-Three isolated QEMU kernels execute the actual separate user ELFs through
-production startup, syscall wrappers, GDT/TSS and interrupt entry/return.
-Fixture-owned page tables and a mock dispatcher supply services solely for
-these tests. They are not the production loader or syscall implementation.
+User code cannot access hardware ports or supervisor pages. Initial EFLAGS are
+exactly `0x202`: IF is enabled and IOPL, DF, TF, NT, VM, and optional flags are
+clear.
 
-The probe verifies normal and maximum arguments, empty envp, initialized data,
-zeroed BSS, C stack alignment, DF/IF, callee-saved EBX, error returns, buffer
-arguments, full signed exit status and repeated real PIT returns. A third case
-executes `hello.elf` with partial write results. QMP independently audits the
-user gate, supervisor kernel mapping, user segment permissions, stack guard
-and unchanged executable/constant bytes. Artifacts go to `build/test-artifacts/`.
+## Troubleshooting
+
+- **`run` cannot find a program:** use `ls` to confirm that `<name>.elf` is in the
+  RAM filesystem, then rebuild with the name in `USER_PROGRAMS`.
+- **`run` rejects an existing file:** the file is not a supported static i386 ELF
+  or failed the runtime validator. Inspect the symbol-rich build with `readelf`.
+- **A read appears to stop the process:** standard input is blocking. Type a
+  supported character in the QEMU window or press Ctrl+C; timer interrupts
+  continue meanwhile.
+- **A write returns less than requested:** loop over the unconsumed bytes. The
+  console backend currently copies at most 128 bytes per call.
+- **Private kernel headers are missing:** user code may include only
+  `user/include/rum/user.h` and copied `rum/abi/` headers.
+- **The ELF checker rejects a segment:** inspect program headers with
+  `i686-elf-readelf -l build/user/debug/name.elf` and check ranges, page overlap,
+  alignment, and W+X flags.
+- **A symbol is missing from the stripped asset:** use the matching debug ELF for
+  symbols; stripping is intentional.
+- **A floating-point operation faults:** extended CPU state is unsupported; keep
+  the program integer-only.
+
+Run `make test-user` after changing the public ABI, linker script, startup,
+runtime, or ELF rules. Run `make test` after changing the kernel loader,
+CPU entry/return, or syscall assembly.
 
 ## Reference
 
-- [ELF program headers and loading](https://gabi.xinuos.com/elf/07-pheader.html)
+- [System V ELF program headers](https://gabi.xinuos.com/elf/07-pheader.html)

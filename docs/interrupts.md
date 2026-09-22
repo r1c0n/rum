@@ -1,88 +1,132 @@
 # Device interrupts
 
-rum targets QEMU's BIOS PC with legacy 8259 PICs, an 8254-compatible PIT,
-and an i8042 PS/2 keyboard controller.
+rum targets the legacy PC devices provided by QEMU: two 8259 PICs, an
+8254-compatible PIT, and an i8042 PS/2 keyboard controller.
 
-## PIC and IRQ return
+## IRQ map
 
-The master PIC uses vectors `0x20`–`0x27`; the slave uses `0x28`–`0x2f`
-and connects through master IRQ2. Initialization masks all sources. The kernel
-registers handlers before unmasking IRQ0 and IRQ1, leaving the master mask at
-`0xfc` and the slave at `0xff`. IRQ1 stays masked if keyboard setup fails.
+| IRQ | Vector | Device | Normal state |
+| --- | --- | --- | --- |
+| 0 | `0x20` | PIT timer | Unmasked after setup |
+| 1 | `0x21` | PS/2 keyboard | Unmasked only when keyboard setup succeeds |
+| 2 | `0x22` | Slave-PIC cascade | Managed by the PIC |
+| 3–7 | `0x23`–`0x27` | Unused | Masked |
+| 8–15 | `0x28`–`0x2f` | Unused slave IRQs | Masked |
 
-IRQ and exception stubs share the same [frame prefix](exceptions.md#handler-path).
-Ring-3 entries also carry the CPU-saved user ESP and SS. Common assembly
-clears DF, saves general and segment registers, loads kernel data selectors,
-aligns the stack, and calls `interrupt_dispatch`, which routes device vectors
-to `irq_dispatch`. It restores the frame and returns
-with `iret`, including the interrupted flags. Handlers run with IF clear.
+Initialization masks every source before registering handlers. A normal boot
+ends with master mask `0xfc` and slave mask `0xff`. If the keyboard is missing
+or rejects configuration, rum reports the failure, leaves IRQ1 masked, and
+continues with timer output and serial diagnostics.
 
-Dispatch calls the registered handler and sends an end-of-interrupt command
-(EOI). Slave IRQs acknowledge the slave before the master. An unregistered
-source is masked and acknowledged. Spurious IRQ7 gets no EOI when master ISR
-bit 7 is clear; spurious IRQ15 gets only a master EOI when slave ISR bit 7 is
-clear.
+## What an IRQ handler may do
 
-## Timer and idle loop
+IRQ handlers run with maskable interrupts disabled. They may:
 
-PIT channel 0 uses binary mode 2 with a divisor of 11932. Its nominal
-1,193,182 Hz input produces approximately 100 interrupts per second.
-IRQ0 increments an aligned, volatile 32-bit tick counter and signals the
-foreground work event. Accepted keyboard characters signal the same event.
+- Read or acknowledge the device.
+- Update small bounded counters or queues.
+- Signal a task event and make an existing waiter runnable.
 
-The foreground loop displays `ticks / TIMER_HZ` in the bottom VGA row once
-per second and uses ticks to advance Snake. Scrolling is limited to the other
-24 rows. The uptime counter wraps after roughly 497 days.
+They must not allocate memory, create or switch tasks, block, reclaim resources,
+run shell commands, or draw a full interface. Those operations happen after
+interrupt return in foreground context. `irq_in_handler()` lets shared APIs
+reject unsafe calls.
 
-The loop snapshots the work-event sequence while checking ticks and queued
-input with interrupts disabled. It restores flags before processing or waiting.
-`task_wait` checks the snapshot and attaches the blocked context atomically,
-so an event between checking and waiting cannot be lost. The scheduler selects
-the private idle context when nothing is runnable. Idle checks runnable state
-with IF clear and sleeps with `sti; hlt`, using STI's interrupt shadow to close
-the sleep boundary. See [Kernel tasks](tasks.md).
+The assembly entry and return format is shared with CPU exceptions. See
+[Boot, exceptions, and CPU state](exceptions.md#common-interrupt-frame) before
+changing the stubs.
 
-IRQ handlers may signal events and make blocked tasks runnable. They never
-switch stacks, allocate tasks, block or reclaim exited contexts. Actual
-scheduling happens after IRQ return; `irq_in_handler` enforces those task-API
-restrictions.
+System calls use the same saved frame at vector `0x80`, but they are not hardware
+IRQs and receive no PIC acknowledgement. The gate clears IF on entry like the
+other interrupt gates. After validating a user process context, the dispatcher
+enables interrupts before console work so a blocking read can receive keyboard
+IRQs and other runnable tasks can make progress.
 
-## PS/2 keyboard
+## PIC acknowledgement
 
-Setup runs with interrupts disabled. It disables both controller ports, drains
-stale bytes, enables translation, and configures the keyboard to use scan code
-set 2. The controller translates input to set 1 for rum's decoder. Commands
-require ACK (`0xfa`), retry RESEND (`0xfe`) up to three times, and use bounded
-polling. The final configuration enables IRQ1 and leaves the mouse port disabled.
-If setup fails, boot reports it and the timer continues running.
+`irq_dispatch` calls the registered handler and then sends the end-of-interrupt
+command. A slave IRQ is acknowledged on the slave first and the master second.
+An unexpected, unregistered source is masked before acknowledgement so it cannot
+trap the kernel in an interrupt loop.
 
-IRQ1 drains a bounded number of bytes and discards mouse, parity, and timeout
-data. The US QWERTY decoder handles make/break events, both Shift keys,
-Caps Lock, punctuation, Enter, Tab, and Backspace. Caps Lock toggles on the
-initial make event. The decoder handles E0/E1 prefixes, skips Pause and Print
-Screen sequences, and accepts keypad Enter and slash.
+Spurious IRQ7 and IRQ15 require special handling:
 
-Ctrl/Alt combinations and navigation keys are ignored. Other layouts, keyboard
-LEDs, Num Lock, and numeric keypad digits are unsupported.
+- IRQ7 receives no EOI when the master in-service bit is clear.
+- IRQ15 receives only a master EOI when the slave in-service bit is clear.
 
-Characters enter a 128-slot ring buffer with 127 usable slots. A full queue
-drops the newest character and increments a diagnostic counter. Reading it
-briefly saves, disables, and restores interrupt flags. The foreground loop
-passes characters to the [shell](shell.md) or active [game](snake.md).
-IRQ handlers do not echo, edit, or draw.
+## Timer and idle behavior
 
-## Tests
+PIT channel 0 uses mode 2 with divisor 11932, producing roughly 100 ticks per
+second. IRQ0 increments a 32-bit tick counter and signals the shared foreground
+work event.
 
-Host tests cover decoding, modifiers, and console behavior. An isolated IRQ
-kernel uses software interrupts with known registers and DF set to check frame
-restoration and spurious IRQ handling.
-User CPU fixtures also check repeated real timer delivery through a TSS stack
-switch and `iret` back to ring 3, including segments, stack, flags and C alignment.
+The foreground loop uses ticks for the uptime row and Snake movement. It
+compares unsigned tick differences, so normal scheduling continues across the
+counter wrap after roughly 497 days.
 
-Normal QEMU boots check live PIT ticks and inject input into the emulated PS/2
-device. Tests cover modifiers, ignored keys, editing, scrolling, timer delivery,
-IRQ counts, queue drops, and PIC masks. Repeated delivery exercises EOIs.
-Artifacts are saved in `build/test-artifacts/`.
+When there is no input, game update, or runnable worker, the boot task waits on
+the work event and the scheduler runs idle. Idle checks for work with IF clear,
+then executes `sti; hlt`. The interrupt shadow after STI closes the race between
+the final check and sleeping.
+
+## Keyboard behavior
+
+Keyboard setup disables both controller ports, drains stale bytes, enables
+translation, selects keyboard scan-code set 2, and enables IRQ1. The controller
+translates incoming bytes to set 1 for rum's decoder. Command polling is bounded;
+ACK and RESEND are handled without waiting forever for broken hardware.
+
+The decoder supports a US QWERTY keyboard with:
+
+- Letters, digits, punctuation, and Space.
+- Both Shift keys and Caps Lock.
+- Enter, keypad Enter, Tab, and Backspace.
+
+Navigation keys, function keys, keyboard LEDs, Num Lock behavior, and alternate
+layouts are unsupported. Ctrl+C requests foreground-process cancellation; other
+Ctrl and Alt combinations are ignored. Pause and Print Screen sequences are
+consumed without producing text.
+
+Decoded characters enter a 128-slot ring buffer with 127 usable entries. If the
+buffer is full, the newest character is dropped and the diagnostic drop counter
+increases. IRQ1 never echoes or edits text; the foreground loop sends queued
+characters to the [shell](shell.md) or [Snake](snake.md).
+
+A decoded character also signals a keyboard-specific task event. Blocking
+standard-input reads wait on this event rather than the general work event, so
+timer ticks do not cause needless wakeups.
+
+Ctrl+C is consumed by IRQ1 when a foreground process exists. The handler only
+sets its cancellation flag and makes a blocked process runnable. The common
+interrupt-return path performs termination at a safe boundary before user code
+runs again, which also covers CPU-bound programs interrupted by the PIT.
+
+## Adding an IRQ source
+
+1. Initialize and quiet the device while its PIC line is masked.
+2. Register a short handler with `irq_register`.
+3. Clear any pending device condition.
+4. Unmask the PIC line only after the handler is ready.
+5. Move expensive work into a foreground queue or task event.
+6. Add the line to diagnostics if dropped or unexpected events matter.
+
+Keep handler work bounded. A device that needs polling must use a finite timeout
+and return an error rather than holding IF clear indefinitely.
+
+## Troubleshooting
+
+- **Uptime never changes:** check that IRQ0 is unmasked and that the QEMU log
+  reports timer initialization.
+- **Keyboard does nothing but uptime works:** keyboard setup failed or IRQ1 stayed
+  masked. Read the serial boot message and inspect the PIC mask with QEMU.
+- **Characters disappear during heavy input:** inspect the keyboard drop count;
+  the fixed ring intentionally drops new bytes when full.
+- **The CPU repeatedly enters one IRQ:** confirm the device condition is cleared
+  and the correct PIC EOI sequence is used.
+- **A wait occasionally hangs:** take the event sequence before checking the
+  associated queue and pass that same snapshot to `task_wait`.
+
+Run `make test` after changing PIC masks, interrupt acknowledgement, PIT setup,
+keyboard command handling, queue behavior, or idle/wakeup code.
 
 ## References
 
@@ -90,4 +134,3 @@ Artifacts are saved in `build/test-artifacts/`.
 - [Intel 8254 datasheet](https://www.cs.cmu.edu/~410/doc/8254.pdf)
 - [QEMU i8042 implementation](https://github.com/qemu/qemu/blob/v8.2.2/hw/input/pckbd.c)
 - [QEMU PS/2 implementation](https://github.com/qemu/qemu/blob/v8.2.2/hw/input/ps2.c)
-- [QMP input commands](https://www.qemu.org/docs/master/interop/qemu-qmp-ref.html#input)

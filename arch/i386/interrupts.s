@@ -1,4 +1,5 @@
 #include <rum/cpu_layout.h>
+#include <rum/abi/syscall.h>
 .section .text, "ax"
 .code32
 
@@ -67,6 +68,15 @@ irq_\line:
     IRQ \line
 .endr
 
+/* The only software interrupt callable from ring 3. */
+.global syscall_entry
+.type syscall_entry, @function
+syscall_entry:
+    pushl $0
+    pushl $RUM_SYSCALL_VECTOR
+    jmp interrupt_common
+.size syscall_entry, . - syscall_entry
+
 .global interrupt_common
 .type interrupt_common, @function
 interrupt_common:
@@ -109,6 +119,16 @@ interrupt_return:
     add $8, %esp
     iret
 .size interrupt_common, . - interrupt_common
+
+/* A normal C call places the trusted frame pointer above its return address.
+   Replace the current kernel stack with that frame and share the production
+   restore path used by returning interrupts. */
+.global interrupt_enter
+.type interrupt_enter, @function
+interrupt_enter:
+    mov 4(%esp), %esp
+    jmp interrupt_return
+.size interrupt_enter, . - interrupt_enter
 
 .section .rodata, "a"
 .balign 4

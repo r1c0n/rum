@@ -1,69 +1,76 @@
 # ASCII Snake
 
-Enter `snake` at the shell prompt to play. The command takes no arguments.
+Type `snake` at the shell prompt to start the game.
 
 | Key | Action |
 | --- | --- |
 | W / A / S / D | Move up / left / down / right |
 | P | Pause or resume |
 | R | Restart |
-| Q | Return to the shell |
+| Q | Save the best score and return to the shell |
 
-Uppercase keys also work. Arrow keys are unsupported. You can queue a turn
-while paused, but only one turn is accepted per movement step. The snake cannot
-reverse direction.
+Uppercase keys also work. Arrow keys are unsupported. The snake cannot reverse
+direction, and only one turn is queued for each movement step. You may queue a
+turn while paused.
 
-The head is `@`, the body is `o`, food is `*`, and walls are `#`. Eating food
-grows the snake and adds a point. Hitting a wall or your body ends the game;
-filling the board wins. Press R to play again or Q to leave.
+## Rules
 
-The board is 40×16 cells, and movement advances one cell every 150 ms.
-The uptime row stays visible. Quitting clears the board, shows your score,
-restores the cursor, and returns to the shell.
+| Symbol | Meaning |
+| --- | --- |
+| `@` | Head |
+| `o` | Body |
+| `*` | Food |
+| `#` | Wall |
+
+Eating food grows the snake and adds one point. Hitting a wall or the body ends
+the game. Filling every playable cell wins. Moving into the cell being vacated
+by the tail is allowed when the snake is not growing.
+
+The board is 40×16 cells and advances one cell every 150 ms. The uptime row
+continues to update while the game is running or paused. After a loss or win,
+press R to start again or Q to leave.
 
 ## Best score
 
-Best scores last for the current boot. A new record is written to the RAM file
-`snake.score` on quit, restart, or game over. Use `cat snake.score` to read it
-after earning a point. Rebooting discards the score along with other RAM edits.
+The best score for the current boot is stored in the RAM file `snake.score`.
+The game saves it when you quit, restart, lose, or win. Read it from the shell:
 
-An existing score file can seed the record. Its format is decimal digits with
-an optional final newline, with a maximum value of 637. Invalid values are
-ignored. If the heap or filesystem is full, the best score remains in memory
-and the original file is preserved; a later quit or restart retries the save.
-An allocation failure when starting the game leaves the shell usable.
+```text
+> cat snake.score
+```
 
-## Implementation
+The file contains decimal digits and may end with a newline. The largest valid
+score is 637. Invalid existing contents are ignored.
 
-`kernel/snake_model.c` contains the game rules independently of the display,
-heap, and filesystem. A fixed-capacity ring stores body coordinates. Food
-placement starts at a cell chosen by a seeded 32-bit generator and scans for
-free space. Moving into the departing tail is legal when the snake is not
-growing.
+Because the filesystem is RAM-only, the score resets after reboot unless you
+place a valid `snake.score` in `assets/ramfs/` and rebuild the ISO.
 
-`kernel/snake.c` manages the heap-allocated game state, controls, score file,
-and VGA display. `terminal_put_at` draws without changing the console cursor or
-color and cannot overwrite uptime. The hardware cursor is hidden during play.
-COM1 receives game events and scores rather than a board redraw on every step.
-Input comes from the PS/2 keyboard.
+If saving fails because the heap or RAM filesystem is full, the in-memory best
+score remains available and a later quit or restart retries the write. The old
+file is preserved by an unsuccessful replacement.
 
-The foreground loop routes keys to the active game and checks elapsed PIT ticks
-for movement. Unsigned tick arithmetic handles wraparound. Delayed updates
-advance one step without a burst of catch-up movement. The loop reads fresh
-ticks after handling input so start and resume use the correct time.
+## Troubleshooting
 
-IRQ handlers only update counters or queue input. Game state is freed on quit;
-heap pages remain available for reuse, and the score file owns its separate
-allocations.
+- **Arrow keys do nothing:** use W, A, S, and D.
+- **A turn was ignored:** one turn is accepted per movement step, and direct
+  reversals are rejected.
+- **The score disappeared:** runtime scores do not persist across reboot.
+- **Q does not return immediately after a key burst:** queued keyboard input is
+  processed in order; wait for the foreground loop to consume it.
+- **The game cannot start:** a heap allocation failed. The shell remains usable;
+  remove RAM files or reboot to restore the initial state.
 
-## Tests
+## Contributor notes
 
-Model tests cover food placement, growth, turns, collisions, ring wraparound,
-and full-board victory. Host tests exercise the controller, VGA, heap, and
-filesystem together, including pause, restart, quit, tick wrap, failed saves,
-retry, and allocation cleanup.
+`kernel/snake_model.c` contains deterministic game rules without display, heap,
+or filesystem dependencies. The body uses a fixed-capacity coordinate ring.
+Food selection starts from a seeded pseudo-random cell and scans for free space.
 
-QEMU tests use real keyboard input and PIT ticks to reach food, grow, save a
-score, hit a wall, restart, and return to the shell. They check the screen,
-timer delivery during pause, and released game allocations. Screenshots are
-saved as `build/test-artifacts/iso-snake.ppm` and `elf-snake.ppm`.
+`kernel/snake.c` owns the heap-allocated session, controls, score loading/saving,
+and VGA rendering. It draws without moving the shell cursor or overwriting the
+uptime row. The foreground loop uses PIT ticks for movement and routes keyboard
+input to the game while it is active; IRQ handlers never update game state.
+
+Keep model rules independent from I/O, preserve allocation cleanup on every exit
+path, and make score replacement atomic. Run `make test-host` for rule or
+controller changes and `make test` for timing, keyboard, and display changes.

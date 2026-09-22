@@ -21,11 +21,12 @@ def check(path, valid, debug_path=None):
     assert (result.returncode == 0) == valid, result.stdout + result.stderr
 
 check(asset, True, debug)
-private_include = subprocess.run(
-    [args.cross_prefix + "gcc", "-ffreestanding", "-Iuser/include", "-Ibuild/user/include",
-     "-x", "c", "-fsyntax-only", "-"], input="#include <rum/heap.h>\n",
-    capture_output=True, text=True, cwd=root)
-assert private_include.returncode != 0, "private kernel headers exposed to user build"
+for header in ("heap.h", "task.h", "diagnostics.h", "memory_layout.h"):
+    private_include = subprocess.run(
+        [args.cross_prefix + "gcc", "-ffreestanding", "-Iuser/include", "-Ibuild/user/include",
+         "-x", "c", "-fsyntax-only", "-"], input=f"#include <rum/{header}>\n",
+        capture_output=True, text=True, cwd=root)
+    assert private_include.returncode != 0, f"private kernel header exposed to user build: {header}"
 symbols = subprocess.check_output([args.cross_prefix + "nm", str(debug)], text=True)
 assert all(name in symbols for name in (" _start", " main", " rum_syscall3"))
 assert "kernel_main" not in symbols

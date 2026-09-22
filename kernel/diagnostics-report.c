@@ -54,13 +54,19 @@ void diagnostics_render(const struct kernel_diagnostics *snapshot, diagnostics_w
         write(" | record CR3: "); hex(write, task->directory); write("\n");
     }
     write("Paging: "); decimal(write, snapshot->paging.directory_pages); write(" directories, ");
-    decimal(write, snapshot->paging.shared_table_pages); write(" shared tables | active: ");
+    decimal(write, snapshot->paging.shared_table_pages); write(" shared tables, ");
+    decimal(write, snapshot->paging.private_table_pages); write(" private tables\n");
+    write("User pages: "); decimal(write, snapshot->paging.user_pages); write(" | active: ");
     hex(write, snapshot->paging.active_directory); write("\n");
     write("Physical: "); decimal(write, snapshot->physical.free_pages); write(" free / ");
     decimal(write, snapshot->physical.managed_pages); write(" managed pages\n");
     write("Tasks: "); decimal(write, snapshot->tasks.count); write(" live, ");
     decimal(write, snapshot->tasks.stack_pages); write(" owned stack pages, ");
+    decimal(write, snapshot->tasks.emergency_stack_pages); write(" emergency stack pages, ");
     decimal(write, snapshot->tasks.directory_pages); write(" owned directories\n");
+    write("Processes: "); decimal(write, snapshot->tasks.processes); write(" | ");
+    decimal(write, snapshot->tasks.user_table_pages); write(" user tables, ");
+    decimal(write, snapshot->tasks.user_pages); write(" user pages\n");
     write("Lifecycle: "); decimal(write, snapshot->tasks.created); write(" created, ");
     decimal(write, snapshot->tasks.exited); write(" exited, "); decimal(write, snapshot->tasks.reaped);
     write(" reaped, "); decimal(write, snapshot->tasks.switches); write(" switches\n");
@@ -73,9 +79,26 @@ void diagnostics_render(const struct kernel_diagnostics *snapshot, diagnostics_w
     for (uint32_t i = 0; i < snapshot->tasks.count; ++i) {
         const struct task_information *item = &snapshot->tasks.tasks[i];
         write("  #"); decimal(write, item->id); write(" ");
+        if (item->kind == TASK_PROCESS) {
+            write("process pid="); decimal(write, item->process_id);
+            write(" parent=#"); decimal(write, item->parent); write(" ");
+        } else write("kernel ");
         write(item->state <= TASK_EXITED ? states[item->state] : "unknown");
         write(" stack="); hex(write, item->stack_base); write(".."); hex(write, item->stack_top);
-        write(item->owns_stack ? " owned\n" : " borrowed\n");
+        write(item->owns_stack ? " owned" : " borrowed");
+        if (item->state == TASK_EXITED && item->termination == TASK_TERMINATION_FAULT) {
+            write(" fault vector="); decimal(write, item->fault.vector);
+            write(" error="); hex(write, item->fault.error);
+            write(" eip="); hex(write, item->fault.instruction);
+        } else if (item->state == TASK_EXITED && item->termination == TASK_TERMINATION_EXIT) {
+            write(" status="); hex(write, (uint32_t)item->exit_status);
+        } else if (item->state == TASK_EXITED &&
+                   item->termination == TASK_TERMINATION_CANCELLED) {
+            write(" cancelled");
+        } else if (item->cancellation_requested) {
+            write(" cancelling");
+        }
+        write("\n");
         write("     CR3="); hex(write, item->directory);
         write(item->owns_space ? " owned\n" : " borrowed\n");
     }
@@ -100,6 +123,13 @@ void diagnostics_panic(void)
        registers off VGA. Prefix fields to keep them distinct from the frame. */
     serial_writestring("\nrum_diag_cpu");
     field(serial_writestring, "diag_task", snapshot.tasks.current);
+    field(serial_writestring, "diag_pid", task ? task->process_id : 0);
+    field(serial_writestring, "diag_parent", task ? task->parent : 0);
+    field(serial_writestring, "diag_kind", task ? task->kind : 0);
+    field(serial_writestring, "diag_state", task ? task->state : 0);
+    field(serial_writestring, "diag_termination", task ? task->termination : 0);
+    field(serial_writestring, "diag_cancel", task ? task->cancellation_requested : 0);
+    field(serial_writestring, "diag_status", task ? (uint32_t)task->exit_status : 0);
     field(serial_writestring, "diag_cr3", snapshot.cr3);
     field(serial_writestring, "diag_recordcr3", task ? task->directory : 0);
     field(serial_writestring, "diag_activecr3", snapshot.paging.active_directory);
@@ -108,12 +138,27 @@ void diagnostics_panic(void)
     field(serial_writestring, "diag_esp0", snapshot.esp0);
     field(serial_writestring, "diag_base", task ? task->stack_base : 0);
     field(serial_writestring, "diag_top", task ? task->stack_top : 0);
+    field(serial_writestring, "diag_ownsspace", task ? task->owns_space : 0);
+    field(serial_writestring, "diag_ownsstack", task ? task->owns_stack : 0);
+    field(serial_writestring, "diag_ownerstackpages",
+          task ? task->resources.kernel_stack_pages : 0);
+    field(serial_writestring, "diag_ownerdirectorypages",
+          task ? task->resources.directory_pages : 0);
+    field(serial_writestring, "diag_ownerusertables",
+          task ? task->resources.user_table_pages : 0);
+    field(serial_writestring, "diag_owneruserpages", task ? task->resources.user_pages : 0);
     serial_writestring("\nrum_diag_resources");
     field(serial_writestring, "diag_live", snapshot.tasks.count);
+    field(serial_writestring, "diag_processes", snapshot.tasks.processes);
     field(serial_writestring, "diag_stacks", snapshot.tasks.stack_pages);
+    field(serial_writestring, "diag_emergencystacks", snapshot.tasks.emergency_stack_pages);
     field(serial_writestring, "diag_owneddirs", snapshot.tasks.directory_pages);
+    field(serial_writestring, "diag_taskusertables", snapshot.tasks.user_table_pages);
+    field(serial_writestring, "diag_taskuserpages", snapshot.tasks.user_pages);
     field(serial_writestring, "diag_dirs", snapshot.paging.directory_pages);
     field(serial_writestring, "diag_tables", snapshot.paging.shared_table_pages);
+    field(serial_writestring, "diag_usertables", snapshot.paging.private_table_pages);
+    field(serial_writestring, "diag_userpages", snapshot.paging.user_pages);
     field(serial_writestring, "diag_free", snapshot.physical.free_pages);
     field(serial_writestring, "diag_managed", snapshot.physical.managed_pages);
     field(serial_writestring, "diag_created", snapshot.tasks.created);

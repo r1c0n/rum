@@ -82,15 +82,17 @@ static void shared_tables(struct paging_space *space)
           physical == (uintptr_t)__kernel_start, "shared kernel identity");
 }
 
-static uint32_t consume_pages(void)
+static uint32_t consume_until(uint32_t remaining)
 {
     uint32_t head = 0, page;
-    while ((page = pmm_allocate_page())) {
+    while (pmm_stats().free_pages > remaining && (page = pmm_allocate_page())) {
         *(uint32_t *)(uintptr_t)page = head;
         head = page;
     }
     return head;
 }
+
+static uint32_t consume_pages(void) { return consume_until(0); }
 
 static void release_pages(uint32_t head)
 {
@@ -99,6 +101,52 @@ static void release_pages(uint32_t head)
         check(pmm_free_page(head), "return consumed frame");
         head = next;
     }
+}
+
+static void kernel_stack_checks(struct paging_space *first, struct paging_space *second)
+{
+    uint32_t baseline = pmm_stats().free_pages;
+    struct paging_statistics initial = paging_stats();
+    check(!paging_kernel_stack_allocate(RUM_KERNEL_STACK_SLOTS) &&
+          !paging_kernel_stack_release(0), "reject invalid/absent kernel stack slots");
+    for (uint32_t remaining = 0; remaining < 5; ++remaining) {
+        uint32_t held = consume_until(remaining);
+        check(!paging_kernel_stack_allocate(0) && pmm_stats().free_pages == remaining,
+              "transactional guarded-stack allocation failure");
+        for (uint32_t page = 0; page < RUM_KERNEL_STACK_SIZE / PAGE_SIZE; ++page)
+            check(!paging_translate(paging_kernel_space(), RUM_KERNEL_STACK_SLOT_BASE(0) + page * PAGE_SIZE,
+                                    NULL), "failed stack publishes no page");
+        check(!paging_translate(paging_kernel_space(), RUM_KERNEL_STACK_GUARD(0), NULL) &&
+              paging_stats().shared_table_pages == initial.shared_table_pages,
+              "failed stack returns its shared table");
+        release_pages(held);
+        check(pmm_stats().free_pages == baseline, "guarded-stack failure returns every frame");
+    }
+
+    check(paging_kernel_stack_allocate(0) && pmm_stats().free_pages == baseline - 5,
+          "allocate first guarded kernel stack and table");
+    check(!paging_kernel_stack_allocate(0) && !paging_translate(first, RUM_KERNEL_STACK_GUARD(0), NULL) &&
+          !paging_translate(second, RUM_KERNEL_STACK_GUARD(0), NULL),
+          "stack slot is exclusive and guard is shared-unmapped");
+    for (uint32_t page = 0; page < RUM_KERNEL_STACK_SIZE / PAGE_SIZE; ++page) {
+        uint32_t address = RUM_KERNEL_STACK_SLOT_BASE(0) + page * PAGE_SIZE;
+        uint32_t kernel, left, right;
+        check(paging_translate(paging_kernel_space(), address, &kernel) &&
+              paging_translate(first, address, &left) && paging_translate(second, address, &right) &&
+              kernel == left && left == right && pmm_is_allocated(kernel) &&
+              *(const unsigned char *)(uintptr_t)kernel == 0,
+              "zeroed supervisor stack frame is shared across directories");
+    }
+    *(volatile uint32_t *)(uintptr_t)RUM_KERNEL_STACK_SLOT_BASE(0) = 0x7374616bu;
+    check(paging_kernel_stack_allocate(1) && pmm_stats().free_pages == baseline - 9,
+          "second stack reuses shared stack table");
+    check(paging_kernel_stack_release(0) && pmm_stats().free_pages == baseline - 5 &&
+          !paging_translate(first, RUM_KERNEL_STACK_SLOT_BASE(0), NULL) &&
+          paging_translate(second, RUM_KERNEL_STACK_SLOT_BASE(1), NULL),
+          "release one stack while retaining another");
+    check(paging_kernel_stack_release(1) && pmm_stats().free_pages == baseline &&
+          paging_stats().shared_table_pages == initial.shared_table_pages &&
+          !paging_kernel_stack_release(1), "release last stack and its empty table");
 }
 
 void paging_space_checks(void)
@@ -116,6 +164,7 @@ void paging_space_checks(void)
     struct paging_space *first = paging_space_create(), *second = paging_space_create();
     check(first && second && first != second && pmm_stats().free_pages == before - 2,
           "two independently owned directory frames");
+    kernel_stack_checks(first, second);
     shared_tables(first);
     shared_tables(second);
     switch_to(first);

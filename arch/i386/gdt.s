@@ -27,4 +27,16 @@ cpu_halt:
     jmp 1b
 .size cpu_halt, . - cpu_halt
 
+/* A task gate reaches this entry without touching the failed stack. The TSS
+   supplies flat kernel segments, the kernel CR3 and the emergency stack. */
+.global double_fault_entry
+.type double_fault_entry, @function
+double_fault_entry:
+    cli
+    cld
+    and $-16, %esp
+    call double_fault_dispatch
+    jmp cpu_halt
+.size double_fault_entry, . - double_fault_entry
+
 .section .note.GNU-stack, "", @progbits

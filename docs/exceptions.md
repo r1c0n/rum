@@ -1,129 +1,156 @@
-# CPU exceptions
+# Boot, exceptions, and CPU state
 
-rum uses a writable GDT with flat kernel code/data at selectors `0x08`/`0x10`,
-user code/data at `0x1B`/`0x23`, and a 32-bit TSS at `0x28`. Code and data
-segments cover the 32-bit address space. The user descriptors prepare for
-future processes; the normal kernel still runs entirely in ring 0.
-Startup saves the Multiboot arguments, loads GDTR, reloads CS with a far jump,
-reloads the data and stack segments, loads TR, and enters the kernel with an
-aligned stack. The TSS starts with the boot stack in ESP0 and kernel data in
-SS0. Its I/O-map offset is beyond the descriptor limit, denying user port I/O
-when IOPL is zero. `gdt_set_kernel_stack` updates ESP0 for a caller-owned,
-mapped supervisor stack. Loading TR sets the descriptor's busy bit, so the
-GDT must remain writable.
+This guide explains the x86 tables and stack frames that every interrupt,
+exception, and ring-3 transition relies on. Read it before changing
+files in `arch/i386/`.
 
-`idt_initialize` installs 32-bit ring-0 interrupt gates for exceptions 0–31
-and PIC IRQs 32–47 in a 256-entry IDT. Gates 48–255 are absent. Interrupt
-gates clear IF on entry; CPU faults can enter with device interrupts disabled.
+## Descriptor tables
 
-## Handler path
+rum uses a flat 32-bit GDT:
 
-1. The CPU pushes EFLAGS, CS, EIP, and an error code for exceptions that have one.
-2. The assembly stub pushes the vector and supplies a zero error code if needed.
+| Selector | Purpose |
+| --- | --- |
+| `0x08` | Ring-0 code |
+| `0x10` | Ring-0 data and stack |
+| `0x1b` | Ring-3 code |
+| `0x23` | Ring-3 data and stack |
+| `0x28` | Normal 32-bit task-state segment |
+| `0x30` | Double-fault task-state segment |
+
+The normal TSS supplies the ring-0 stack used when the CPU enters the kernel
+from ring 3. The scheduler updates its ESP0 and CR3 whenever it changes the
+current context. Its I/O-map offset lies beyond the TSS limit, so ring-3 port I/O
+is denied while IOPL remains zero.
+
+The GDT is writable because `ltr` marks a TSS descriptor busy. The separate
+double-fault descriptor is also changed by the hardware when its task gate is
+used.
+
+The IDT contains ring-0 interrupt gates for exceptions 0–31 and PIC vectors
+`0x20`–`0x2f`, plus a ring-3 interrupt gate at `0x80` for system calls. Vector 8
+is the exception: it is a hardware task gate targeting the double-fault TSS.
+Unused entries are absent. Only the `0x80` gate has descriptor privilege level
+3, so user code cannot invoke exception or device vectors with `int`.
+
+## Common interrupt frame
+
+CPU exceptions, device IRQs, and system calls enter through the same assembly
+path:
+
+1. The CPU saves EIP, CS, and EFLAGS. A privilege change also saves user ESP and
+   SS. Some exceptions include a hardware error code.
+2. The vector stub supplies a zero error code when the CPU did not provide one,
+   then pushes the vector number.
 3. Common assembly clears DF, saves general and segment registers, loads kernel
-   data selectors, aligns the stack, and passes an `exception_frame` pointer to C.
-4. C dispatch handles device IRQs and returns, or reports a fatal exception to
-   VGA and COM1 before halting with `cli; hlt`.
+   data selectors, and aligns the stack for C.
+4. `interrupt_dispatch` routes PIC vectors to the IRQ layer, vector `0x80` to
+   the syscall dispatcher, and exceptions to the exception handler.
+5. A returning entry restores the saved state and executes `iret`.
 
-All CPU exceptions are fatal, including breakpoints and NMIs. Exceptions and
-device IRQs share one assembly entry/return path. `interrupt_dispatch` sends
-device vectors to the IRQ handler and other vectors to the panic handler.
-IRQ return restores segment registers, general registers and the CPU frame
-with `iret`. A nested panic halts without printing recursively.
+`struct exception_frame` is the 68-byte common prefix. A ring-3 entry uses
+`struct exception_user_frame`, which adds the saved user ESP and SS for a total
+of 76 bytes. Always inspect the saved CS privilege bits before reading that
+tail. A ring-0 frame ends at EFLAGS.
 
-`exception_frame` is the 68-byte common prefix. Ring-0 entries end at EFLAGS;
-ring-3 entries add the interrupted ESP and SS in a 76-byte
-`exception_user_frame`. The saved CS privilege bits select the frame length.
-Stack helpers read the tail only for user entries. For ring 0, interrupted ESP
-comes from PUSHAD's saved ESP plus the normalized five-word CPU/stub frame.
-There is no separate double-fault stack yet.
+`exception_frame_esp` and `exception_frame_ss` provide the correct values for
+either frame shape. Use them instead of manually indexing the stack.
 
-## User CPU policy
+## User faults and kernel panics
 
-`cpu_user_frame_initialize` creates a zeroed register frame with user segment
-selectors and EFLAGS `0x202`: interrupts enabled, IOPL zero, and DF, TF, NT,
-VM and the other optional flags clear. The trusted caller must validate the
-entry address and stack before using it. Kernel flags are never inherited.
-`interrupt_return` accepts a complete trusted frame for `iret`; device IRQs
-reach the same restore path after C dispatch.
+An exception is recoverable only when its saved CS shows CPL 3 and the current
+task is a user process. The handler records the vector, error code, EIP, ESP,
+complete user frame, and CR2 for a page fault. It marks the process exited and
+switches to a surviving kernel context. The parent can inspect the record before
+explicitly reaping the process and its private memory.
 
-The first user ABI is integer-only. Bootstrap sets CR0.MP, EM and TS, and clears
-CR4.OSFXSR, OSXMMEXCPT and OSXSAVE. Actual x87/MMX/SIMD state instructions fault;
-compiler options also disable floating-point and vector code generation in the
-kernel. Extended register state has no owner or context-save path yet.
-An unsupported instruction remains a fatal exception until process fault
-recovery exists. Instructions such as fences that do not use extended register
-state are not excluded by this policy.
+An exception whose saved CS shows CPL 0 is fatal, even when the current task is
+serving a process. The panic report includes the exception name, vector, error
+code, EIP, CS, EFLAGS, general registers, segment registers, and interrupted
+stack pointer. A page fault also reports CR2 and decodes whether the access was
+present, writable, and from user mode.
 
-Panic reports include the vector and name, error code, EIP, CS, EFLAGS,
-general registers, segment selectors, and interrupted ESP (plus SS for a user
-entry). Page faults also report CR2 and decode the access type and whether the
-page was absent or protected.
+A nested panic stops immediately to avoid recursively using corrupted state.
+The final halt runs with interrupts disabled.
 
-## Inspecting a panic
+## Double faults
 
-Run `.\rum.ps1 panic` or `make panic` to boot `build/tests/fault-ud.elf`, an
-isolated kernel that executes `ud2`. Use the normal run command to boot rum again.
+A kernel stack overflow can prevent an ordinary page-fault handler from
+building its frame. Vector 8 therefore uses a hardware task switch rather than
+the common interrupt gate.
 
-To resolve an instruction address from a rum panic, run in Ubuntu:
+The double-fault TSS selects:
+
+- The permanent kernel page directory.
+- An independent guarded 16 KiB emergency stack.
+- Ring-0 code and data selectors.
+- `double_fault_entry` as its entry point.
+
+The entry reconstructs the failed EIP, registers, and ESP from the normal TSS,
+prints the usual fatal report, and halts. It never returns to the failed task.
+This path is intentionally small; do not allocate memory or attempt scheduling
+from it.
+
+## Trusted ring-3 frames
+
+`cpu_user_frame_initialize` creates a clean user frame with the user selectors
+and EFLAGS `0x202`. This enables maskable interrupts while keeping IOPL, DF, TF,
+NT, VM, and optional flags clear. Kernel flags must never be copied into a new
+user context.
+
+Before a frame can belong to a process, its EIP must point into a mapped user
+program page and its 16-byte-aligned ESP must point into mapped writable user
+stack memory. `task_create_process` performs those checks and copies the trusted
+frame into the process record.
+
+`interrupt_enter` accepts a complete trusted frame and transfers it to
+`interrupt_return`, which restores the frame with `iret`. The shell constructs
+foreground processes from validated ELF files, and production process tasks use
+this path for their first entry and every syscall or interrupt return.
+
+rum uses an integer-only CPU policy. Kernel and user builds disable
+x87, MMX, SSE, and SSE2 code generation. CR0 and CR4 are configured so actual
+extended-state instructions fault because no task owns or saves that state.
+
+## Debugging a panic
+
+Boot the isolated invalid-opcode example with:
+
+```powershell
+./rum.ps1 panic
+```
+
+or:
+
+```sh
+make panic
+```
+
+Resolve the reported instruction address against the same ELF that produced
+the panic:
 
 ```sh
 .tools/cross/bin/i686-elf-addr2line -e build/rum.elf -f 0xADDRESS
 ```
 
-C sources include debug information. GDB can inspect assembly stubs and symbols
-such as `rum_gdt`, `idt`, `exception_dispatch`, and `cpu_halt`.
-See [setup](setup.md#debugging) for attaching GDB.
+For interactive inspection, start `make debug`, attach GDB as described in
+[Setup](setup.md#debugging), and inspect `rum_gdt`, `rum_tss`,
+`rum_double_fault_tss`, `idt`, and the current exception frame. The
+[diagnostics guide](diagnostics.md) explains the task and ownership fields that
+follow the saved registers.
 
-## Tests
+## Rules for changing this code
 
-The test kernels include the kernel startup, GDT, IDT, and panic handler.
-Fault fixtures keep device interrupts disabled.
+- Keep GDT, TSS, and IDT storage mapped writable but supervisor-only.
+- Preserve the exact C frame layouts asserted in `include/rum/interrupts.h`.
+- Clear DF before entering C from any assembly path.
+- Keep the stack aligned according to the i386 C calling convention.
+- Do not read a user-frame tail after a ring-0 entry.
+- Update TSS.ESP0 before code can return to a different user context.
+- Switch away before releasing a faulted process's active CR3 or kernel stack.
+- Keep fatal paths allocation-free and safe with IF already clear.
 
-| Fault | Trigger | Vector / error code |
-| --- | --- | --- |
-| Divide error | Divide by zero | `0 / 0` |
-| Invalid opcode | `ud2` with DF set | `6 / 0` |
-| General protection | Load DS with selector `0x30`, beyond the GDT | `13 / 0x30` |
-| Page fault | Read unmapped `0x00400000` | `14 / 0`, CR2 `0x00400000` |
-
-The diagnostic page-fault fixture maps only the first 4 MiB. Additional test
-kernels use the [kernel paging implementation](memory.md) to fault on null
-access, unmapped aliases, and writes to read-only pages.
-
-QEMU tests inspect GDT/IDT contents, TR, the hardware TSS busy bit, the kernel
-entry stack and I/O-map offset. Paging tests verify GDT/TSS pages are writable
-and remain supervisor-only under child CR3s. Fault tests compare known
-registers and instruction addresses against panic reports, and verify the CPU
-halts with IF clear. The invalid-opcode case checks that saved EFLAGS retain DF
-while the handler clears it for C. Logs, memory dumps, and screenshots are in
-`build/test-artifacts/`.
-
-Five additional CPU fixtures enter ring 3 through the shared restore path and
-receive at least three real PIT IRQs on a dedicated TSS kernel stack. They check
-C-entry alignment, live kernel segments and flags, both stack pointers, and
-register/segment/DF/IF preservation after `iret`. They then execute `ud2`,
-`fldz`, MMX `pxor`, SSE `xorps`, or `outb`. Expected vectors are respectively
-6, 7, 6, 6 and 13, with zero error codes at the exact instruction addresses.
-The MMX test also accepts vector 7: [QEMU 8.2's decoder](https://github.com/qemu/qemu/blob/v8.2.2/target/i386/tcg/decode-new.c.inc)
-checks TS before EM for MMX, giving device-unavailable priority. Both exceptions
-reject the instruction before it uses extended register state.
-The initial user flags must be exactly `0x202`.
-
-These isolated fixtures leave paging disabled and replace C dispatch with an
-observer; assembly entry/return, descriptors, TSS, timer and PIC acknowledgment
-are the production code. They test CPU transitions without claiming process
-isolation or fault recovery. The normal kernel remains in ring 0.
-The host frame test puts a short kernel frame against an inaccessible page to
-catch accidental reads of a user tail, and verifies fresh user-frame initialization.
-
-Panic output also identifies the active task, hardware CR3, TSS.ESP0 and kernel
-stack bounds. The complete resource ledger goes to serial to keep the saved
-registers visible on VGA. An additional owned-worker fault fixture verifies
-this output under production paging and a real context switch. The host frame
-test places both frame lengths against an inaccessible page and poisons all
-registers before fresh user-frame initialization.
-See [kernel diagnostics](diagnostics.md) for the reporting API and checks.
+Run `make test-host` after changing frame definitions and `make test` after any
+change to descriptors, assembly entry/return, CPU flags, or exception dispatch.
 
 ## References
 

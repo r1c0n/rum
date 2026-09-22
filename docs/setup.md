@@ -70,7 +70,8 @@ make                 # Build build/rum.elf and build/rum.iso
 make user            # Build and validate separate user ELF assets
 make run             # Boot the ISO through GRUB
 make run-kernel      # Boot the ELF through QEMU's Multiboot loader
-make test            # Run host and QEMU tests
+make test            # Run the complete host, package, and QEMU suite
+make test-package    # Build and validate the release ZIP
 make test-host       # Run host tests only
 make test-user       # Check user ELF assets and malformed inputs
 make clean           # Remove build/
@@ -82,7 +83,8 @@ Close the QEMU window or press `Ctrl+C` in that terminal to stop it.
 Normal builds also produce stripped assets in `build/user/ramfs/` and symbol-rich
 executables/maps in `build/user/debug/`. Use `.\rum.ps1 user` in PowerShell to
 build those separately. See [User ABI and executables](user-abi.md) for the
-runtime and loading contract. They cannot yet be launched by the kernel shell.
+runtime and loading contract. Launch an embedded program from the kernel shell
+with `run <program> [args]`.
 
 ## Debugging
 
@@ -105,6 +107,38 @@ information, and assembly stubs have symbols.
 
 Run `.\rum.ps1 panic` or `make panic` to boot the isolated invalid-opcode test
 kernel. Use the regular run action to return to rum.
+
+## Troubleshooting
+
+Run the environment check first:
+
+```powershell
+.\rum.ps1 doctor
+```
+
+or from Ubuntu:
+
+```sh
+make doctor
+```
+
+- **WSL says the distribution does not exist:** run `wsl --list --verbose` and
+  pass the listed name with `-Distro <name>`.
+- **Windows cannot find QEMU:** add the directory containing
+  `qemu-system-i386.exe` to `PATH`, reopen PowerShell, and rerun `doctor`.
+- **The cross-compiler is missing:** rerun `./rum.ps1 setup` or
+  `bash scripts/build-toolchain.sh`. An interrupted toolchain build resumes from
+  its temporary build directory.
+- **GRUB ISO creation fails:** rerun `scripts/install-deps.sh`; the build needs
+  GRUB BIOS modules, `xorriso`, and Mtools, not only the GRUB command line.
+- **The compiler build runs out of memory:** lower `JOBS`, for example
+  `JOBS=2 bash scripts/build-toolchain.sh`.
+- **QEMU opens but no keyboard input reaches rum:** click inside its display. Use
+  `Ctrl+Alt+G` to release captured input.
+- **A test left QEMU running:** close the window or stop the launching terminal,
+  then rerun the failed command. Generated logs remain under
+  `build/test-artifacts/`.
+- **A stale build behaves unexpectedly:** run `make clean`, then `make`.
 
 ## References
 

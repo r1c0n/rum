@@ -10,6 +10,7 @@
 
 static char line[SHELL_LINE_CAPACITY];
 static size_t length;
+static shell_launcher launch_program;
 
 static void print(const char *text)
 {
@@ -40,6 +41,22 @@ static void number(size_t value)
     for (size_t i = 0; i < length / 2; ++i) {
         char c = text[i]; text[i] = text[length - i - 1]; text[length - i - 1] = c;
     }
+    print(text);
+}
+
+static void signed_number(rum_result_t value)
+{
+    if (value < 0) print("-");
+    uint32_t magnitude = value < 0 ? 0u - (uint32_t)value : (uint32_t)value;
+    number(magnitude);
+}
+
+static void hex(uint32_t value)
+{
+    static const char digits[] = "0123456789abcdef";
+    char text[11] = "0x00000000";
+    for (unsigned i = 0; i < 8; ++i)
+        text[2 + i] = digits[(value >> (28 - i * 4)) & 0xF];
     print(text);
 }
 
@@ -91,6 +108,7 @@ static void execute(void)
               "  rm <name>    Remove a file.\n"
               "  mem          Show heap and file usage.\n"
               "  diag         Show task and memory diagnostics.\n"
+              "  run <program> [args]  Run an embedded user program.\n"
               "  snake        Play ASCII Snake.\n");
     } else if (equal(command, "clear")) {
         if (*arguments) {
@@ -104,7 +122,7 @@ static void execute(void)
             print("Usage: about\n");
             return;
         }
-        print("rum OS v0.2.0\n"
+        print("rum OS v0.3.0\n"
               "An island of our own. A hobby kernel in C and x86 assembly.\n"
               "32-bit x86 | GRUB Multiboot | PIC, PIT and PS/2\n");
     } else if (equal(command, "echo")) {
@@ -150,6 +168,35 @@ static void execute(void)
     } else if (equal(command, "diag")) {
         if (*arguments) { print("Usage: diag\n"); return; }
         diagnostics_print();
+    } else if (equal(command, "run")) {
+        char *program = take_word(&arguments);
+        if (!*program) { print("Usage: run <program> [args]\n"); return; }
+        if (!launch_program) { print("User program launcher is unavailable.\n"); return; }
+        struct process_result result;
+        enum process_launch_error error = launch_program(program, arguments, &result);
+        if (error == PROCESS_LAUNCH_INVALID_ARGUMENTS) {
+            print("Cannot launch: too many or oversized arguments.\n");
+        } else if (error == PROCESS_LAUNCH_EXECUTABLE) {
+            print("Cannot launch "); print(program);
+            print(": file is missing or is not a valid executable.\n");
+        } else if (error == PROCESS_LAUNCH_RESOURCES) {
+            print("Cannot launch "); print(program); print(": process resources unavailable.\n");
+        } else if (error != PROCESS_LAUNCH_OK) {
+            print("Cannot finish process cleanup.\n");
+        } else {
+            print("Process "); number(result.process_id);
+            if (result.termination == TASK_TERMINATION_EXIT) {
+                print(" exited with status "); signed_number(result.exit_status); print(".\n");
+            } else if (result.termination == TASK_TERMINATION_CANCELLED) {
+                print(" cancelled by Ctrl+C.\n");
+            } else {
+                print(" faulted: vector "); number(result.fault.vector);
+                print(", error "); hex(result.fault.error);
+                print(", eip "); hex(result.fault.instruction);
+                print(", address "); hex(result.fault.address);
+                print(", stack "); hex(result.fault.stack); print(".\n");
+            }
+        }
     } else if (equal(command, "snake")) {
         if (*arguments) { print("Usage: snake\n"); return; }
         (void)snake_start(timer_ticks());
@@ -158,6 +205,11 @@ static void execute(void)
         print(command);
         print(". Type 'help'.\n");
     }
+}
+
+void shell_set_launcher(shell_launcher launch)
+{
+    launch_program = launch;
 }
 
 void shell_initialize(void)

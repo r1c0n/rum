@@ -17,6 +17,7 @@ void task_test_worker(void *argument);
 bool task_test_registers(void);
 extern const uint32_t task_test_entry_alignment;
 extern const char __kernel_start[], __kernel_end[], __boot_stack_top[];
+extern volatile uint32_t task_emergency_stack_base;
 static struct task_event done, timed;
 static volatile uint32_t finished, irq_checks, irq_target;
 static uint32_t worker_runs[2];
@@ -25,6 +26,9 @@ static struct task_event broadcast;
 static volatile uint32_t waiters_ready, waiters_done, idle_irqs;
 static uint32_t short_runs;
 static bool require_idle_ticks;
+static task_id process_task;
+static uint32_t process_directory;
+static struct exception_user_frame process_frame;
 
 static void check(bool condition, const char *name)
 {
@@ -56,9 +60,15 @@ static void context_check(void)
     for (uint32_t i = 0; i < snapshot.count; ++i) {
         const struct task_information *item = &snapshot.tasks[i];
         if (item->id == info.id) found = item->directory == cr3 && item->stack_top == rum_tss.esp0;
-        if (item->owns_stack)
-            for (uint32_t frame = item->stack_base; frame < item->stack_top; frame += RUM_PAGE_SIZE)
-                check(pmm_is_allocated(frame), "snapshot stack frames remain owned");
+        if (item->owns_stack) {
+            check(!paging_translate(paging_kernel_space(), RUM_KERNEL_STACK_GUARD(item->stack_slot), NULL),
+                  "snapshot stack guard remains absent");
+            for (uint32_t address = item->stack_base; address < item->stack_top; address += RUM_PAGE_SIZE) {
+                uint32_t frame;
+                check(paging_translate(paging_kernel_space(), address, &frame) && pmm_is_allocated(frame),
+                      "snapshot stack frames remain owned");
+            }
+        }
         if (item->owns_space) check(pmm_is_allocated(item->directory), "snapshot directory remains owned");
     }
     struct paging_statistics paging = paging_stats();
@@ -85,8 +95,9 @@ void task_test_worker(void *argument)
         check(task_test_registers(), "callee-saved registers/ESP across switches");
         context_check();
     }
-    uint32_t stack = rum_tss.esp0 - RUM_KERNEL_STACK_SIZE;
-    check(pmm_is_allocated(stack) && task_reap() == 0, "running stack cannot be reaped");
+    uint32_t frame;
+    check(paging_translate(paging_kernel_space(), rum_tss.esp0 - RUM_KERNEL_STACK_SIZE, &frame) &&
+          pmm_is_allocated(frame) && task_reap() == 0, "running stack cannot be reaped");
     ++finished;
     task_event_signal(&done);
     /* Returning from a C entry exits through the scheduler, never a freed stack. */
@@ -138,8 +149,6 @@ static uint32_t consume_until(uint32_t remaining)
     return head;
 }
 
-static uint32_t consume_pages(void) { return consume_until(0); }
-
 static void release_pages(uint32_t head)
 {
     while (head) {
@@ -149,9 +158,9 @@ static void release_pages(uint32_t head)
     }
 }
 
-static void allocation_boundaries(uint32_t baseline)
+static __attribute__((noinline)) void allocation_boundaries(uint32_t baseline)
 {
-    /* Repeat each insufficient contiguous-stack budget. Failed creation cannot
+    /* Repeat each insufficient guarded-stack budget. Failed creation cannot
        publish a task or claim the caller's private directory/metadata. */
     for (unsigned round = 0; round < 3; ++round) {
         for (uint32_t remaining = 0; remaining < RUM_KERNEL_STACK_SIZE / RUM_PAGE_SIZE; ++remaining) {
@@ -176,29 +185,120 @@ static void allocation_boundaries(uint32_t baseline)
         }
     }
     struct paging_space *candidate = paging_space_create();
-    uint32_t block = pmm_allocate_contiguous(8);
-    check(candidate && block, "fragmentation fixture resources");
-    uint32_t held = consume_pages();
-    for (uint32_t i = 0; i < 8; i += 2)
-        check(pmm_free_page(block + i * RUM_PAGE_SIZE), "scatter four free frames");
+    check(candidate, "exact stack-budget directory");
     uint32_t directory = paging_directory_address(candidate);
-    check(pmm_stats().free_pages == 4 && !task_create(short_worker, NULL, candidate) &&
-          pmm_stats().free_pages == 4 && paging_directory_address(candidate) == directory,
-          "four fragmented pages cannot become a contiguous task stack");
-    for (uint32_t i = 0; i < 4; ++i) check(pmm_allocate_page() != 0, "reclaim fragmented frames");
-    check(pmm_stats().free_pages == 0 && pmm_free_contiguous(block, 4), "make exactly one stack available");
+    uint32_t held = consume_until(RUM_KERNEL_STACK_SIZE / RUM_PAGE_SIZE);
     task_id worker = task_create(short_worker, NULL, candidate);
     check(worker && pmm_stats().free_pages == 0, "exact four-page budget publishes worker");
     struct task_information info;
-    check(task_query(worker, &info) && info.stack_base == block && info.directory == directory &&
+    check(task_query(worker, &info) && info.stack_slot == 1 &&
+          info.stack_base == RUM_KERNEL_STACK_SLOT_BASE(1) && info.directory == directory &&
           info.owns_stack && info.owns_space, "successful creation transfers stack/directory ownership");
     while (task_query(worker, &info)) check(task_yield(), "execute exact-budget worker");
     (void)task_reap();
     check(pmm_stats().free_pages == 5 && !paging_directory_address(candidate),
           "worker reaper releases four stack pages plus private directory");
-    check(pmm_free_contiguous(block + 4 * RUM_PAGE_SIZE, 4), "release retained fragmentation pages");
     release_pages(held);
-    check(pmm_stats().free_pages == baseline, "fragmentation fixture leaves no private frames");
+    check(pmm_stats().free_pages == baseline, "exact stack budget leaves no private frames");
+}
+
+static __attribute__((noinline)) void process_records(uint32_t baseline)
+{
+    struct task_snapshot initial, before, after;
+    check(task_snapshot_read(&initial) && !initial.processes && !initial.user_pages &&
+          !initial.user_table_pages, "initial process ownership ledger");
+    struct paging_space *space = paging_space_create();
+    check(space && paging_user_allocate(space, RUM_USER_BASE, 1, PAGING_WRITABLE) &&
+          paging_user_allocate(space, RUM_USER_STACK_TOP - RUM_PAGE_SIZE, 1, PAGING_WRITABLE),
+          "prepare process mappings");
+    const uint8_t instructions[] = {0x0F, 0x0B}; /* ud2 */
+    const uint32_t user_esp = RUM_USER_STACK_TOP - 32;
+    const uint32_t words[] = {1, user_esp + 16, 0, 0};
+    const char name[] = "probe";
+    check(paging_copy_to_user(space, RUM_USER_BASE, instructions, sizeof instructions) &&
+          paging_copy_to_user(space, user_esp, words, sizeof words) &&
+          paging_copy_to_user(space, user_esp + sizeof words, name, sizeof name) &&
+          paging_user_protect(space, RUM_USER_BASE, 1, 0), "complete process image and arguments");
+    struct paging_space_statistics ownership;
+    process_directory = paging_directory_address(space);
+    check(paging_space_stats(space, &ownership) && !ownership.kernel &&
+          ownership.directory == process_directory && ownership.private_table_pages == 2 &&
+          ownership.user_pages == 2, "per-space process ownership");
+
+    process_frame = (struct exception_user_frame){
+        .core = { .gs = USER_DATA_SELECTOR, .fs = USER_DATA_SELECTOR,
+                  .es = USER_DATA_SELECTOR, .ds = USER_DATA_SELECTOR,
+                  .eip = RUM_USER_BASE, .cs = USER_CODE_SELECTOR, .eflags = 0x202 },
+        .esp = user_esp, .ss = USER_DATA_SELECTOR,
+    };
+    struct task_process process = { .space = space, .user_frame = process_frame };
+    uint32_t prepared_free = pmm_stats().free_pages;
+    check(task_snapshot_read(&before), "process validation baseline");
+    struct task_process invalid = process;
+    invalid.space = paging_kernel_space();
+    check(!task_create_process(NULL) && !task_create_process(&invalid),
+          "reject missing and kernel process definitions");
+    invalid = process; invalid.user_frame.core.cs = KERNEL_CODE_SELECTOR;
+    check(!task_create_process(&invalid), "reject untrusted process selectors");
+    invalid = process; invalid.user_frame.core.eflags ^= 0x400;
+    check(!task_create_process(&invalid), "reject unsafe process flags");
+    invalid = process; invalid.user_frame.core.eip += RUM_PAGE_SIZE;
+    check(!task_create_process(&invalid), "reject unmapped process entry");
+    invalid = process; invalid.user_frame.esp = RUM_USER_STACK_BASE;
+    check(!task_create_process(&invalid), "reject unmapped process stack");
+    check(task_snapshot_read(&after) && after.count == before.count &&
+          after.processes == before.processes && after.created == before.created &&
+          pmm_stats().free_pages == prepared_free,
+          "invalid process definitions remain private");
+
+    for (uint32_t remaining = 0; remaining < RUM_KERNEL_STACK_SIZE / RUM_PAGE_SIZE; ++remaining) {
+        uint32_t held = consume_until(remaining);
+        check(task_snapshot_read(&before), "snapshot before partial process stack");
+        check(!task_create_process(&process), "partial process stack cannot publish");
+        check(pmm_stats().free_pages == remaining, "partial process stack restores pages");
+        check(paging_directory_address(space) == process_directory,
+              "partial process stack retains caller address space");
+        check(task_snapshot_read(&after) && after.count == before.count &&
+              after.processes == before.processes && after.stack_pages == before.stack_pages &&
+              after.directory_pages == before.directory_pages && after.user_pages == before.user_pages &&
+              after.created == before.created, "failed process is never published");
+        release_pages(held);
+        check(pmm_stats().free_pages == prepared_free, "process stack rollback restores ledger");
+    }
+
+    uint32_t held = consume_until(RUM_KERNEL_STACK_SIZE / RUM_PAGE_SIZE);
+    process_task = task_create_process(&process);
+    check(process_task && pmm_stats().free_pages == 0, "exact process stack budget publishes once complete");
+    /* Mutating the producer's packet cannot change the trusted record. */
+    process.user_frame.core.eip = 0;
+    struct task_information info;
+    check(task_query(process_task, &info) && info.kind == TASK_PROCESS && info.process_id == 1 &&
+          info.parent == 1 && info.state == TASK_RUNNABLE &&
+          !memcmp(&info.user_frame, &process_frame, sizeof process_frame) &&
+          info.termination == TASK_TERMINATION_NONE &&
+          info.resources.kernel_stack_pages == 4 && info.resources.directory_pages == 1 &&
+          info.resources.user_table_pages == 2 && info.resources.user_pages == 2,
+          "published process record owns immutable state");
+    process.user_frame = process_frame;
+    check(!task_create_process(&process) && !task_create(short_worker, NULL, space) &&
+          pmm_stats().free_pages == 0, "address space has one task owner");
+    check(task_yield() && task_query(process_task, &info) && info.state == TASK_EXITED &&
+          info.termination == TASK_TERMINATION_FAULT && info.process_id == 1 &&
+          info.fault.vector == 6 && !info.fault.error && !info.fault.address &&
+          info.fault.instruction == RUM_USER_BASE && info.fault.stack == user_esp &&
+          info.user_frame.core.vector == 6 && info.user_frame.core.eip == RUM_USER_BASE,
+          "ring-3 fault terminates only the process with a recorded reason");
+    check(task_snapshot_read(&after) && after.processes == 1 &&
+          after.states[TASK_EXITED] == 1 && after.user_table_pages == 2 && after.user_pages == 2 &&
+          pmm_stats().free_pages == 0, "process resources remain until explicit reap");
+    check(task_reap() == 1 && !task_query(process_task, &info) &&
+          !paging_directory_address(space) && pmm_stats().free_pages == 9,
+          "process reap releases stack and complete address space");
+    ownership = (struct paging_space_statistics){ .directory = UINT32_MAX };
+    check(!paging_space_stats(space, &ownership) && !ownership.directory,
+          "destroyed process space has no stale statistics");
+    release_pages(held);
+    check(pmm_stats().free_pages == baseline, "process construction and exit leave no physical owners");
 }
 
 void kernel_main(uint32_t magic, uint32_t information)
@@ -217,14 +317,22 @@ void kernel_main(uint32_t magic, uint32_t information)
     check(pmm_initialize((const void *)(uintptr_t)information, (uintptr_t)__kernel_start,
                          (uintptr_t)__kernel_end) && paging_initialize() && heap_initialize(), "memory startup");
     uint32_t initial = pmm_stats().free_pages;
-    uint32_t consumed = consume_pages();
-    check(!task_initialize() && pmm_stats().free_pages == 0 && !task_current_id(), "idle-stack OOM rollback");
-    release_pages(consumed);
-    check(pmm_stats().free_pages == initial && task_initialize(), "task initialization retry");
+    for (uint32_t remaining = 0; remaining < 9; ++remaining) {
+        uint32_t consumed = consume_until(remaining);
+        check(!task_initialize() && pmm_stats().free_pages == remaining && !task_current_id(),
+              "idle/emergency stack OOM rollback");
+        release_pages(consumed);
+        check(pmm_stats().free_pages == initial, "failed task initialization returns every frame");
+    }
+    check(task_initialize(), "task initialization retry");
     check(!task_initialize() && task_current_id() == 1, "one-time initialization and boot task");
     struct task_information info;
     check(task_query(2, &info) && info.stack_top - info.stack_base == RUM_KERNEL_STACK_SIZE,
           "private idle stack");
+    check(task_emergency_stack_base == RUM_KERNEL_STACK_SLOT_BASE(RUM_KERNEL_STACK_SLOTS - 1) &&
+          !paging_translate(paging_kernel_space(),
+                            RUM_KERNEL_STACK_GUARD(RUM_KERNEL_STACK_SLOTS - 1), NULL),
+          "dedicated guarded emergency stack");
     cpu_interrupt_enable();
     context_check();
     uint32_t baseline = pmm_stats().free_pages;
@@ -250,6 +358,7 @@ void kernel_main(uint32_t magic, uint32_t information)
           "deferred stack/directory/metadata cleanup");
 
     allocation_boundaries(baseline);
+    process_records(baseline);
 
     /* Exercise the bounded registry repeatedly, including borrowed kernel spaces.
        Old IDs must never refer to a later occupant of the same slot. */
@@ -322,6 +431,7 @@ void kernel_main(uint32_t magic, uint32_t information)
     check(task_wait(&timed, sequence), "idle survives owned-context exit");
     irq_target = 0;
     check(task_snapshot_read(&snapshot) && snapshot.count == 2 && snapshot.stack_pages == 4 &&
+          snapshot.emergency_stack_pages == 4 &&
           !snapshot.directory_pages && snapshot.created == snapshot.exited &&
           snapshot.created == snapshot.reaped && snapshot.switches > snapshot.created &&
           paging_stats().directory_pages == 1, "final ownership and lifecycle ledger");

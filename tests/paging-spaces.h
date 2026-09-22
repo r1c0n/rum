@@ -2,5 +2,6 @@
 #define RUM_TEST_PAGING_SPACES_H
 
 void paging_space_checks(void);
+void user_address_space_checks(void);
 
 #endif

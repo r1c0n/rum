@@ -7,6 +7,7 @@
 #include <rum/paging.h>
 #include <rum/pic.h>
 #include <rum/pmm.h>
+#include <rum/process.h>
 #include <rum/ramfs.h>
 #include <rum/serial.h>
 #include <rum/shell.h>
@@ -115,7 +116,7 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     terminal_set_color(VGA_WHITE, VGA_BLACK);
     print("  An island of our own.\n");
     terminal_set_color(VGA_LIGHT_GREY, VGA_BLACK);
-    print("  rum OS v0.2.0 | 32-bit x86\n");
+    print("  rum OS v0.3.0 | 32-bit x86\n");
     print("  Hello, kernel world!\n");
     terminal_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
     print("  [ok] Multiboot handoff\n");
@@ -140,6 +141,7 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     terminal_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     print("  Type 'help' for commands; Backspace edits.\n");
     print("  Close QEMU to return to your host.\n");
+    shell_set_launcher(process_launch_foreground);
     shell_initialize();
     update_uptime(0);
     pic_unmask(0);
