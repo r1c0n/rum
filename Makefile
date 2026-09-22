@@ -37,7 +37,7 @@ STORAGE_HOST_SOURCES := kernel/heap.c kernel/ramfs.c kernel/memory.c tests/page-
 STORAGE_HOST_HEADERS := include/rum/heap.h include/rum/ramfs.h include/rum/embedded.h include/rum/paging.h include/rum/pmm.h include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
 SNAKE_HOST_SOURCES := kernel/snake.c kernel/snake_model.c
 SNAKE_HOST_HEADERS := include/rum/snake.h include/rum/snake_model.h include/rum/timer.h
-USER_PROGRAMS := hello
+USER_PROGRAMS := hello nonzero fault spin
 USER_CPPFLAGS := -Iuser/include -Ibuild/user/include
 USER_INCLUDE_STAMP := build/user/include/.abi-stamp
 USER_CFLAGS := -std=gnu11 -ffreestanding -O2 -g -Wall -Wextra -Werror \
