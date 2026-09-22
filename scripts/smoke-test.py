@@ -760,6 +760,7 @@ def shell_test(stream, symbols, artifacts, mode, serial):
            "  rm <name>    Remove a file.\r\n"
            "  mem          Show heap and file usage.\r\n"
            "  diag         Show task and memory diagnostics.\r\n"
+           "  run <program> [args]  Run an embedded user program.\r\n"
            "  snake        Play ASCII Snake.\r\n> ")
     type_text("about\n")
     expect("rum OS v0.2.0\r\n"
@@ -827,6 +828,75 @@ def shell_test(stream, symbols, artifacts, mode, serial):
             raise RuntimeError(f"Missing shell VGA text {text!r}")
     (artifacts / f"{mode}-shell-screen.txt").write_text(screen + "\n")
     qmp_command(stream, "screendump", {"filename": str(artifacts / f"{mode}-shell.ppm")})
+    timer_test(stream, symbols, artifacts, mode)
+
+
+def process_shell_test(stream, symbols, artifacts, mode, serial):
+    qmp_command(stream, "cont")
+    send, expect, type_text = guest_keyboard(stream, serial)
+
+    resource_patterns = (
+        r"Paging: (\d+) directories, (\d+) shared tables, (\d+) private tables",
+        r"User pages: (\d+)",
+        r"Physical: (\d+) free / (\d+) managed pages",
+        r"Tasks: (\d+) live, (\d+) owned stack pages, (\d+) emergency stack pages, (\d+) owned directories",
+        r"Processes: (\d+) \| (\d+) user tables, (\d+) user pages",
+        r"Heap: (\d+) / (\d+) bytes, (\d+) allocations",
+        r"RAM files: (\d+) files, (\d+) bytes",
+    )
+
+    def resources(label):
+        start = len(serial.read_bytes())
+        type_text("diag\n")
+        expect("borrowed\r\n> ")
+        report = serial.read_bytes()[start:].decode()
+        values = []
+        for pattern in resource_patterns:
+            match = re.search(pattern, report)
+            if not match:
+                raise RuntimeError(f"Missing {label} process resource field {pattern!r}: {report}")
+            values.extend(map(int, match.groups()))
+        return tuple(values)
+
+    def run(command, expected):
+        start = len(serial.read_bytes())
+        type_text(command + "\n")
+        expect("\r\n> ")
+        output = serial.read_bytes()[start:].decode()
+        if expected not in output:
+            raise RuntimeError(f"Foreground command {command!r} missed {expected!r}: {output}")
+
+    baseline = resources("baseline")
+    for iteration in range(2):
+        run("run hello alpha beta", "Hello from rum userspace!\nProcess ")
+        if "exited with status 0." not in serial.read_bytes()[-200:].decode():
+            raise RuntimeError("hello did not return status zero")
+        if resources(f"hello {iteration}") != baseline:
+            raise RuntimeError("hello launch leaked process resources")
+
+    run("run nonzero", "exited with status -37.")
+    if resources("nonzero") != baseline:
+        raise RuntimeError("nonzero exit leaked process resources")
+    run("run fault", "faulted: vector 6, error 0x00000000")
+    if resources("fault") != baseline:
+        raise RuntimeError("user fault leaked process resources")
+
+    start = len(serial.read_bytes())
+    type_text("run spin\n")
+    time.sleep(0.1)
+    send("ctrl", "c")
+    expect("cancelled by Ctrl+C.\r\n> ")
+    if b"cancelled by Ctrl+C" not in serial.read_bytes()[start:]:
+        raise RuntimeError("Ctrl+C did not cancel the CPU-bound process")
+    if resources("cancellation") != baseline:
+        raise RuntimeError("cancelled process leaked resources")
+
+    run("run missing", "file is missing or is not a valid executable.")
+    run("run hello " + " ".join("x" for _ in range(32)),
+        "too many or oversized arguments.")
+    if resources("failed launches") != baseline:
+        raise RuntimeError("failed foreground launch changed resources")
+    run("echo shell returned", "shell returned")
     timer_test(stream, symbols, artifacts, mode)
 
 
@@ -1347,6 +1417,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                     elif normal and interactive:
                         keyboard_test(stream, symbols, artifacts, mode, serial)
                         shell_test(stream, symbols, artifacts, mode, serial)
+                        process_shell_test(stream, symbols, artifacts, mode, serial)
                         storage_shell_test(stream, symbols, artifacts, mode, serial, project)
                         snake_test(stream, symbols, artifacts, mode, serial)
                     qmp_command(stream, "quit")

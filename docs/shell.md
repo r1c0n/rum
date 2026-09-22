@@ -19,6 +19,7 @@ If QEMU captures your mouse or keyboard, press `Ctrl+Alt+G` to release it.
 | `rm <name>` | Remove a RAM file |
 | `mem` | Show heap and RAM-file usage |
 | `diag` | Show tasks, processes, paging, stacks, and ownership counts |
+| `run <program> [args]` | Run an embedded user program and wait for it |
 | `snake` | Start ASCII Snake |
 
 Example session:
@@ -35,6 +36,26 @@ Files are temporary. Restarting rum restores the embedded files and discards
 interactive edits. See [Heap and RAM files](storage.md) for filename and size
 limits.
 
+## Running user programs
+
+Use the program name with or without its `.elf` suffix:
+
+```text
+> run hello island guest
+Hello from rum userspace!
+Process 1 exited with status 0.
+```
+
+`run` splits arguments on spaces and tabs. Quoting and escaping are not
+implemented. A launch accepts at most 32 arguments including the program name
+and at most 4096 bytes of argument strings. The shell waits while the program
+owns console input, then prints its full signed exit status or user-fault record
+and restores the prompt.
+
+Press Ctrl+C to cancel the running program. Cancellation also stops a program
+that never makes a syscall because timer and keyboard interrupt returns check
+the request before returning to ring 3.
+
 ## Editing input
 
 - Backspace removes the previous character, including across a wrapped line.
@@ -49,8 +70,7 @@ arguments are skipped. `echo` and `write` preserve spaces inside and after their
 text argument.
 
 The shell does not implement quoting, variables, wildcard expansion, pipelines,
-redirection, command chaining, history, completion, or cursor navigation. Every
-command is a kernel built-in.
+redirection, command chaining, history, completion, or cursor navigation.
 
 ## File display
 
@@ -86,12 +106,15 @@ for the complete controls.
 - **`cat` shows dots:** the file contains binary or control bytes.
 - **The prompt appears frozen during Snake:** press Q; game mode owns keyboard
   input until it exits.
+- **The prompt appears frozen during a user program:** the program owns standard
+  input. Interact with it or press Ctrl+C to cancel it.
 
 ## Contributor notes
 
 `kernel/shell.c` owns line editing, parsing, command dispatch, and the prompt.
-IRQ1 only queues decoded characters. The foreground loop calls `shell_receive`
-with interrupts restored, so commands may allocate and use task-aware APIs.
+IRQ1 queues decoded characters. Ctrl+C is reserved for foreground-process
+cancellation. The foreground loop calls `shell_receive` with interrupts
+restored, so commands may allocate and use task-aware APIs.
 
 Keep parsing bounded by the fixed line buffer, keep command errors explicit,
 and never move command execution into the IRQ handler. Run `make test-host`

@@ -63,7 +63,10 @@ char keyboard_decode(struct keyboard_decoder *state, uint8_t scancode)
         state->caps_down = !released;
         return 0;
     }
-    if (released || state->left_ctrl || state->right_ctrl || state->left_alt || state->right_alt)
+    bool control = state->left_ctrl || state->right_ctrl;
+    if (!released && !extended && control && !state->left_alt && !state->right_alt &&
+        code == 0x2E) return '\x03'; /* Ctrl+C */
+    if (released || control || state->left_alt || state->right_alt)
         return 0;
     if (extended) {
         /* Ignore navigation and Print Screen's fake shifts. */

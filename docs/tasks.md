@@ -18,8 +18,8 @@ context unless foreground code later invokes the scheduler.
 | User process | Positive | Owns a private space | Restores a trusted user frame and enters ring 3 |
 
 The ELF loader can prepare a private address space and trusted frame for this
-path. The normal shell does not launch that prepared image yet, so production
-loading and execution are currently exercised by isolated integration fixtures.
+path. The shell's `run` command publishes it as the sole foreground child,
+blocks the boot task on its exit event, then reports and reaps the result.
 
 ## Guarded kernel stacks
 
@@ -144,9 +144,18 @@ including a kernel fault that occurs while serving a process.
 
 Exited kernel workers can be reclaimed automatically by a resumed task or
 idle. Exited process records remain visible so a parent can observe their
-status. An explicit `task_reap()` destroys their inactive address space,
-unmaps and frees the guarded stack, clears the record, and makes its slot
-available again. Task IDs and process IDs are not recycled.
+status. A foreground parent waits with `task_wait_process`, clears the foreground
+registration, and calls `task_reap_process` for that exact child. Reaping destroys
+the inactive address space, unmaps and frees the guarded stack, clears the
+record, and makes its slot available again. `task_reap()` remains available for
+bulk cleanup. Task IDs and process IDs are not recycled.
+
+Foreground cancellation is a request, not an asynchronous stack teardown.
+`task_cancel_foreground` is IRQ-safe and wakes a process blocked in a syscall.
+The request becomes `TASK_TERMINATION_CANCELLED` only at process startup, after
+a blocking wait resumes, or on a trusted interrupt/syscall return to ring 3.
+The parent then observes and reaps it through the same path used for normal
+exit and user faults.
 
 ## Inspecting task state
 
