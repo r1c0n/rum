@@ -149,7 +149,7 @@ qemu-system-i386 -m 64M -cdrom rum.iso
 | --- | --- |
 | `arch/i386/` | Startup assembly, CPU tables, interrupt stubs, paging, and linker script |
 | `boot/grub/` | GRUB configuration |
-| `kernel/` | Kernel entry, console, drivers, memory, filesystem, shell, and Snake |
+| [`kernel/`](kernel/README.md) | Core, drivers, memory, processes, filesystems, UI, and diagnostics |
 | `include/rum/` | Kernel interfaces |
 | `assets/ramfs/` | Embedded boot files |
 | `scripts/` | Toolchain setup, environment checks, embedding, and QEMU tests |

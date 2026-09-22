@@ -16,13 +16,28 @@ ABI_HEADERS := $(wildcard include/rum/abi/*.h)
 LINKER_SCRIPT := build/arch/i386/linker.ld
 LDFLAGS := -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie \
            -Wl,--build-id=none -Wl,-Map,build/rum.map
-SOURCES := kernel/kernel.c kernel/terminal.c kernel/serial.c kernel/memory.c kernel/timer.c kernel/keyboard.c kernel/keyboard_decode.c kernel/shell.c kernel/snake.c kernel/snake_model.c kernel/pmm.c kernel/task.c kernel/syscall.c kernel/elf.c kernel/process.c kernel/diagnostics.c kernel/diagnostics-report.c kernel/heap.c kernel/ramfs.c arch/i386/cpu.c arch/i386/gdt.c arch/i386/interrupt.c arch/i386/exceptions.c arch/i386/pic.c arch/i386/irq.c arch/i386/paging.c
+CORE_SOURCES := kernel/core/kernel.c kernel/core/memory.c
+DRIVER_SOURCES := kernel/drivers/terminal.c kernel/drivers/serial.c \
+                  kernel/drivers/timer.c kernel/drivers/keyboard.c \
+                  kernel/drivers/keyboard_decode.c
+MM_SOURCES := kernel/mm/pmm.c kernel/mm/heap.c
+PROCESS_SOURCES := kernel/process/task.c kernel/process/syscall.c \
+                   kernel/process/elf.c kernel/process/process.c
+FS_SOURCES := kernel/fs/ramfs.c
+UI_SOURCES := kernel/ui/shell.c kernel/ui/snake.c kernel/ui/snake_model.c
+DEBUG_SOURCES := kernel/debug/diagnostics.c kernel/debug/diagnostics-report.c
+ARCH_SOURCES := arch/i386/cpu.c arch/i386/gdt.c arch/i386/interrupt.c \
+                arch/i386/exceptions.c arch/i386/pic.c arch/i386/irq.c \
+                arch/i386/paging.c
+SOURCES := $(CORE_SOURCES) $(DRIVER_SOURCES) $(MM_SOURCES) \
+           $(PROCESS_SOURCES) $(FS_SOURCES) $(UI_SOURCES) \
+           $(DEBUG_SOURCES) $(ARCH_SOURCES)
 ASM_SOURCES := arch/i386/boot.s arch/i386/interrupts.s arch/i386/context.s
 OBJECTS := $(ASM_SOURCES:%.s=build/%.o) build/arch/i386/gdt-load.o $(SOURCES:%.c=build/%.o) build/generated/embedded-files.o
 DEPENDENCIES := $(SOURCES:%.c=build/%.d) build/arch/i386/boot.d build/arch/i386/interrupts.d build/arch/i386/gdt-load.d build/generated/embedded-files.d
 FAULT_KERNELS := build/tests/fault-de.elf build/tests/fault-ud.elf build/tests/fault-gp.elf build/tests/fault-pf.elf
 FAULT_OBJECTS := $(FAULT_KERNELS:.elf=.o)
-FAULT_COMMON := $(filter-out build/kernel/kernel.o,$(OBJECTS)) build/tests/fault-trigger.o
+FAULT_COMMON := $(filter-out build/kernel/core/kernel.o,$(OBJECTS)) build/tests/fault-trigger.o
 PAGING_CASES := ok null text rodata unmapped readonly
 PAGING_KERNELS := $(addprefix build/tests/paging-,$(addsuffix .elf,$(PAGING_CASES)))
 PAGING_OBJECTS := $(PAGING_KERNELS:.elf=.o)
@@ -33,9 +48,9 @@ PROCESS_FAULT_CASES := null kernel readonly ud2 privileged io irq
 PROCESS_FAULT_KERNELS := $(addprefix build/tests/process-fault-,$(addsuffix .elf,$(PROCESS_FAULT_CASES)))
 PROCESS_FAULT_OBJECTS := $(PROCESS_FAULT_KERNELS:.elf=.o)
 TEST_DEPENDENCIES := $(FAULT_OBJECTS:.o=.d) $(PAGING_OBJECTS:.o=.d) $(CPU_OBJECTS:.o=.d) $(PROCESS_FAULT_OBJECTS:.o=.d) build/tests/cpu-probe.d build/tests/process-fault-probe.d build/tests/syscall-kernel.d build/tests/syscall-probe.d build/tests/elf-loader-kernel.d build/tests/elf-loader-image.d build/tests/paging-spaces.d build/tests/user-memory.d build/tests/irq-kernel.d build/tests/storage-kernel.d build/tests/storage-checks.d build/tests/task-kernel.d build/tests/task-fault-kernel.d build/tests/task-double-fault-kernel.d build/tests/task-stack-fault.d
-STORAGE_HOST_SOURCES := kernel/heap.c kernel/ramfs.c kernel/memory.c tests/page-backend.c build/embedded-files.c
+STORAGE_HOST_SOURCES := kernel/mm/heap.c kernel/fs/ramfs.c kernel/core/memory.c tests/page-backend.c build/embedded-files.c
 STORAGE_HOST_HEADERS := include/rum/heap.h include/rum/ramfs.h include/rum/embedded.h include/rum/paging.h include/rum/pmm.h include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
-SNAKE_HOST_SOURCES := kernel/snake.c kernel/snake_model.c
+SNAKE_HOST_SOURCES := kernel/ui/snake.c kernel/ui/snake_model.c
 SNAKE_HOST_HEADERS := include/rum/snake.h include/rum/snake_model.h include/rum/timer.h
 USER_PROGRAMS := hello nonzero fault spin
 USER_CPPFLAGS := -Iuser/include -Ibuild/user/include
@@ -337,33 +352,33 @@ build/tests/fault-%.elf: build/tests/fault-%.o $(FAULT_COMMON) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(FAULT_COMMON) $< -lgcc -o $@
 	grub-file --is-x86-multiboot $@
 
-build/tests/console-test: tests/console-test.c kernel/terminal.c include/rum/terminal.h tests/include/rum/io.h
+build/tests/console-test: tests/console-test.c kernel/drivers/terminal.c include/rum/terminal.h tests/include/rum/io.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/include -Iinclude tests/console-test.c kernel/terminal.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/include -Iinclude tests/console-test.c kernel/drivers/terminal.c -o $@
 
-build/tests/memory-test: tests/memory-test.c kernel/memory.c include/rum/memory.h
+build/tests/memory-test: tests/memory-test.c kernel/core/memory.c include/rum/memory.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Iinclude tests/memory-test.c kernel/memory.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Iinclude tests/memory-test.c kernel/core/memory.c -o $@
 
-build/tests/keyboard-test: tests/keyboard-test.c kernel/keyboard_decode.c include/rum/keyboard_decode.h
+build/tests/keyboard-test: tests/keyboard-test.c kernel/drivers/keyboard_decode.c include/rum/keyboard_decode.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude tests/keyboard-test.c kernel/keyboard_decode.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude tests/keyboard-test.c kernel/drivers/keyboard_decode.c -o $@
 
-build/tests/shell-test: tests/shell-test.c kernel/shell.c kernel/diagnostics-report.c kernel/terminal.c include/rum/shell.h include/rum/process.h include/rum/diagnostics.h include/rum/task.h include/rum/terminal.h include/rum/serial.h tests/include/rum/io.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS) $(SNAKE_HOST_SOURCES) $(SNAKE_HOST_HEADERS)
+build/tests/shell-test: tests/shell-test.c kernel/ui/shell.c kernel/debug/diagnostics-report.c kernel/drivers/terminal.c include/rum/shell.h include/rum/process.h include/rum/diagnostics.h include/rum/task.h include/rum/terminal.h include/rum/serial.h tests/include/rum/io.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS) $(SNAKE_HOST_SOURCES) $(SNAKE_HOST_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Iinclude tests/shell-test.c kernel/shell.c kernel/diagnostics-report.c kernel/terminal.c $(SNAKE_HOST_SOURCES) $(STORAGE_HOST_SOURCES) -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Iinclude tests/shell-test.c kernel/ui/shell.c kernel/debug/diagnostics-report.c kernel/drivers/terminal.c $(SNAKE_HOST_SOURCES) $(STORAGE_HOST_SOURCES) -o $@
 
-build/tests/pmm-test: tests/pmm-test.c kernel/pmm.c include/rum/pmm.h include/rum/multiboot.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
+build/tests/pmm-test: tests/pmm-test.c kernel/mm/pmm.c include/rum/pmm.h include/rum/multiboot.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Iinclude tests/pmm-test.c kernel/pmm.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Iinclude tests/pmm-test.c kernel/mm/pmm.c -o $@
 
 build/tests/storage-test: tests/storage-test.c tests/storage-checks.c tests/storage-checks.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS)
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Iinclude tests/storage-test.c tests/storage-checks.c $(STORAGE_HOST_SOURCES) -o $@
 
-build/tests/snake-test: tests/snake-test.c kernel/snake_model.c include/rum/snake_model.h include/rum/memory.h
+build/tests/snake-test: tests/snake-test.c kernel/ui/snake_model.c include/rum/snake_model.h include/rum/memory.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude tests/snake-test.c kernel/snake_model.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude tests/snake-test.c kernel/ui/snake_model.c -o $@
 
 build/tests/layout-test: tests/layout-test.c $(LAYOUT_HEADERS) $(ABI_HEADERS)
 	@mkdir -p $(@D)

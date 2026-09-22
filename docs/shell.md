@@ -111,7 +111,7 @@ for the complete controls.
 
 ## Contributor notes
 
-`kernel/shell.c` owns line editing, parsing, command dispatch, and the prompt.
+`kernel/ui/shell.c` owns line editing, parsing, command dispatch, and the prompt.
 IRQ1 queues decoded characters. Ctrl+C is reserved for foreground-process
 cancellation. The foreground loop calls `shell_receive` with interrupts
 restored, so commands may allocate and use task-aware APIs.
