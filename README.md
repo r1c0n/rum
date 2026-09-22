@@ -6,7 +6,13 @@ the Scottish island of Rùm.
 rum boots through GRUB into a VGA text console with a shell, RAM files, protected
 user programs, and ASCII Snake. It runs on a 32-bit x86 BIOS machine in QEMU.
 
-![ASCII Snake running in rum](docs/images/snake.png)
+## Screenshots
+
+| Boot sequence | Shell |
+| --- | --- |
+| ![rum completing its boot sequence](docs/images/boot.png) | ![The rum command shell](docs/images/shell.png) |
+| **RAM filesystem** | **ASCII Snake** |
+| ![Creating and reading a RAM file in rum](docs/images/storage.png) | ![ASCII Snake running in rum](docs/images/snake.png) |
 
 ## Getting started
 
