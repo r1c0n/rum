@@ -984,6 +984,12 @@ def panic_diagnostics_test(stream, symbols, artifacts, mode, serial_text, regist
                         "created": 1, "exited": 0, "reaped": 0, "switches": 1}.items():
         if fields.get(name) != value:
             raise RuntimeError(f"Unexpected worker ownership/lifecycle {name}: {fields.get(name)}")
+    for name, value in {"kind": 0, "state": 2, "termination": 0, "cancel": 0,
+                        "ownsspace": 1, "ownsstack": 1, "ownerstackpages": 4,
+                        "ownerdirectorypages": 1, "ownerusertables": 0,
+                        "owneruserpages": 0}.items():
+        if fields.get(name) != value:
+            raise RuntimeError(f"Missing current-task ownership field {name}: {fields.get(name)}")
     allocated = dump_ram(stream, symbols["allocated"], 32768, artifacts / f"{mode}-panic-allocated.bin")
     managed = dump_ram(stream, symbols["managed"], 32768, artifacts / f"{mode}-panic-managed.bin")
     kernel_cr3 = fields["kernelcr3"]

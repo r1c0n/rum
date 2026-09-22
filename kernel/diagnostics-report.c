@@ -92,6 +92,11 @@ void diagnostics_render(const struct kernel_diagnostics *snapshot, diagnostics_w
             write(" eip="); hex(write, item->fault.instruction);
         } else if (item->state == TASK_EXITED && item->termination == TASK_TERMINATION_EXIT) {
             write(" status="); hex(write, (uint32_t)item->exit_status);
+        } else if (item->state == TASK_EXITED &&
+                   item->termination == TASK_TERMINATION_CANCELLED) {
+            write(" cancelled");
+        } else if (item->cancellation_requested) {
+            write(" cancelling");
         }
         write("\n");
         write("     CR3="); hex(write, item->directory);
@@ -121,6 +126,9 @@ void diagnostics_panic(void)
     field(serial_writestring, "diag_pid", task ? task->process_id : 0);
     field(serial_writestring, "diag_parent", task ? task->parent : 0);
     field(serial_writestring, "diag_kind", task ? task->kind : 0);
+    field(serial_writestring, "diag_state", task ? task->state : 0);
+    field(serial_writestring, "diag_termination", task ? task->termination : 0);
+    field(serial_writestring, "diag_cancel", task ? task->cancellation_requested : 0);
     field(serial_writestring, "diag_status", task ? (uint32_t)task->exit_status : 0);
     field(serial_writestring, "diag_cr3", snapshot.cr3);
     field(serial_writestring, "diag_recordcr3", task ? task->directory : 0);
@@ -130,6 +138,15 @@ void diagnostics_panic(void)
     field(serial_writestring, "diag_esp0", snapshot.esp0);
     field(serial_writestring, "diag_base", task ? task->stack_base : 0);
     field(serial_writestring, "diag_top", task ? task->stack_top : 0);
+    field(serial_writestring, "diag_ownsspace", task ? task->owns_space : 0);
+    field(serial_writestring, "diag_ownsstack", task ? task->owns_stack : 0);
+    field(serial_writestring, "diag_ownerstackpages",
+          task ? task->resources.kernel_stack_pages : 0);
+    field(serial_writestring, "diag_ownerdirectorypages",
+          task ? task->resources.directory_pages : 0);
+    field(serial_writestring, "diag_ownerusertables",
+          task ? task->resources.user_table_pages : 0);
+    field(serial_writestring, "diag_owneruserpages", task ? task->resources.user_pages : 0);
     serial_writestring("\nrum_diag_resources");
     field(serial_writestring, "diag_live", snapshot.tasks.count);
     field(serial_writestring, "diag_processes", snapshot.tasks.processes);
