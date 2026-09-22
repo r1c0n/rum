@@ -103,9 +103,9 @@ stack memory. `task_create_process` performs those checks and copies the trusted
 frame into the process record.
 
 `interrupt_enter` accepts a complete trusted frame and transfers it to
-`interrupt_return`, which restores the frame with `iret`. Production process
-tasks use this path. The normal shell does not construct a process yet because
-ELF loading and launch support are later roadmap steps.
+`interrupt_return`, which restores the frame with `iret`. The shell constructs
+foreground processes from validated ELF files, and production process tasks use
+this path for their first entry and every syscall or interrupt return.
 
 rum uses an integer-only CPU policy. Kernel and user builds disable
 x87, MMX, SSE, and SSE2 code generation. CR0 and CR4 are configured so actual

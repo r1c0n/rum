@@ -53,9 +53,16 @@ bool diagnostics_capture(struct kernel_diagnostics *result)
 {
     if (!result) return false;
     *result = (struct kernel_diagnostics){ .cr3 = 0x123000, .esp0 = 0x210000,
-        .tasks_ready = true, .tasks = { .current = 7, .count = 1, .stack_pages = 4,
+        .tasks_ready = true, .tasks = { .current = 7, .count = 2, .processes = 1,
+            .stack_pages = 8, .directory_pages = 1, .user_table_pages = 2, .user_pages = 5,
             .tasks = {{ .id = 7, .state = TASK_RUNNING, .stack_base = 0x20C000,
-                .stack_top = 0x210000, .directory = 0x123000, .owns_stack = true }} } };
+                .stack_top = 0x210000, .directory = 0x123000, .owns_stack = true },
+                { .id = 8, .process_id = 3, .parent = 7, .kind = TASK_PROCESS,
+                  .state = TASK_EXITED, .termination = TASK_TERMINATION_CANCELLED,
+                  .stack_base = 0x214000, .stack_top = 0x218000, .directory = 0x456000,
+                  .resources = { .kernel_stack_pages = 4, .directory_pages = 1,
+                                 .user_table_pages = 2, .user_pages = 5 },
+                  .owns_space = true, .owns_stack = true }} } };
     result->heap = heap_stats();
     result->files = ramfs_stats();
     return true;
@@ -242,8 +249,9 @@ int main(void)
     struct heap_statistics diag_before = heap_stats();
     receive("diag x\ndiag\n");
     assert(strstr(output, "Usage: diag\r\n") && strstr(output, "Task: 7 | CR3: 0x00123000"));
-    assert(strstr(output, "Processes: 0 | 0 user tables, 0 user pages"));
+    assert(strstr(output, "Processes: 1 | 2 user tables, 5 user pages"));
     assert(strstr(output, "#7 kernel running stack=0x0020c000..0x00210000 owned"));
+    assert(strstr(output, "#8 process pid=3 parent=#7 exited stack=0x00214000..0x00218000 owned cancelled"));
     assert(strstr(output, "CR3=0x00123000 borrowed"));
     assert(heap_stats().allocations == diag_before.allocations);
     assert_status();

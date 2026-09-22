@@ -9,6 +9,7 @@
 
 int main(void)
 {
+    _Static_assert(RUM_SYS_COUNT == 4, "kernel-only services must not enter the user ABI");
     assert(RUM_ABI_PROGRAM_BASE == RUM_USER_BASE &&
            RUM_ABI_PROGRAM_END == RUM_USER_PROGRAM_END &&
            RUM_ABI_STACK_BASE == RUM_USER_STACK_BASE &&

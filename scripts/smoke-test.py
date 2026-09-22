@@ -11,6 +11,9 @@ import subprocess
 import tempfile
 import time
 
+TEST_RAM_SIZES = (16, 64)
+BOOT_RAM_SIZES = (16, 64, 256, 1152)
+
 
 def qmp_command(stream, command, arguments=None):
     request = {"execute": command}
@@ -874,22 +877,23 @@ def process_shell_test(stream, symbols, artifacts, mode, serial):
         if resources(f"hello {iteration}") != baseline:
             raise RuntimeError("hello launch leaked process resources")
 
-    run("run nonzero", "exited with status -37.")
-    if resources("nonzero") != baseline:
-        raise RuntimeError("nonzero exit leaked process resources")
-    run("run fault", "faulted: vector 6, error 0x00000000")
-    if resources("fault") != baseline:
-        raise RuntimeError("user fault leaked process resources")
+    for iteration in range(2):
+        run("run nonzero", "exited with status -37.")
+        if resources(f"nonzero {iteration}") != baseline:
+            raise RuntimeError("nonzero exit leaked process resources")
+        run("run fault", "faulted: vector 6, error 0x00000000")
+        if resources(f"fault {iteration}") != baseline:
+            raise RuntimeError("user fault leaked process resources")
 
-    start = len(serial.read_bytes())
-    type_text("run spin\n")
-    time.sleep(0.1)
-    send("ctrl", "c")
-    expect("cancelled by Ctrl+C.\r\n> ")
-    if b"cancelled by Ctrl+C" not in serial.read_bytes()[start:]:
-        raise RuntimeError("Ctrl+C did not cancel the CPU-bound process")
-    if resources("cancellation") != baseline:
-        raise RuntimeError("cancelled process leaked resources")
+        start = len(serial.read_bytes())
+        type_text("run spin\n")
+        time.sleep(0.1)
+        send("ctrl", "c")
+        expect("cancelled by Ctrl+C.\r\n> ")
+        if b"cancelled by Ctrl+C" not in serial.read_bytes()[start:]:
+            raise RuntimeError("Ctrl+C did not cancel the CPU-bound process")
+        if resources(f"cancellation {iteration}") != baseline:
+            raise RuntimeError("cancelled process leaked resources")
 
     run("run missing", "file is missing or is not a valid executable.")
     run("run hello " + " ".join("x" for _ in range(32)),
@@ -984,6 +988,12 @@ def panic_diagnostics_test(stream, symbols, artifacts, mode, serial_text, regist
                         "created": 1, "exited": 0, "reaped": 0, "switches": 1}.items():
         if fields.get(name) != value:
             raise RuntimeError(f"Unexpected worker ownership/lifecycle {name}: {fields.get(name)}")
+    for name, value in {"kind": 0, "state": 2, "termination": 0, "cancel": 0,
+                        "ownsspace": 1, "ownsstack": 1, "ownerstackpages": 4,
+                        "ownerdirectorypages": 1, "ownerusertables": 0,
+                        "owneruserpages": 0}.items():
+        if fields.get(name) != value:
+            raise RuntimeError(f"Missing current-task ownership field {name}: {fields.get(name)}")
     allocated = dump_ram(stream, symbols["allocated"], 32768, artifacts / f"{mode}-panic-allocated.bin")
     managed = dump_ram(stream, symbols["managed"], 32768, artifacts / f"{mode}-panic-managed.bin")
     kernel_cr3 = fields["kernelcr3"]
@@ -1434,7 +1444,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                    else "production page tables, real #PF, error/EIP/CR2, PG/WP, panic/halt" if paging
                    else "real exception, saved registers, error code, EIP, stack, VGA/serial panic, halt" if fault
                    else "IRQ return, saved registers/flags, spurious IRQ7/IRQ15" if irq_test
-                   else f"{ram} MiB RAM, Multiboot/physical/paging/heap/embedded files, PIT/PS2/PIC/shell/Snake"))
+                   else f"{ram} MiB RAM, Multiboot/physical/paging/heap/embedded files, PIT/PS2/PIC/shell/Snake"),
+                  flush=True)
         finally:
             if process.poll() is None:
                 process.terminate()
@@ -1453,31 +1464,39 @@ def main():
     project = Path(__file__).resolve().parent.parent
     artifacts = project / "build/test-artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
-    for mode in ("iso", "elf"):
-        boot_test(args.qemu, project, mode, artifacts)
-    for fault in FAULT_CASES:
-        boot_test(args.qemu, project, f"fault-{fault}", artifacts, fault=fault)
-    boot_test(args.qemu, project, "irq", artifacts, irq_test=True)
-    for case in ("irq", "x87", "mmx", "sse", "io"):
-        boot_test(args.qemu, project, f"cpu-{case}", artifacts, cpu=case)
-    for case in ("null", "kernel", "readonly", "ud2", "privileged", "io", "irq"):
-        boot_test(args.qemu, project, f"process-fault-{case}", artifacts, process_fault=case)
-    boot_test(args.qemu, project, "syscalls", artifacts, syscalls=True)
-    boot_test(args.qemu, project, "elf-loader", artifacts, elf_loader=True)
-    for ram in (16, 64):
+    for ram in TEST_RAM_SIZES:
+        for loader, iso in (("iso", True), ("elf", False)):
+            boot_test(args.qemu, project, f"{loader}-processes-{ram}", artifacts,
+                      ram=ram, iso=iso)
+        for fault in FAULT_CASES:
+            boot_test(args.qemu, project, f"fault-{fault}-{ram}", artifacts,
+                      fault=fault, ram=ram)
+        boot_test(args.qemu, project, f"irq-{ram}", artifacts, irq_test=True, ram=ram)
+        for case in ("irq", "x87", "mmx", "sse", "io"):
+            boot_test(args.qemu, project, f"cpu-{case}-{ram}", artifacts,
+                      cpu=case, ram=ram)
+        for case in ("null", "kernel", "readonly", "ud2", "privileged", "io", "irq"):
+            boot_test(args.qemu, project, f"process-fault-{case}-{ram}", artifacts,
+                      process_fault=case, ram=ram)
+        boot_test(args.qemu, project, f"syscalls-{ram}", artifacts, syscalls=True, ram=ram)
+        boot_test(args.qemu, project, f"elf-loader-{ram}", artifacts,
+                  elf_loader=True, ram=ram)
         boot_test(args.qemu, project, f"tasks-{ram}", artifacts, tasks=True, ram=ram)
         boot_test(args.qemu, project, f"task-fault-{ram}", artifacts, task_fault=True, ram=ram)
         boot_test(args.qemu, project, f"double-fault-{ram}", artifacts, double_fault=True, ram=ram)
-    for case in ("args", "limits", "hello"):
-        boot_test(args.qemu, project, f"abi-{case}", artifacts, user_abi=case)
-    boot_test(args.qemu, project, "paging-ok", artifacts, paging="ok")
-    for case in PAGING_FAULTS:
-        boot_test(args.qemu, project, f"paging-{case}", artifacts, paging=case)
-    for ram in (16, 64):
+        for case in ("args", "limits", "hello"):
+            boot_test(args.qemu, project, f"abi-{case}-{ram}", artifacts,
+                      user_abi=case, ram=ram)
+        boot_test(args.qemu, project, f"paging-ok-{ram}", artifacts,
+                  paging="ok", ram=ram)
+        for case in PAGING_FAULTS:
+            boot_test(args.qemu, project, f"paging-{case}-{ram}", artifacts,
+                      paging=case, ram=ram)
         boot_test(args.qemu, project, f"storage-{ram}", artifacts, storage=True, ram=ram)
-    for ram in (16, 256, 1152):
-        boot_test(args.qemu, project, f"ram-{ram}", artifacts, ram=ram, interactive=False)
-    boot_test(args.qemu, project, "iso-ram-16", artifacts, ram=16, interactive=False, iso=True)
+    for ram in BOOT_RAM_SIZES:
+        for loader, iso in (("iso", True), ("elf", False)):
+            boot_test(args.qemu, project, f"{loader}-boot-{ram}", artifacts,
+                      ram=ram, interactive=False, iso=iso)
 
 
 if __name__ == "__main__":

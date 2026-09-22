@@ -57,8 +57,8 @@ in RAM and disappear on reboot.
 | [User ABI and ELF programs](user-abi.md) | Building user code and following the public syscall, stack, and ELF contracts |
 
 The [roadmap](roadmap.md) is project planning rather than a description of
-released behavior. It lists the remaining work for protected userspace and
-persistent storage.
+released behavior. It tracks release integration and the planned persistent
+storage and userspace-shell work.
 
 ## Boot flow
 
@@ -87,9 +87,12 @@ before opening a pull request:
 ```sh
 make test-host   # C tests for portable kernel components
 make test-user   # User ELF and public-header validation
-make test        # Full build plus QEMU integration cases
+make test-package # Release archive and embedded-ISO validation
+make test        # Complete host, package, and QEMU suite
 ```
 
-QEMU logs, screenshots, register dumps, and ownership reports are written to
-`build/test-artifacts/`. These files are generated diagnostics and should not
-be committed.
+Every isolated QEMU case runs with 16 and 64 MiB. Boot coverage also exercises
+the GRUB ISO and direct ELF, with and without a foreground process, across 16,
+64, 256, and 1152 MiB where applicable. QEMU logs, screenshots, register dumps,
+and ownership reports are written to `build/test-artifacts/`. These files are
+generated diagnostics and should not be committed.
