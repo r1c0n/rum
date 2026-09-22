@@ -309,7 +309,8 @@ static uint32_t reap_exited(bool include_processes)
     uint32_t count = 0;
     for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
         struct task *task = &tasks[i];
-        if (task->kind == TASK_PROCESS && !include_processes) continue;
+        if (task->id == foreground ||
+            (task->kind == TASK_PROCESS && !include_processes)) continue;
         /* Kernel-space borrowers share the active directory; only owned
            private directories must be inactive before release. */
         /* Keep owner records and released frames consistent for IRQ snapshots.

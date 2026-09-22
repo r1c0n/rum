@@ -49,6 +49,8 @@ static bool executable_name(const char *program, char name[RAMFS_NAME_CAPACITY])
         return true;
     }
     static const char suffix[] = ".elf";
+    if (length >= sizeof suffix - 1 &&
+        !memcmp(program + length - (sizeof suffix - 1), suffix, sizeof suffix - 1)) return false;
     if (length + sizeof suffix > RAMFS_NAME_CAPACITY) return false;
     memcpy(name, program, length);
     memcpy(name + length, suffix, sizeof suffix);
