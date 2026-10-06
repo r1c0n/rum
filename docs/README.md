@@ -35,8 +35,8 @@ kernel loader validates them again, builds private mappings and an initial user
 stack, and hands the image to the process system for `run`. File changes remain
 in RAM and disappear on reboot.
 
-An optional secondary IDE disk exposes raw sector I/O to the kernel. Boot only
-probes it; shell files remain in RAM until a disk filesystem is implemented.
+An optional secondary IDE disk exposes raw sector I/O to the kernel. Boot mounts
+supported FAT16 volumes read-only at `/disk`. Shell commands still use RAM files.
 
 ## User guides
 
@@ -47,6 +47,7 @@ probes it; shell files remain in RAM until a disk filesystem is implemented.
 | [ASCII Snake](snake.md) | Controls, scoring, and score-file behavior |
 | [Heap and RAM files](storage.md) | File limits, embedded files, and the kernel storage APIs |
 | [Raw disks and block devices](block-devices.md) | Image creation, safe attachment, sector I/O, ATA limits and errors |
+| [Read-only FAT16 disks](fat16.md) | Formatting test images, mounting, format limits, reads, and corruption handling |
 | [Kernel diagnostics](diagnostics.md) | Reading `diag` output and investigating a panic |
 
 ## Kernel guides
@@ -76,7 +77,8 @@ work for 0.4.0.
    kernel code and constants, and leaves page zero unmapped.
 5. The heap and RAM filesystem start, embedded files are copied into RAM, and
    the task system allocates guarded idle and double-fault stacks.
-   The ATA driver probes the optional secondary disk without writing it.
+   The ATA driver probes the optional secondary disk and mounts supported FAT16
+   volumes read-only without writing the image.
 6. IRQ0 and a detected keyboard are unmasked. The foreground loop then handles
    shell input, game updates, and uptime while the idle task sleeps with
    `sti; hlt` whenever no work is ready.
@@ -95,6 +97,7 @@ make test-host   # C tests for portable kernel components
 make test-user   # User ELF and public-header validation
 make test-block  # Block API, ATA driver and disposable QEMU disk tests
 make test-fs     # Paths, filesystem backends and process working directories
+make test-fat16  # Host FAT images, malformed volumes and guest byte comparisons
 make test-package # Release archive and embedded-ISO validation
 make test        # Complete host, package, and QEMU suite
 ```

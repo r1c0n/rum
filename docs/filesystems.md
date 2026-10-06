@@ -5,11 +5,10 @@ and referenced objects through the same operations for RAM and mounted backends.
 Include `<rum/fs.h>` for the API and `<rum/path.h>` only when working on path
 validation itself.
 
-RAM files occupy `/`. A disk backend registers at `/disk`. The mount interface
-is implemented, but FAT16 decoding is still planned: attaching a raw IDE image
-currently probes the device without mounting its contents. `/disk` returns
-`FS_UNAVAILABLE` until a filesystem backend is registered. The existing kernel
-shell, ELF loader, and Snake continue to use the flat RAM-file API. These kernel
+RAM files occupy `/`. A supported [FAT16 disk](fat16.md) mounts read-only at
+`/disk` during boot. `/disk` returns `FS_UNAVAILABLE` without a valid volume.
+The existing kernel shell, ELF loader, and Snake continue to use the flat
+RAM-file API. These kernel
 interfaces do not yet introduce filesystem syscalls or shell `cd` commands.
 
 ## Path rules
@@ -176,6 +175,9 @@ root, and lookup, stat, retain, release, read, and readdir callbacks. Write,
 replace, remove, mkdir, and flush may be omitted. Unsupported mutations return
 `FS_UNSUPPORTED`; a read-only descriptor rejects mutations with `FS_READ_ONLY`.
 Read-only backends without a flush operation need no flush and return success.
+An optional `unmount` callback releases backend-owned caches after all pins have
+closed and the namespace has detached the mount. It must not reenter the
+filesystem API or perform disk I/O.
 
 Lookup receives a validated, normalized single component and parent ID.
 Stat returns the same ID requested. IDs must be nonzero and stable while

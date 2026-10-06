@@ -2,11 +2,12 @@
 
 rum can attach one raw disk as the secondary IDE master in QEMU. The kernel
 identifies it at boot and provides sector reads, writes and cache flushing to
-kernel callers. Shell files still live in RAM: attaching a disk does not mount
-a filesystem or make `write` persistent.
+kernel callers. A supported [FAT16 volume](fat16.md) mounts read-only at `/disk`.
+Shell commands still use RAM files; the shell's `write` is temporary.
 
-Normal boot only identifies the disk. It does not format, resize, repair or
-write the image. Without a supported disk, rum continues to its usual shell.
+Normal boot identifies the disk and attempts a read-only FAT16 mount. It does
+not format, resize, repair or write the image. Without a supported disk, rum
+continues to its usual shell.
 The serial `rum_disk:` line reports discovery, ATA status/error bytes in decimal,
 and the number of accessible sectors.
 

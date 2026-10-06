@@ -54,7 +54,7 @@ errors and timeout paths. Canary sectors outside each request must not change.
   explicit behavior while handles remain open.
 
 The mount interface and directory backend contract are tested independently
-of disk format. FAT16 validation and boot-time mounting follow in step 3.
+of disk format. Step 3 supplies FAT16 validation and boot-time mounting.
 See [Filesystems and paths](filesystems.md) for the current kernel API.
 
 Reject invalid bytes, overlong paths/components, arithmetic overflow and mount
@@ -68,15 +68,15 @@ both backends. Existing RAM-file commands must retain their bytes and limits.
 
 ### 3. Read-only FAT16
 
-- [ ] Mount a small unpartitioned FAT16 image and validate its BPB and derived
+- [x] Mount a small unpartitioned FAT16 image and validate its BPB and derived
   region sizes against the block-device bounds.
-- [ ] Read both FAT copies, the fixed root directory, subdirectories and regular
+- [x] Read both FAT copies, the fixed root directory, subdirectories and regular
   files with bounded cluster-chain traversal.
-- [ ] Detect invalid/reserved clusters, premature end markers, loops, chains that
+- [x] Detect invalid/reserved clusters, premature end markers, loops, chains that
   exceed file size and directory entries outside the volume.
-- [ ] Decode valid 8.3 names and ignore deleted, volume-label and unsupported
+- [x] Decode valid 8.3 names and ignore deleted, volume-label and unsupported
   long-name entries safely.
-- [ ] Expose directory iteration and random/sequential file reads through the
+- [x] Expose directory iteration and random/sequential file reads through the
   common filesystem layer.
 
 Use host FAT tools to build known images, then compare guest listings and bytes.
