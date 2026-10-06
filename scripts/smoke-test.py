@@ -1295,7 +1295,7 @@ def snake_test(stream, symbols, artifacts, mode, serial):
     timer_test(stream, symbols, artifacts, mode)
 
 
-def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False, cpu=None, tasks=False, user_abi=None, task_fault=False, double_fault=False, process_fault=None, syscalls=False, elf_loader=False):
+def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False, cpu=None, tasks=False, user_abi=None, task_fault=False, double_fault=False, process_fault=None, syscalls=False, elf_loader=False, filesystem=False):
     if task_fault:
         fault = "ud"
     serial_artifact = artifacts / f"{mode}-serial.log"
@@ -1303,11 +1303,15 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
     screenshot = artifacts / f"{mode}.ppm"
     image = project / ("build/tests/elf-loader.elf" if elf_loader else "build/tests/syscall.elf" if syscalls else f"build/tests/process-fault-{process_fault}.elf" if process_fault else "build/tests/task-double-fault.elf" if double_fault else "build/tests/task-fault.elf" if task_fault else f"build/tests/abi-{user_abi}.elf" if user_abi else "build/tests/task.elf" if tasks else f"build/tests/cpu-{cpu}.elf" if cpu else "build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
                        f"build/tests/fault-{fault}.elf" if fault else "build/rum.elf")
+    if filesystem:
+        image = project / "build/tests/fs.elf"
     symbols = elf_symbols(image)
     boot_layout_test(symbols)
     marker = ("rum_elf_loader_test_ok" if elf_loader else "rum_syscall_test_ready" if syscalls else "rum_process_irq_ready" if process_fault == "irq" else "rum_process_fault_test_ok" if process_fault else "rum_panic_halted" if double_fault else "rum_abi_test_ok" if user_abi else "rum_task_test_ok" if tasks else "rum_cpu_test_ok" if cpu else "rum_storage_test_ok" if storage else "rum_paging_test_ok" if paging == "ok" else "rum_panic_halted" if paging else
               "rum_irq_test_ok" if irq_test else "rum_panic_halted" if fault else "rum_boot_ok")
     normal = not elf_loader and not syscalls and not process_fault and not fault and not irq_test and not paging and not storage and not cpu and not tasks and not user_abi and not double_fault
+    if filesystem:
+        marker, normal = "rum_fs_test_ok", False
     with tempfile.TemporaryDirectory(prefix="rum-qmp-") as temporary:
         # Keep the live writer/readers on one filesystem. DrvFs can return
         # ENODATA when a WSL guest creates/truncates a log on the Windows drive.
@@ -1333,7 +1337,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
         try:
             deadline = time.monotonic() + 20
             while marker not in serial.read_text(errors="replace"):
-                if any(marker in serial.read_text(errors="replace") for marker in ("rum_elf_loader_test_failed", "rum_syscall_test_failed", "rum_process_fault_test_failed", "rum_paging_test_failed", "rum_storage_test_failed", "rum_cpu_test_failed", "rum_task_test_failed", "rum_abi_test_failed")):
+                if any(marker in serial.read_text(errors="replace") for marker in ("rum_fs_test_failed", "rum_elf_loader_test_failed", "rum_syscall_test_failed", "rum_process_fault_test_failed", "rum_paging_test_failed", "rum_storage_test_failed", "rum_cpu_test_failed", "rum_task_test_failed", "rum_abi_test_failed")):
                     raise RuntimeError(serial.read_text(errors="replace"))
                 if process.poll() is not None:
                     raise RuntimeError(f"QEMU exited: {process.stderr.read().decode(errors='replace')}")
@@ -1385,7 +1389,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                             for y in range(25)]
                     screen = "\n".join(rows)
                     (artifacts / f"{mode}-screen.txt").write_text(screen + "\n")
-                    expected_text = (("rum ELF loader tests passed.",) if elf_loader else ("rum production syscall tests",) if syscalls else
+                    expected_text = (("rum filesystem and working directory tests passed.",) if filesystem else
+                                     ("rum ELF loader tests passed.",) if elf_loader else ("rum production syscall tests",) if syscalls else
                                      ("rum user fault recovery tests passed.",) if process_fault else
                                      ("rum kernel panic", "Double fault", "CPU halted.") if double_fault else
                                      ("rum user ABI and startup tests passed.",) if user_abi else
@@ -1432,7 +1437,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                         snake_test(stream, symbols, artifacts, mode, serial)
                     qmp_command(stream, "quit")
             print(f"PASS: {mode}, GDT/IDT/segments, " +
-                  ("validated ELF mapping, initial stack, allocation rollback, execution and cleanup" if elf_loader else
+                  ("filesystem paths, mounted backends, retained identities, inherited cwd, OOM/exit/fault/cancel cleanup" if filesystem else
+                   "validated ELF mapping, initial stack, allocation rollback, execution and cleanup" if elf_loader else
                    "production int 0x80, validated partial I/O, blocking input, register and task preservation" if syscalls else
                    "production ring-3 process entry, isolated fault recovery, parent/CR3/TSS restore, cleanup" if process_fault else
                    "hardware task gate, independent guarded stack, saved failed TSS, controlled panic" if double_fault else
@@ -1460,10 +1466,15 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--qemu", default="qemu-system-i386")
+    parser.add_argument("--filesystem-only", action="store_true", help="Run the focused filesystem kernel fixtures")
     args = parser.parse_args()
     project = Path(__file__).resolve().parent.parent
     artifacts = project / "build/test-artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
+    if args.filesystem_only:
+        for ram in TEST_RAM_SIZES:
+            boot_test(args.qemu, project, f"filesystem-{ram}", artifacts, filesystem=True, ram=ram)
+        return
     for ram in TEST_RAM_SIZES:
         for loader, iso in (("iso", True), ("elf", False)):
             boot_test(args.qemu, project, f"{loader}-processes-{ram}", artifacts,
@@ -1493,6 +1504,7 @@ def main():
             boot_test(args.qemu, project, f"paging-{case}-{ram}", artifacts,
                       paging=case, ram=ram)
         boot_test(args.qemu, project, f"storage-{ram}", artifacts, storage=True, ram=ram)
+        boot_test(args.qemu, project, f"filesystem-{ram}", artifacts, filesystem=True, ram=ram)
     for ram in BOOT_RAM_SIZES:
         for loader, iso in (("iso", True), ("elf", False)):
             boot_test(args.qemu, project, f"{loader}-boot-{ram}", artifacts,

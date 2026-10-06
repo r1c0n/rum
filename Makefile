@@ -55,6 +55,7 @@ PROCESS_FAULT_KERNELS := $(addprefix build/tests/process-fault-,$(addsuffix .elf
 PROCESS_FAULT_OBJECTS := $(PROCESS_FAULT_KERNELS:.elf=.o)
 TEST_DEPENDENCIES := $(FAULT_OBJECTS:.o=.d) $(PAGING_OBJECTS:.o=.d) $(CPU_OBJECTS:.o=.d) $(PROCESS_FAULT_OBJECTS:.o=.d) build/tests/cpu-probe.d build/tests/process-fault-probe.d build/tests/syscall-kernel.d build/tests/syscall-probe.d build/tests/elf-loader-kernel.d build/tests/elf-loader-image.d build/tests/paging-spaces.d build/tests/user-memory.d build/tests/irq-kernel.d build/tests/storage-kernel.d build/tests/storage-checks.d build/tests/task-kernel.d build/tests/task-fault-kernel.d build/tests/task-double-fault-kernel.d build/tests/task-stack-fault.d
 STORAGE_HOST_SOURCES := kernel/mm/heap.c kernel/fs/ramfs.c kernel/fs/path.c kernel/fs/fs-types.c kernel/core/memory.c tests/page-backend.c build/embedded-files.c
+TEST_DEPENDENCIES += build/tests/fs-kernel.d build/tests/fs-checks.d build/tests/fs-backend.d
 STORAGE_HOST_HEADERS := include/rum/heap.h include/rum/ramfs.h include/rum/fs.h include/rum/path.h include/rum/fs_types.h include/rum/fs_limits.h $(ABI_HEADERS) include/rum/embedded.h include/rum/paging.h include/rum/pmm.h include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
 SNAKE_HOST_SOURCES := kernel/ui/snake.c kernel/ui/snake_model.c
 SNAKE_HOST_HEADERS := include/rum/snake.h include/rum/snake_model.h include/rum/timer.h
@@ -207,7 +208,7 @@ create-disk:
 panic: build/tests/fault-ud.elf
 	$(QEMU) -m 64M -kernel $< -serial stdio -no-reboot -no-shutdown
 
-test: test-host test-user test-package test-block $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PROCESS_FAULT_KERNELS) build/tests/syscall.elf build/tests/elf-loader.elf $(PAGING_KERNELS) build/tests/storage.elf build/tests/task.elf build/tests/task-fault.elf build/tests/task-double-fault.elf $(ABI_KERNELS)
+test: test-host test-user test-package test-block $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PROCESS_FAULT_KERNELS) build/tests/syscall.elf build/tests/elf-loader.elf $(PAGING_KERNELS) build/tests/storage.elf build/tests/fs.elf build/tests/task.elf build/tests/task-fault.elf build/tests/task-double-fault.elf $(ABI_KERNELS)
 	python3 scripts/smoke-test.py --qemu $(QEMU)
 
 test-package: iso
@@ -231,6 +232,10 @@ build/tests/irq.elf: build/tests/irq-kernel.o build/tests/irq-probe.o $(filter-o
 	grub-file --is-x86-multiboot $@
 
 build/tests/storage.elf: build/tests/storage-kernel.o build/tests/storage-checks.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
+
+build/tests/fs.elf: build/tests/fs-kernel.o build/tests/fs-checks.o build/tests/fs-backend.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
 
@@ -435,6 +440,12 @@ build/tests/fs-test: tests/fs-test.c tests/fs-checks.c tests/fs-checks.h tests/f
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Iinclude tests/fs-test.c tests/fs-checks.c tests/fs-backend.c kernel/fs/fs.c $(STORAGE_HOST_SOURCES) -o $@
 
 test-host: build/tests/path-test build/tests/fs-test
+
+.PHONY: test-fs
+test-fs: build/tests/path-test build/tests/fs-test build/tests/fs.elf
+	./build/tests/path-test
+	./build/tests/fs-test
+	python3 scripts/smoke-test.py --qemu $(QEMU) --filesystem-only
 
 build/tests/ata-test: tests/ata-test.c kernel/drivers/ata.c kernel/fs/block.c include/rum/ata.h include/rum/block.h tests/ata-include/rum/io.h tests/ata-include/rum/cpu.h
 	@mkdir -p $(@D)

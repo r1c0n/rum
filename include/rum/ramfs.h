@@ -8,6 +8,7 @@
 #define RAMFS_NAME_CAPACITY 64u
 #define RAMFS_FILE_LIMIT (64u * 1024u)
 #define RAMFS_MAX_FILES 64u
+_Static_assert(RAMFS_NAME_CAPACITY == FS_NAME_CAPACITY, "RAM filename limit must match common parser");
 
 struct ramfs_statistics { size_t files, bytes; };
 typedef bool (*ramfs_visitor)(const char *name, size_t size, void *context);
