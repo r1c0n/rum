@@ -2,6 +2,7 @@
 #include <rum/cpu.h>
 #include <rum/fs.h>
 #include <rum/gdt.h>
+#include <rum/handles.h>
 #include <rum/interrupts.h>
 #include <rum/abi/syscall.h>
 #include <rum/memory.h>
@@ -33,6 +34,7 @@ struct task {
     struct task_resources resources;
     struct task_event *waiting;
     struct fs_context filesystem;
+    struct process_handles handles;
     bool cancellation_requested;
 };
 static struct task tasks[TASK_SLOTS];
@@ -209,6 +211,7 @@ static task_id create_process(const struct task_process *process, bool make_fore
 
     /* The record becomes visible only after every owned resource and the saved
        kernel context are complete. Failed calls leave the caller's space alone. */
+    process_handles_initialize(&constructed.handles);
     saved = cpu_interrupt_save();
     ++next_id;
     ++next_process_id;
@@ -254,6 +257,23 @@ struct paging_space *task_current_process_space(void)
 struct fs_context *task_current_filesystem(void)
 {
     return ready && current && current->filesystem.directory && !irq_in_handler() ? &current->filesystem : NULL;
+}
+
+struct process_handles *task_current_handles(void)
+{
+    return task_current_is_process() && !irq_in_handler() ? &current->handles : NULL;
+}
+
+unsigned task_handle_count(task_id id)
+{
+    uint32_t saved = cpu_interrupt_save();
+    unsigned count = 0;
+    if (ready && id) for (unsigned i = 0; i < TASK_SLOTS; ++i)
+        if (tasks[i].state != TASK_UNUSED && tasks[i].id == id) {
+            count = process_handles_count(&tasks[i].handles); break;
+        }
+    cpu_interrupt_restore(saved);
+    return count;
 }
 
 bool task_working_directory(task_id id, char *buffer, size_t capacity)
@@ -449,6 +469,12 @@ static _Noreturn void terminate_current(enum task_termination termination,
             .stack = exception_frame_esp(frame),
         };
     }
+    /* IRQ entry may arrive with IF clear. Copy its frame first, then release
+       file pins in task context before publishing EXITED. IRQs cannot schedule
+       a kernel continuation; no backend callback runs under the update lock. */
+    cpu_interrupt_enable();
+    if (process_handles_destroy(&current->handles)) cpu_halt();
+    (void)cpu_interrupt_save();
     current->state = TASK_EXITED;
     ++exited;
     if (current->kind == TASK_PROCESS) task_event_signal(&process_event);

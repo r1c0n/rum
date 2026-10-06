@@ -11,6 +11,7 @@
 
 typedef uint32_t task_id;
 struct fs_context;
+struct process_handles;
 enum task_state { TASK_UNUSED, TASK_RUNNABLE, TASK_RUNNING, TASK_BLOCKED, TASK_EXITED };
 enum task_kind { TASK_KERNEL, TASK_PROCESS };
 enum task_termination {
@@ -74,6 +75,9 @@ struct paging_space *task_current_process_space(void);
 /* Each boot/worker/process context owns a directory reference inherited at
    creation. Foreground only; idle has no working directory. */
 struct fs_context *task_current_filesystem(void);
+struct process_handles *task_current_handles(void);
+/* IRQ-safe count only; filesystem references are never followed here. */
+unsigned task_handle_count(task_id);
 /* Bounded, IRQ-safe copy. False for idle, unknown IDs or insufficient capacity. */
 bool task_working_directory(task_id id, char *buffer, size_t capacity);
 bool task_query(task_id id, struct task_information *information);

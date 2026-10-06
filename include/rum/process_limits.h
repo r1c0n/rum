@@ -4,13 +4,14 @@
 #include <rum/memory_layout.h>
 #include <rum/abi/process.h>
 #include <rum/abi/layout.h>
+#include <rum/abi/filesystem.h>
 
 /* Process resource policy shared by the loader, launcher, and task registry. */
 #define RUM_PROCESS_LIMIT          16
 #define RUM_PROCESS_USER_BYTES     RUM_ABI_MEMORY_BYTES
 #define RUM_PROCESS_ARGUMENT_LIMIT RUM_ABI_ARGUMENT_LIMIT
 #define RUM_PROCESS_ARGUMENT_BYTES RUM_ABI_ARGUMENT_BYTES
-#define RUM_PROCESS_FILE_LIMIT     32         /* Includes standard streams. */
+#define RUM_PROCESS_FILE_LIMIT     RUM_ABI_HANDLE_LIMIT /* Includes streams. */
 #define RUM_KERNEL_STACK_SLOTS     (RUM_PROCESS_LIMIT + 2) /* Idle and emergency. */
 
 #ifndef __ASSEMBLER__

@@ -27,7 +27,7 @@ DRIVER_SOURCES := kernel/drivers/terminal.c kernel/drivers/serial.c \
                   kernel/drivers/timer.c kernel/drivers/keyboard.c \
                   kernel/drivers/keyboard_decode.c kernel/drivers/ata.c
 MM_SOURCES := kernel/mm/pmm.c kernel/mm/heap.c
-PROCESS_SOURCES := kernel/process/task.c kernel/process/syscall.c \
+PROCESS_SOURCES := kernel/process/task.c kernel/process/syscall.c kernel/process/handles.c \
                    kernel/process/elf.c kernel/process/process.c
 FS_SOURCES := kernel/fs/ramfs.c kernel/fs/block.c kernel/fs/path.c kernel/fs/fs-types.c kernel/fs/fs.c kernel/fs/fat16.c kernel/fs/fat16-write.c
 UI_SOURCES := kernel/ui/shell.c kernel/ui/snake.c kernel/ui/snake_model.c
