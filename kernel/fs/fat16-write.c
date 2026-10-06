@@ -130,7 +130,11 @@ static enum fs_error audit_directory(const struct description *directory, uint32
             continue;
         }
         if (!entry[0]) return FS_OK;
-        if (entry[0] == 0xe5 || entry[11] == 0x0f || (entry[11] & 8)) continue;
+        if (entry[0] == 0xe5 || entry[11] == 0x0f) continue;
+        if (entry[11] & 8) {
+            if (entry[11] != 8 || u16(entry + 20) || u16(entry + 26) || u32(entry + 28)) return FS_IO_ERROR;
+            continue;
+        }
         if (dot(entry, false) || dot(entry, true) || (entry[11] & 0xc0) || u16(entry + 20)) return FS_IO_ERROR;
         struct description child = { .node = { .id = id, .size = u32(entry + 28),
             .kind = entry[11] & 0x10 ? FS_DIRECTORY : FS_FILE }, .first = u16(entry + 26) };
@@ -184,6 +188,7 @@ static enum fs_error find_target(uint64_t parent, const char *name, struct targe
         if (error == FS_OK) error = entry_read(id, entry);
         if (error != FS_OK) return error;
         if (entry[0] == 0xe5 || !entry[0]) {
+            if (long_name) return FS_UNSUPPORTED; /* Do not attach orphan LFN slots to a new name. */
             if (reusable == count) { reusable = cursor; target->id = id; target->end = !entry[0]; }
             long_name = false;
             if (!entry[0]) { ended = true; break; }
