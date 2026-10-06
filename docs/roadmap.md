@@ -107,17 +107,17 @@ exits.
 
 ### 5. File handles and filesystem syscalls
 
-- [ ] Extend the public ABI with open, close, seek, directory listing and path or
+- [x] Extend the public ABI with open, close, seek, directory listing and path or
   working-directory operations, using fixed-width versioned structures.
-- [ ] Give each process a bounded handle table with access mode, offset and a
+- [x] Give each process a bounded handle table with access mode, offset and a
   referenced backend object; reserve handles 0–2 for standard streams.
-- [ ] Route `read` and `write` through handles with defined partial-operation and
+- [x] Route `read` and `write` through handles with defined partial-operation and
   end-of-file behavior.
-- [ ] Validate every user buffer, path, structure, flag, handle and offset before
+- [x] Validate every user buffer, path, structure, flag, handle and offset before
   touching a driver or filesystem.
-- [ ] Close every handle and release backend references on exit, user fault,
+- [x] Close every handle and release backend references on exit, user fault,
   cancellation and partial process construction.
-- [ ] Block filesystem work only in foreground/task context and never while an IRQ
+- [x] Block filesystem work only in foreground/task context and never while an IRQ
   or short interrupt-protected update is active.
 
 Tests should combine invalid handles, modes and flags with cross-page user buffers,

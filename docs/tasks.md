@@ -132,8 +132,9 @@ state, or exposing another task's partially updated resource.
 ## Exit and cleanup
 
 Returning from a kernel entry is equivalent to `task_exit()`. Call
-`task_exit_with_status(status)` to retain a signed result. Exit first marks the
-record and switches to a surviving context; it never frees the stack or CR3
+`task_exit_with_status(status)` to retain a signed result. Exit closes every
+file/stream handle with IRQs enabled, then marks the record and switches to a
+surviving context; it never frees the stack or CR3
 that the CPU is still using.
 
 An exception whose saved CS came from ring 3 follows the same switch-first rule.
@@ -156,6 +157,14 @@ The request becomes `TASK_TERMINATION_CANCELLED` only at process startup, after
 a blocking wait resumes, or on a trusted interrupt/syscall return to ring 3.
 The parent then observes and reaps it through the same path used for normal
 exit and user faults.
+
+Each process gets a fresh [32-slot handle table](filesystem-syscalls.md), with
+standard streams in 0–2. Open files are not inherited. File references are
+released before the exited state is visible, including fault and cancellation
+paths. The working-directory reference remains until reaping. Construction
+initializes streams only after stack allocation succeeds, so a partial failure
+cannot publish a handle or leak a backend pin. `task_handle_count(id)` provides
+an IRQ-safe count without following backend objects.
 
 ## Working directories
 

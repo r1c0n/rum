@@ -55,7 +55,7 @@ must be able to switch stacks while changing CR3. They remain supervisor-only.
 | Arguments | 32 including `argv[0]` | Public ABI; launch path pending |
 | Argument strings | 4096 bytes including NULs | Public ABI; launch path pending |
 | RAM files | 64 files, 64 KiB each | RAM filesystem |
-| Process handles | 32 including standard streams | Reserved ABI policy; handle table pending |
+| Process handles | 32 including standard streams | Per-process table; files use slots 3–31 |
 
 Physical RAM or kernel metadata can run out before a policy limit is reached.
 Callers must handle allocation failure without changing existing ownership.
@@ -95,7 +95,8 @@ On failure, the caller keeps the space and tears it down. Publication acquires
 a kernel stack and clones the creator's working-directory reference. Failure
 rolls back both internally.
 
-Exit changes state and switches to a surviving context before reclamation. The
+Exit closes file handles in task context with IRQs enabled, then changes state
+and switches to a surviving context before page reclamation. The
 reaper may then destroy the inactive CR3, user pages and tables, guarded kernel
 stack, working-directory reference, and record. Never free the active directory,
 the executing stack, or a structure still referenced by another owner.

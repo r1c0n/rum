@@ -7,8 +7,10 @@ and normal boot never format, repair, or write the image.
 
 The common kernel filesystem API provides these operations and directory iteration.
 The current kernel shell's `ls`, `cat`, `write`, `rm`, and `run` commands still
-use RAM files. Filesystem syscalls and shell access to `/disk` are planned
-separately.
+use RAM files. User programs can read and write existing disk files, list
+directories, change directories, create directories and remove closed objects
+through [filesystem syscalls](filesystem-syscalls.md). Shell access to `/disk`
+will use those same calls.
 
 ## Create an image with host files
 
