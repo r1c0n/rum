@@ -48,6 +48,10 @@ try {
     $rejected = $false
     try { & $launcher run -DiskReadOnly } catch { $rejected = $true }
     Check $rejected 'read-only needs an explicit image'
+    $before = $global:rumWslCalls.Count
+    $rejected = $false
+    try { & $launcher run -DiskImage (Join-Path $root 'build\rum.iso') } catch { $rejected = $true }
+    Check ($rejected -and $global:rumWslCalls.Count -eq $before) 'boot output rejected before rebuilding'
     & $launcher create-disk -DiskImage (Join-Path $temporary 'new disk, image.raw') -DiskSizeMiB 1
     $creation = $global:rumWslCalls[-1]
     Check ($creation -contains 'create-disk' -and $creation -contains '/mnt/test/new disk, image.raw' -and $creation[-1] -eq 1) 'explicit image-creation arguments'

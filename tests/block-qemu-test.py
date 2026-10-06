@@ -116,7 +116,11 @@ def main():
         return run(args.qemu, f"{args.ram}m-{label}", arguments, marker, ram=args.ram, **kwargs)
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     fixture = ROOT / "build/tests/block.elf"
-    before = bytes((sector * 13 + byte * 7) & 255 for sector in range(1024) for byte in range(512))
+    # Encode the full LBA, not just its low byte, so a misprogrammed register
+    # cannot hide behind a pattern that repeats every 256 sectors.
+    before = b"".join(sector.to_bytes(8, "little") + b"rum PIO" +
+                      bytes((sector * 13 + byte * 7) & 255 for byte in range(15, 512))
+                      for sector in range(1024))
     after = bytearray(before)
     for sector in [0, 1023] + list(range(13, 270)):
         after[sector * 512:(sector + 1) * 512] = bytes((0xa5 ^ (sector * 11 + byte * 3)) & 255 for byte in range(512))

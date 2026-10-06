@@ -217,7 +217,7 @@ test-package: iso
 test-block: build/tests/block-test build/tests/ata-test build/tests/block.elf iso
 	./build/tests/block-test
 	./build/tests/ata-test
-	python3 tests/disk-tools-test.py
+	python3 tests/disk-tools-test.py --boot-output-checks
 	python3 tests/block-qemu-test.py --qemu $(QEMU) --ram 16
 	python3 tests/block-qemu-test.py --qemu $(QEMU) --ram 64
 

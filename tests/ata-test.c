@@ -122,6 +122,8 @@ int main(void)
     assert(ata_initialize().error == BLOCK_OK && ata_device()->sector_count == (UINT64_C(1) << 28));
     assert(block_read(ata_device(), (UINT64_C(1) << 28) - 1, 1, buffer, 512).error == BLOCK_OK);
     assert(selected_lba == 0x0fffffff);
+    assert(block_read(ata_device(), 0x01234567, 1, buffer, 512).error == BLOCK_OK);
+    assert(selected_lba == 0x01234567); /* Distinct task-file bytes catch swapped shifts. */
     reset(NONE); identify[49] = 0;
     assert(ata_initialize().error == BLOCK_UNSUPPORTED && !ata_device()->online);
     reset(NONE); identify[106] = 0x5000; identify[117] = 2048;

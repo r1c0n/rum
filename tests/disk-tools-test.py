@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Host image-creation and launcher argument tests; no QEMU required."""
 import importlib.util
+import argparse
 import os
 from pathlib import Path
 import tempfile
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--boot-output-checks", action="store_true",
+                    help="also invoke make to check preservation; run after the ISO build")
+options = parser.parse_args()
 
 
 def module(name):
@@ -53,12 +58,13 @@ with tempfile.TemporaryDirectory() as temporary:
     rejects(lambda: launcher.boot_arguments(boot, disk=boot))
     for output in (ROOT / "build/rum.iso", ROOT / "build/rum.elf"):
         if output.exists():
-            saved = output.read_bytes()
             rejects(lambda: launcher.validate_disk(output))
-            check = subprocess.run(["make", "run", f"DISK_IMAGE={output}"], cwd=ROOT,
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15) if os.name != "nt" else None
-            assert check is None or check.returncode != 0
-            assert output.read_bytes() == saved
+            if options.boot_output_checks and os.name != "nt":
+                saved = output.read_bytes()
+                check = subprocess.run(["make", "run", f"DISK_IMAGE={output}"], cwd=ROOT,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+                assert check.returncode != 0
+                assert output.read_bytes() == saved
     rejects(lambda: launcher.boot_arguments(boot, read_only=True))
     rejects(lambda: launcher.validate_disk(directory))
     missing = directory / "missing.raw"
