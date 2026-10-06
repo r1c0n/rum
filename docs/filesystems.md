@@ -5,7 +5,7 @@ and referenced objects through the same operations for RAM and mounted backends.
 Include `<rum/fs.h>` for the API and `<rum/path.h>` only when working on path
 validation itself.
 
-RAM files occupy `/`. A supported [FAT16 disk](fat16.md) mounts read-only at
+RAM files occupy `/`. A supported [FAT16 disk](fat16.md) mounts at
 `/disk` during boot. `/disk` returns `FS_UNAVAILABLE` without a valid volume.
 The existing kernel shell, ELF loader, and Snake continue to use the flat
 RAM-file API. These kernel
@@ -116,6 +116,8 @@ per-process handle offsets belong to the later handle/syscall layer.
 
 Use `fs_replace(cwd, path, data, bytes)` to create a file or replace its complete
 contents. `fs_write(reference, offset, data, bytes)` writes an already open file.
+`fs_truncate(reference, size)` resizes it through a write reference, filling new
+bytes with zeroes. Both RAM and FAT16 support it with their usual size limits.
 `fs_mkdir` creates a directory where supported. `fs_remove` removes a file or
 an empty directory. Missing parents are never created automatically.
 
@@ -123,8 +125,8 @@ An identity consists of the mount, its generation, and the backend's object ID.
 All references to that identity share one retained object, regardless of path
 spelling or aliases. Removal and whole-file replacement return `FS_BUSY` while
 that object is open. RAM's legacy `ramfs_put` and `ramfs_remove` honor the same
-retention rule. Ordinary byte writes through a writable reference are allowed;
-other references to the object observe its updated size and contents.
+retention rule. Ordinary byte writes and resizing through a writable reference
+are allowed; other references observe its updated size and contents.
 
 RAM replacement and growing writes allocate and copy before changing ownership.
 Allocation failure preserves the previous bytes and size. Writes can overwrite
@@ -172,8 +174,8 @@ task context, never IRQ handlers.
 Supply `fs_operations` and a `fs_backend` descriptor. The disk registration
 function, `fs_mount_disk`, requires the FAT 8.3 naming policy, a nonzero directory
 root, and lookup, stat, retain, release, read, and readdir callbacks. Write,
-replace, remove, mkdir, and flush may be omitted. Unsupported mutations return
-`FS_UNSUPPORTED`; a read-only descriptor rejects mutations with `FS_READ_ONLY`.
+replace, remove, mkdir, truncate, and flush may be omitted. Missing mutation
+callbacks return `FS_UNSUPPORTED`; a read-only descriptor returns `FS_READ_ONLY`.
 Read-only backends without a flush operation need no flush and return success.
 An optional `unmount` callback releases backend-owned caches after all pins have
 closed and the namespace has detached the mount. It must not reenter the

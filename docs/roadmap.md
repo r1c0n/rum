@@ -86,13 +86,13 @@ A rejected volume must leave rum usable with RAM files.
 
 ### 4. Writable FAT16
 
-- [ ] Allocate and free clusters consistently in every FAT copy.
-- [ ] Create, replace, extend, truncate and delete regular files.
-- [ ] Create and remove directories, including `.` and `..` entries and nonempty
+- [x] Allocate and free clusters consistently in every FAT copy.
+- [x] Create, replace, extend, truncate and delete regular files.
+- [x] Create and remove directories, including `.` and `..` entries and nonempty
   directory checks.
-- [ ] Reuse deleted directory slots and clusters without cross-linking files.
-- [ ] Flush file data, FAT changes and directory metadata in a documented order.
-- [ ] Report full media, read-only devices and partial I/O failures without
+- [x] Reuse deleted directory slots and clusters without cross-linking files.
+- [x] Flush file data, FAT changes and directory metadata in a documented order.
+- [x] Report full media, read-only devices and partial I/O failures without
   corrupting in-memory ownership state.
 
 Define the interrupted-write guarantee honestly. 0.4.0 does not need journaling
