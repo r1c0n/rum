@@ -141,7 +141,8 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     print("  [ok] Paging (4 KiB pages, null guard)\n");
     print("  [ok] Kernel heap (16-byte alignment)\n");
     print("  [ok] RAM filesystem and embedded files\n");
-    if (filesystem == FS_OK) print("  [ok] FAT16 /disk (read only)\n");
+    if (filesystem == FS_OK) print(fat16_info().writable ?
+        "  [ok] FAT16 /disk (read/write)\n" : "  [ok] FAT16 /disk (read only)\n");
     print("  [ok] PIC remapped (IRQ0/IRQ1 only)\n");
     print("  [ok] PIT timer at 100 Hz\n");
     if (keyboard_ready) {

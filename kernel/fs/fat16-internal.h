@@ -16,10 +16,11 @@ struct fat16_volume {
     unsigned char *fat;
     unsigned char sector[FAT16_SECTOR_SIZE];
     unsigned char visited[(MAX_CLUSTERS + 2u + 7u) / 8u];
+    unsigned char owners[(MAX_CLUSTERS + 2u + 7u) / 8u];
     struct pin pins[FS_OBJECT_LIMIT];
     struct fs_io_result last_io;
     uint32_t cached_sector;
-    bool ready, busy, cache_valid;
+    bool ready, busy, cache_valid, audited;
 };
 extern struct fat16_volume fat16_volume;
 
@@ -43,4 +44,10 @@ uint32_t fat16_cluster_sector(uint32_t);
 uint64_t fat16_directory_slots(const struct description *);
 enum fs_error fat16_directory_slot(const struct description *, uint64_t, uint64_t *);
 enum fs_error fat16_directory_entry(const struct description *, uint64_t, struct description *, char *);
+struct fs_io_result fat16_write_file(void *, uint64_t, uint64_t, const void *, size_t);
+enum fs_error fat16_replace_file(void *, uint64_t, const char *, const void *, size_t);
+enum fs_error fat16_remove_node(void *, uint64_t, const char *);
+enum fs_error fat16_mkdir_node(void *, uint64_t, const char *);
+enum fs_error fat16_flush(void *);
+enum fs_error fat16_truncate_file(void *, uint64_t, uint64_t);
 #endif

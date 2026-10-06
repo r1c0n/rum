@@ -97,7 +97,7 @@ void fat16_checks(struct block_device *device, const char *phase, const char *pa
 {
     struct heap_statistics baseline = heap_stats();
     struct fs_statistics owners = fs_stats();
-    enum fs_error mounted = fat16_mount(device);
+    enum fs_error mounted = fat16_mount_read_only(device);
     if (equal(phase, "mount")) {
         fat16_check(mounted != FS_OK && !fat16_info().mounted, "reject malformed volume geometry or FAT");
         fat16_report("mount", mounted);

@@ -110,6 +110,7 @@ enum fs_error fat16_decode(const unsigned char *entry, uint64_t id,
 enum fs_error fat16_describe(uint64_t id, struct description *description)
 {
     if (!fat16_volume.ready) return FS_UNAVAILABLE;
+    if (fat16_volume.info.faulted) return FS_IO_ERROR;
     if (id == ROOT_ID) {
         *description = (struct description){ .node = { .id = ROOT_ID, .kind = FS_DIRECTORY } };
         return FS_OK;
@@ -275,9 +276,9 @@ static void detach(void *context)
 static const struct fs_operations operations = {
     .lookup = lookup, .stat = stat_node, .retain = retain, .release = release,
     .read = read_file, .readdir = readdir_node, .unmount = detach,
+    .write = fat16_write_file, .replace = fat16_replace_file, .remove = fat16_remove_node,
+    .mkdir = fat16_mkdir_node, .flush = fat16_flush, .truncate = fat16_truncate_file,
 };
-static const struct fs_backend backend = { .operations = &operations, .root = ROOT_ID,
-    .naming = FS_NAMES_FAT83, .read_only = true };
 
 static enum fs_error geometry(struct block_device *device, unsigned char *boot)
 {
@@ -307,7 +308,7 @@ static enum fs_error geometry(struct block_device *device, unsigned char *boot)
         .root_start = (uint32_t)root_start, .root_entries = entries, .data_start = (uint32_t)data_start };
     return FS_OK;
 }
-enum fs_error fat16_mount(struct block_device *device)
+static enum fs_error mount_volume(struct block_device *device, bool read_only)
 {
     if (fat16_volume.busy || fat16_volume.ready) return FS_BUSY;
     fat16_volume.busy = true;
@@ -328,6 +329,10 @@ enum fs_error fat16_mount(struct block_device *device)
         if (error == FS_OK && (u16(fat16_volume.fat) != (0xff00u | media) ||
             (u16(fat16_volume.fat + 2) & 0x3fff) != 0x3fff)) error = FS_IO_ERROR;
         if (error == FS_OK) {
+            fat16_volume.info.writable = !read_only && !device->read_only &&
+                device->operations->write && device->operations->flush;
+            const struct fs_backend backend = { .operations = &operations, .root = ROOT_ID,
+                .naming = FS_NAMES_FAT83, .read_only = !fat16_volume.info.writable };
             fat16_volume.ready = true;
             error = fs_mount_disk(&backend);
             if (error == FS_OK) {
@@ -338,6 +343,8 @@ enum fs_error fat16_mount(struct block_device *device)
     if (error != FS_OK) { (void)kfree(fat16_volume.fat); memset(&fat16_volume, 0, sizeof fat16_volume); }
     fat16_volume.busy = false; return error;
 }
+enum fs_error fat16_mount(struct block_device *device) { return mount_volume(device, false); }
+enum fs_error fat16_mount_read_only(struct block_device *device) { return mount_volume(device, true); }
 enum fs_error fat16_unmount(void)
 {
     if (fat16_volume.busy) return FS_BUSY;
