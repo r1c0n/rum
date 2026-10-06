@@ -73,8 +73,10 @@ rum_result_t process_handle_open(struct process_handles *table, const struct fs_
     error = fs_stat(reference, &info);
     if (error == FS_OK && (flags & RUM_OPEN_DIRECTORY) && info.kind != FS_DIRECTORY) error = FS_NOT_DIRECTORY;
     if (error != FS_OK) { (void)fs_close(reference); return process_fs_error(error); }
+    uint32_t saved = cpu_interrupt_save();
     table->slots[slot] = (struct process_handle){ .reference = reference, .access = access,
         .kind = info.kind == FS_DIRECTORY ? HANDLE_DIRECTORY : HANDLE_FILE };
+    cpu_interrupt_restore(saved);
     return (rum_result_t)slot;
 }
 
@@ -87,7 +89,9 @@ rum_result_t process_handle_close(struct process_handles *table, rum_handle_t id
         enum fs_error error = fs_close(handle->reference);
         if (error != FS_OK) return process_fs_error(error);
     }
+    uint32_t saved = cpu_interrupt_save();
     *handle = (struct process_handle){0};
+    cpu_interrupt_restore(saved);
     return 0;
 }
 
