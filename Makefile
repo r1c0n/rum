@@ -23,7 +23,7 @@ DRIVER_SOURCES := kernel/drivers/terminal.c kernel/drivers/serial.c \
 MM_SOURCES := kernel/mm/pmm.c kernel/mm/heap.c
 PROCESS_SOURCES := kernel/process/task.c kernel/process/syscall.c \
                    kernel/process/elf.c kernel/process/process.c
-FS_SOURCES := kernel/fs/ramfs.c
+FS_SOURCES := kernel/fs/ramfs.c kernel/fs/block.c
 UI_SOURCES := kernel/ui/shell.c kernel/ui/snake.c kernel/ui/snake_model.c
 DEBUG_SOURCES := kernel/debug/diagnostics.c kernel/debug/diagnostics-report.c
 ARCH_SOURCES := arch/i386/cpu.c arch/i386/gdt.c arch/i386/interrupt.c \
@@ -392,7 +392,12 @@ build/tests/abi-test: tests/abi-test.c $(ABI_HEADERS) $(LAYOUT_HEADERS)
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude $< -o $@
 
-test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
+build/tests/block-test: tests/block-test.c kernel/fs/block.c include/rum/block.h tests/include/rum/cpu.h
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/include -Iinclude tests/block-test.c kernel/fs/block.c -o $@
+
+test-host: build/tests/block-test build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
+	./build/tests/block-test
 	./build/tests/console-test
 	./build/tests/memory-test
 	./build/tests/keyboard-test
