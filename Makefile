@@ -75,6 +75,7 @@ ABI_KERNELS := $(addprefix build/tests/abi-,$(addsuffix .elf,$(ABI_CASES)))
 ABI_OBJECTS := $(ABI_KERNELS:.elf=.o)
 ABI_IMAGES := $(addprefix build/tests/abi-image-,$(addsuffix .o,$(ABI_CASES)))
 TEST_DEPENDENCIES += $(ABI_OBJECTS:.o=.d) $(ABI_IMAGES:.o=.d) build/tests/abi-entry.d build/tests/user/probe.d build/tests/user/probe-entry.d
+TEST_DEPENDENCIES += build/tests/file-syscall-kernel.d build/tests/file-syscall-image.d build/tests/user/file-syscall.d
 
 .PHONY: all check iso user test-user run run-kernel debug panic test test-host test-package doctor toolchain clean FORCE
 .SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) $(PROCESS_FAULT_OBJECTS) build/tests/paging-spaces.o build/tests/user-memory.o
@@ -210,6 +211,30 @@ panic: build/tests/fault-ud.elf
 
 test: test-host test-user test-package test-block $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PROCESS_FAULT_KERNELS) build/tests/syscall.elf build/tests/elf-loader.elf $(PAGING_KERNELS) build/tests/storage.elf build/tests/fs.elf build/tests/task.elf build/tests/task-fault.elf build/tests/task-double-fault.elf $(ABI_KERNELS)
 	python3 scripts/smoke-test.py --qemu $(QEMU)
+
+.PHONY: test-file-syscalls
+test: test-file-syscalls
+test-file-syscalls: build/tests/file-syscall.elf
+	python3 tests/file-syscall-qemu-test.py --qemu $(QEMU) --ram 16
+	python3 tests/file-syscall-qemu-test.py --qemu $(QEMU) --ram 64
+
+build/tests/user/file-syscall.o: tests/file-syscall-user.c $(USER_INCLUDE_STAMP) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+
+build/tests/user/file-syscall.debug.elf: build/tests/user/file-syscall.o $(USER_RUNTIME) build/user/linker.ld
+	$(CC) -T build/user/linker.ld -nostdlib -static -no-pie -Wl,--build-id=none \
+	    -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+
+build/tests/user/file-syscall.elf: build/tests/user/file-syscall.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@.tmp
+	build/tools/check-user-elf $@.tmp $<
+	mv -- $@.tmp $@
+
+build/tests/file-syscall-image.o: build/tests/user/file-syscall.elf
+build/tests/file-syscall.elf: build/tests/file-syscall-kernel.o build/tests/file-syscall-image.o build/tests/fs-backend.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
 
 test-package: iso
 	python3 tests/package-test.py

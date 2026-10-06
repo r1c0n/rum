@@ -14,6 +14,8 @@ struct node {
 static struct node nodes[NODES];
 static uint64_t next_id;
 static unsigned calls;
+size_t fs_test_backend_short;
+enum fs_error fs_test_backend_partial_error;
 enum fs_error fs_test_backend_failure;
 bool fs_test_backend_bad_cursor, fs_test_backend_reenter;
 enum fs_error fs_test_backend_reentry_result;
@@ -86,11 +88,12 @@ static struct fs_io_result transfer(uint64_t id, uint64_t offset, void *data, si
     if (offset > node->size || (write && bytes > BYTES - (size_t)offset))
         return (struct fs_io_result){ .error = FS_RANGE };
     if (!write && bytes > node->size - (size_t)offset) bytes = node->size - (size_t)offset;
+    if (fs_test_backend_short && bytes > fs_test_backend_short) bytes = fs_test_backend_short;
     if (write) {
         memcpy(node->data + (size_t)offset, data, bytes);
         if (offset + bytes > node->size) node->size = (size_t)offset + bytes;
     } else memcpy(data, node->data + (size_t)offset, bytes);
-    return (struct fs_io_result){ .transferred = bytes };
+    return (struct fs_io_result){ .transferred = bytes, .error = fs_test_backend_partial_error };
 }
 static struct fs_io_result read_node(void *context, uint64_t id, uint64_t offset, void *data, size_t bytes)
 {
@@ -164,6 +167,7 @@ void fs_test_backend_initialize(void)
 {
     memset(nodes, 0, sizeof nodes); calls = 0; next_id = 2;
     fs_test_backend_failure = FS_OK; fs_test_backend_bad_cursor = fs_test_backend_reenter = false;
+    fs_test_backend_short = 0; fs_test_backend_partial_error = FS_OK;
     nodes[0] = (struct node){ .id = 1, .kind = FS_DIRECTORY };
     (void)put(1, "DOCS", NULL, 0, FS_DIRECTORY); /* 2 */
     (void)put(2, "NEST", NULL, 0, FS_DIRECTORY); /* 3 */
