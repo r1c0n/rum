@@ -98,6 +98,9 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     struct block_result disk = ata_initialize();
     serial_writestring("rum_disk: ");
     serial_writestring(block_error_name(disk.error));
+    serial_writestring(" status="); serial_number(disk.status);
+    serial_writestring(" error="); serial_number(disk.device_error);
+    serial_writestring(" sectors="); serial_number((uint32_t)ata_device()->sector_count);
     serial_writestring("\n");
     struct pmm_statistics memory = pmm_stats();
     serial_writestring("rum_memory_ok info="); serial_number(multiboot_info_address);

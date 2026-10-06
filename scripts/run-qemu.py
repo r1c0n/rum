@@ -6,10 +6,14 @@ import subprocess
 import sys
 
 MAX_DISK_BYTES = (1 << 28) * 512
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def validate_disk(path):
     path = Path(path).resolve(strict=True)
+    outputs = (ROOT / "build/rum.iso", ROOT / "build/rum.elf", ROOT / "build/isodir/boot/rum.elf")
+    if any(path == output.resolve() or (output.exists() and path.samefile(output)) for output in outputs):
+        raise ValueError("a generated boot image cannot be attached as a writable disk")
     if not path.is_file():
         raise ValueError("disk image must be a regular file")
     size = path.stat().st_size
@@ -53,8 +57,15 @@ def main():
     parser.add_argument("--disk", type=Path, help="existing raw image; never created or resized")
     parser.add_argument("--disk-read-only", action="store_true")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--validate-disk-only", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     try:
+        if args.validate_disk_only:
+            if args.disk is not None:
+                validate_disk(args.disk)
+            elif args.disk_read_only:
+                raise ValueError("--disk-read-only requires --disk")
+            return 0
         arguments = boot_arguments(args.image, args.kernel, args.disk, args.disk_read_only)
         command = [args.qemu, "-name", "rum OS", "-m", "64M", "-serial", "stdio",
                    "-no-reboot", "-no-shutdown"] + arguments

@@ -30,14 +30,30 @@ if ($DiskImage) {
         $diskFile.Length % 512 -ne 0 -or $diskFile.Length -gt 137438953472) {
         throw 'Raw disk must be a regular file with a nonzero multiple of 512 bytes, at most 128 GiB.'
     }
+    foreach ($output in @('build\rum.iso', 'build\rum.elf', 'build\isodir\boot\rum.elf')) {
+        if ($diskFile.FullName -eq (Join-Path $PSScriptRoot $output)) {
+            throw 'A generated boot image cannot be attached as a writable disk.'
+        }
+    }
 }
 $buildAction = switch ($Action) {
     'run' { 'build' }
     'debug' { 'build' }
     default { $Action }
 }
-& wsl.exe -d $Distro --cd $PSScriptRoot --exec bash scripts/wsl-command.sh $buildAction
+$buildArguments = @('-d', $Distro, '--cd', $PSScriptRoot, '--exec', 'bash', 'scripts/wsl-command.sh', $buildAction)
+if ($DiskImage) {
+    $linuxDiskPath = & wsl.exe -d $Distro --exec wslpath -a -u $diskFile.FullName
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    $buildArguments += $linuxDiskPath
+}
+& wsl.exe @buildArguments
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+if ($Action -eq 'test') {
+    & (Join-Path $PSScriptRoot 'tests\disk-launcher-test.ps1')
+    exit 0
+}
 
 if ($Action -in @('run', 'run-kernel', 'debug', 'panic')) {
     $qemuCommand = Get-Command qemu-system-i386.exe -ErrorAction SilentlyContinue

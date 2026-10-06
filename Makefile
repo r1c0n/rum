@@ -184,13 +184,19 @@ build/rum.iso: build/rum.elf boot/grub/grub.cfg | check
 
 iso: build/rum.iso
 
-run: iso
+run:
+	python3 scripts/run-qemu.py --validate-disk-only $(QEMU_DISK_ARGS)
+	$(MAKE) iso
 	python3 scripts/run-qemu.py --qemu $(QEMU) $(QEMU_DISK_ARGS)
 
-run-kernel: check
+run-kernel:
+	python3 scripts/run-qemu.py --validate-disk-only $(QEMU_DISK_ARGS)
+	$(MAKE) check
 	python3 scripts/run-qemu.py --qemu $(QEMU) --kernel --image build/rum.elf $(QEMU_DISK_ARGS)
 
-debug: iso
+debug:
+	python3 scripts/run-qemu.py --validate-disk-only $(QEMU_DISK_ARGS)
+	$(MAKE) iso
 	python3 scripts/run-qemu.py --qemu $(QEMU) --debug $(QEMU_DISK_ARGS)
 
 .PHONY: create-disk
@@ -212,7 +218,8 @@ test-block: build/tests/block-test build/tests/ata-test build/tests/block.elf is
 	./build/tests/block-test
 	./build/tests/ata-test
 	python3 tests/disk-tools-test.py
-	python3 tests/block-qemu-test.py --qemu $(QEMU)
+	python3 tests/block-qemu-test.py --qemu $(QEMU) --ram 16
+	python3 tests/block-qemu-test.py --qemu $(QEMU) --ram 64
 
 TEST_DEPENDENCIES += build/tests/block-kernel.d
 build/tests/block.elf: build/tests/block-kernel.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)

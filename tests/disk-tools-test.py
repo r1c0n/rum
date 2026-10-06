@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Host image-creation and launcher argument tests; no QEMU required."""
 import importlib.util
+import os
 from pathlib import Path
 import tempfile
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -49,6 +51,14 @@ with tempfile.TemporaryDirectory() as temporary:
     assert "readonly=on" in launcher.boot_arguments(boot, kernel=True, disk=disk, read_only=True)[6]
     assert disk.read_bytes() == before
     rejects(lambda: launcher.boot_arguments(boot, disk=boot))
+    for output in (ROOT / "build/rum.iso", ROOT / "build/rum.elf"):
+        if output.exists():
+            saved = output.read_bytes()
+            rejects(lambda: launcher.validate_disk(output))
+            check = subprocess.run(["make", "run", f"DISK_IMAGE={output}"], cwd=ROOT,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15) if os.name != "nt" else None
+            assert check is None or check.returncode != 0
+            assert output.read_bytes() == saved
     rejects(lambda: launcher.boot_arguments(boot, read_only=True))
     rejects(lambda: launcher.validate_disk(directory))
     missing = directory / "missing.raw"
