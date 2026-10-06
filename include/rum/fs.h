@@ -20,6 +20,9 @@ struct fs_operations {
     enum fs_error (*mkdir)(void *, uint64_t parent, const char *);
     enum fs_error (*readdir)(void *, uint64_t id, uint64_t cursor, struct fs_entry *, uint64_t *next);
     enum fs_error (*flush)(void *);
+    /* Called once after all pins close and the mount is detached. Foreground,
+       no reentry or disk I/O; release backend-owned caches here if needed. */
+    void (*unmount)(void *);
 };
 struct fs_backend {
     const struct fs_operations *operations;

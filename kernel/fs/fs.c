@@ -238,6 +238,8 @@ enum fs_error fs_unmount_disk(void)
             uint32_t flags = cpu_interrupt_save();
             mounts[FS_MOUNT_DISK].mounted = false; ramfs_reserve_disk(false);
             cpu_interrupt_restore(flags);
+            struct fs_backend *backend = &mounts[FS_MOUNT_DISK].backend;
+            if (backend->operations->unmount) backend->operations->unmount(backend->context);
         }
     }
     leave(); return error;

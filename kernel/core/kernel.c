@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <rum/ata.h>
 #include <rum/cpu.h>
+#include <rum/fat16.h>
 #include <rum/interrupts.h>
 #include <rum/heap.h>
 #include <rum/keyboard.h>
@@ -102,6 +103,8 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     serial_writestring(" error="); serial_number(disk.device_error);
     serial_writestring(" sectors="); serial_number((uint32_t)ata_device()->sector_count);
     serial_writestring("\n");
+    enum fs_error filesystem = fat16_mount(ata_device());
+    serial_writestring("rum_fat16: "); serial_writestring(fs_error_name(filesystem)); serial_writestring("\n");
     struct pmm_statistics memory = pmm_stats();
     serial_writestring("rum_memory_ok info="); serial_number(multiboot_info_address);
     serial_writestring(" usable="); serial_number(memory.usable_pages);
@@ -138,6 +141,7 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     print("  [ok] Paging (4 KiB pages, null guard)\n");
     print("  [ok] Kernel heap (16-byte alignment)\n");
     print("  [ok] RAM filesystem and embedded files\n");
+    if (filesystem == FS_OK) print("  [ok] FAT16 /disk (read only)\n");
     print("  [ok] PIC remapped (IRQ0/IRQ1 only)\n");
     print("  [ok] PIT timer at 100 Hz\n");
     if (keyboard_ready) {

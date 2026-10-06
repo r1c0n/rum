@@ -269,7 +269,7 @@ static enum fs_error readdir_node(void *context, uint64_t id, uint64_t cursor,
     if (directory.node.kind != FS_DIRECTORY) return FS_NOT_DIRECTORY;
     uint64_t count = directory_slots(&directory);
     while (cursor < count) {
-        struct description entry; char name[FS_NAME_CAPACITY];
+        struct description entry; char name[FS_NAME_CAPACITY] = {0};
         error = directory_entry(&directory, cursor++, &entry, name);
         if (error == FS_NOT_FOUND) continue;
         if (error != FS_OK) return error;
@@ -278,9 +278,18 @@ static enum fs_error readdir_node(void *context, uint64_t id, uint64_t cursor,
     }
     return FS_END;
 }
+static void detach(void *context)
+{
+    (void)context;
+    uint32_t flags = cpu_interrupt_save();
+    volume.info.mounted = false; volume.ready = false;
+    cpu_interrupt_restore(flags);
+    bool busy = volume.busy;
+    (void)kfree(volume.fat); memset(&volume, 0, sizeof volume); volume.busy = busy;
+}
 static const struct fs_operations operations = {
     .lookup = lookup, .stat = stat_node, .retain = retain, .release = release,
-    .read = read_file, .readdir = readdir_node,
+    .read = read_file, .readdir = readdir_node, .unmount = detach,
 };
 static const struct fs_backend backend = { .operations = &operations, .root = ROOT_ID,
     .naming = FS_NAMES_FAT83, .read_only = true };
@@ -336,7 +345,9 @@ enum fs_error fat16_mount(struct block_device *device)
         if (error == FS_OK) {
             volume.ready = true;
             error = fs_mount_disk(&backend);
-            if (error == FS_OK) volume.info.mounted = true;
+            if (error == FS_OK) {
+                uint32_t flags = cpu_interrupt_save(); volume.info.mounted = true; cpu_interrupt_restore(flags);
+            }
         }
     }
     if (error != FS_OK) { (void)kfree(volume.fat); memset(&volume, 0, sizeof volume); }
@@ -348,12 +359,11 @@ enum fs_error fat16_unmount(void)
     if (!volume.info.mounted) return FS_UNAVAILABLE;
     volume.busy = true;
     enum fs_error error = fs_unmount_disk();
-    if (error == FS_OK) { (void)kfree(volume.fat); memset(&volume, 0, sizeof volume); }
     volume.busy = false; return error;
 }
 struct fat16_information fat16_info(void)
 {
     uint32_t flags = cpu_interrupt_save();
-    struct fat16_information info = volume.info;
+    struct fat16_information info = volume.info.mounted ? volume.info : (struct fat16_information){0};
     cpu_interrupt_restore(flags); return info;
 }
