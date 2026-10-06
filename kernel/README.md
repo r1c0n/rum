@@ -7,10 +7,10 @@ path or expose private details to user programs.
 | Directory | Responsibility |
 | --- | --- |
 | `core/` | Kernel entry and freestanding memory primitives |
-| `drivers/` | VGA, serial, PIT, and PS/2 device support |
+| `drivers/` | VGA, serial, PIT, PS/2 and ATA PIO device support |
 | `mm/` | Physical allocation and the kernel heap |
 | `process/` | Tasks, processes, ELF loading, and syscalls |
-| `fs/` | Filesystem implementations and storage backends |
+| `fs/` | Filesystem implementations, storage backends and the block-device API |
 | `ui/` | Kernel shell and interactive programs |
 | `debug/` | Runtime snapshots and panic diagnostics |
 

@@ -23,16 +23,16 @@ recovery shell.
 
 ### 1. Block-device interface and ATA PIO
 
-- [ ] Define a kernel block-device API with sector size/count, read, write and
+- [x] Define a kernel block-device API with sector size/count, read, write and
   flush operations plus explicit error results.
-- [ ] Add an ATA PIO driver for an optional secondary IDE disk in QEMU.
-- [ ] Identify device capabilities and validate LBA/count ranges without integer
+- [x] Add an ATA PIO driver for an optional secondary IDE disk in QEMU.
+- [x] Identify device capabilities and validate LBA/count ranges without integer
   overflow before issuing commands.
-- [ ] Use bounded status polling with timeout, device-fault and error-register
+- [x] Use bounded status polling with timeout, device-fault and error-register
   reporting; never wait forever for missing or broken hardware.
-- [ ] Serialize requests and keep port I/O inside the kernel.
-- [ ] Add launch-script support for an explicitly supplied raw disk image.
-- [ ] Add a separate command that creates a disposable test image; normal boot
+- [x] Serialize requests and keep port I/O inside the kernel.
+- [x] Add launch-script support for an explicitly supplied raw disk image.
+- [x] Add a separate command that creates a disposable test image; normal boot
   must never format, truncate or replace an existing image.
 
 Host-driven tests should write recognizable sector patterns, read them through
@@ -171,12 +171,12 @@ recovery shell, RAM files, diagnostics and Snake.
 ## Delivery order
 
 Use one focused branch and pull request for each numbered phase, for example
-`0.3/user-address-spaces`, `0.3/syscalls`, `0.4/ata-pio` and `0.4/fat16-write`.
+`0.4/block-device-ata`, `0.4/filesystem-paths` and `0.4/fat16-write`.
 Keep each phase buildable and testable before starting the next dependency.
 Integration branches collect completed work; they should not hide unrelated
 features in one final commit.
 
-Before either release, rerun the full suite from a clean build, review the saved
+Before the release, rerun the full suite from a clean build, review the saved
 serial/QMP artifacts and ownership ledgers, build `rum.zip`, and boot the exact
 packaged ISO. Update the ABI version only when a public contract changes, and
 keep the previous contract documented when existing binaries remain supported.

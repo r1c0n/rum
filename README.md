@@ -81,11 +81,17 @@ input with `Ctrl+Alt+G`.
 - A versioned `int 0x80` ABI with process exit, PID lookup, and validated console I/O.
 - A page-backed heap with aligned allocation, resizing, and free-block reuse.
 - A flat RAM filesystem with build-time file embedding.
+- An optional secondary IDE raw disk with bounded ATA PIO, sector I/O and cache flushing.
 - A separate freestanding user ELF build, production loader, and public ABI.
 - Foreground user-process launch, waiting, fault reporting, cleanup, and Ctrl+C.
 
 rum is a single-CPU system. The shell and Snake still run in ring 0; programs
-started with `run` execute in ring 3. Persistent disk storage is planned work.
+started with `run` execute in ring 3. Raw disks can be attached for kernel sector
+I/O; persistent files and disk mounts are still planned work.
+
+Create and attach a disposable disk with `make create-disk DISK_IMAGE=build/scratch.raw`
+then `make run DISK_IMAGE=build/scratch.raw`. PowerShell equivalents and the
+kernel API are covered in [Raw disks and block devices](docs/block-devices.md).
 
 ## Building and testing
 
@@ -101,7 +107,9 @@ started with `run` execute in ring 3. Persistent disk storage is planned work.
 
 Build outputs are `build/rum.elf` and `build/rum.iso`. Tests cover game rules,
 shell input, memory allocation, RAM files, boot checks, CPU faults, ring-3
-syscalls, foreground process outcomes, cleanup, and device interrupts. Every
+syscalls, foreground process outcomes, cleanup, and device interrupts. Storage
+tests also check exact sector bytes, persistence, canaries and injected I/O
+failures with disposable images. Every
 isolated QEMU case runs with 16 and 64 MiB. The suite also boots the GRUB ISO
 and direct ELF at 16, 64, 256, and 1152 MiB. Logs, memory dumps, and screenshots
 are saved in `build/test-artifacts/`.
@@ -161,4 +169,4 @@ The project follows the boot and toolchain approach in
 `arch/i386/boot.s` sets up its stack and CPU segments before calling C.
 
 See the [documentation](docs/README.md) for subsystem details and debugging.
-Persistent storage and userspace-shell plans are in the [roadmap](docs/roadmap.md).
+Persistent files and userspace-shell plans are in the [roadmap](docs/roadmap.md).

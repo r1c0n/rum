@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+# Validate a launcher's supplied disk before make can replace any boot output.
+if [[ -n "${2:-}" && "${1:-}" != create-disk ]]; then
+    python3 scripts/run-qemu.py --validate-disk-only --disk "$2"
+fi
 case "${1:-build}" in
     setup)
         sudo bash scripts/install-deps.sh
@@ -14,5 +18,6 @@ case "${1:-build}" in
     panic) make build/tests/fault-ud.elf ;;
     test) make test ;;
     clean) make clean ;;
+    create-disk) python3 scripts/disk-image.py "${2:?Supply a new disk image path}" --size-mib "${3:-16}" ;;
     *) echo "Unknown action: $1" >&2; exit 2 ;;
 esac

@@ -74,11 +74,17 @@ make test            # Run the complete host, package, and QEMU suite
 make test-package    # Build and validate the release ZIP
 make test-host       # Run host tests only
 make test-user       # Check user ELF assets and malformed inputs
+make test-block      # Sector API, ATA faults and disposable QEMU images
 make clean           # Remove build/
 ```
 
 QEMU starts with 64 MiB of RAM. Serial output appears in the launching terminal.
 Close the QEMU window or press `Ctrl+C` in that terminal to stop it.
+
+To attach a raw disk, pass `-DiskImage <path>` to the PowerShell run/debug actions
+or `DISK_IMAGE=<path>` to Make. Image creation is a separate `create-disk` command
+that refuses existing paths. See [Raw disks and block devices](block-devices.md)
+for commands, supported sizes and the current read-only IDE limitation.
 
 Normal builds also produce stripped assets in `build/user/ramfs/` and symbol-rich
 executables/maps in `build/user/debug/`. Use `.\rum.ps1 user` in PowerShell to

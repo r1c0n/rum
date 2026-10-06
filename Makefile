@@ -5,6 +5,12 @@ CC := $(CROSS_PREFIX)gcc
 AS := $(CROSS_PREFIX)as
 OBJCOPY := $(CROSS_PREFIX)objcopy
 QEMU ?= qemu-system-i386
+DISK_IMAGE ?=
+DISK_READ_ONLY ?= 0
+DISK_SIZE_MIB ?= 16
+export DISK_IMAGE DISK_READ_ONLY DISK_SIZE_MIB
+# Read paths from the environment: shell substitution must not evaluate a filename.
+QEMU_DISK_ARGS = $${DISK_IMAGE:+--disk "$$DISK_IMAGE"} $$(test "$$DISK_READ_ONLY" = 1 && printf %s --disk-read-only)
 HOST_CC ?= gcc
 
 CPPFLAGS := -Iinclude
@@ -19,11 +25,11 @@ LDFLAGS := -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie \
 CORE_SOURCES := kernel/core/kernel.c kernel/core/memory.c
 DRIVER_SOURCES := kernel/drivers/terminal.c kernel/drivers/serial.c \
                   kernel/drivers/timer.c kernel/drivers/keyboard.c \
-                  kernel/drivers/keyboard_decode.c
+                  kernel/drivers/keyboard_decode.c kernel/drivers/ata.c
 MM_SOURCES := kernel/mm/pmm.c kernel/mm/heap.c
 PROCESS_SOURCES := kernel/process/task.c kernel/process/syscall.c \
                    kernel/process/elf.c kernel/process/process.c
-FS_SOURCES := kernel/fs/ramfs.c
+FS_SOURCES := kernel/fs/ramfs.c kernel/fs/block.c
 UI_SOURCES := kernel/ui/shell.c kernel/ui/snake.c kernel/ui/snake_model.c
 DEBUG_SOURCES := kernel/debug/diagnostics.c kernel/debug/diagnostics-report.c
 ARCH_SOURCES := arch/i386/cpu.c arch/i386/gdt.c arch/i386/interrupt.c \
@@ -178,23 +184,47 @@ build/rum.iso: build/rum.elf boot/grub/grub.cfg | check
 
 iso: build/rum.iso
 
-run: iso
-	$(QEMU) -m 64M -boot d -cdrom build/rum.iso -serial stdio -no-reboot -no-shutdown
+run:
+	python3 scripts/run-qemu.py --validate-disk-only $(QEMU_DISK_ARGS)
+	$(MAKE) iso
+	python3 scripts/run-qemu.py --qemu $(QEMU) $(QEMU_DISK_ARGS)
 
-run-kernel: check
-	$(QEMU) -m 64M -kernel build/rum.elf -serial stdio -no-reboot -no-shutdown
+run-kernel:
+	python3 scripts/run-qemu.py --validate-disk-only $(QEMU_DISK_ARGS)
+	$(MAKE) check
+	python3 scripts/run-qemu.py --qemu $(QEMU) --kernel --image build/rum.elf $(QEMU_DISK_ARGS)
 
-debug: iso
-	$(QEMU) -m 64M -boot d -cdrom build/rum.iso -serial stdio -no-reboot -no-shutdown -S -s
+debug:
+	python3 scripts/run-qemu.py --validate-disk-only $(QEMU_DISK_ARGS)
+	$(MAKE) iso
+	python3 scripts/run-qemu.py --qemu $(QEMU) --debug $(QEMU_DISK_ARGS)
+
+.PHONY: create-disk
+create-disk:
+	@test -n "$$DISK_IMAGE" || (echo 'Set DISK_IMAGE to a NEW disposable image path.' >&2; exit 2)
+	python3 scripts/disk-image.py "$$DISK_IMAGE" --size-mib "$$DISK_SIZE_MIB"
 
 panic: build/tests/fault-ud.elf
 	$(QEMU) -m 64M -kernel $< -serial stdio -no-reboot -no-shutdown
 
-test: test-host test-user test-package $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PROCESS_FAULT_KERNELS) build/tests/syscall.elf build/tests/elf-loader.elf $(PAGING_KERNELS) build/tests/storage.elf build/tests/task.elf build/tests/task-fault.elf build/tests/task-double-fault.elf $(ABI_KERNELS)
+test: test-host test-user test-package test-block $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PROCESS_FAULT_KERNELS) build/tests/syscall.elf build/tests/elf-loader.elf $(PAGING_KERNELS) build/tests/storage.elf build/tests/task.elf build/tests/task-fault.elf build/tests/task-double-fault.elf $(ABI_KERNELS)
 	python3 scripts/smoke-test.py --qemu $(QEMU)
 
 test-package: iso
 	python3 tests/package-test.py
+
+.PHONY: test-block
+test-block: build/tests/block-test build/tests/ata-test build/tests/block.elf iso
+	./build/tests/block-test
+	./build/tests/ata-test
+	python3 tests/disk-tools-test.py --boot-output-checks
+	python3 tests/block-qemu-test.py --qemu $(QEMU) --ram 16
+	python3 tests/block-qemu-test.py --qemu $(QEMU) --ram 64
+
+TEST_DEPENDENCIES += build/tests/block-kernel.d
+build/tests/block.elf: build/tests/block-kernel.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
 
 build/tests/irq.elf: build/tests/irq-kernel.o build/tests/irq-probe.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
@@ -392,7 +422,19 @@ build/tests/abi-test: tests/abi-test.c $(ABI_HEADERS) $(LAYOUT_HEADERS)
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude $< -o $@
 
-test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
+build/tests/block-test: tests/block-test.c kernel/fs/block.c include/rum/block.h tests/include/rum/cpu.h
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/include -Iinclude tests/block-test.c kernel/fs/block.c -o $@
+
+build/tests/ata-test: tests/ata-test.c kernel/drivers/ata.c kernel/fs/block.c include/rum/ata.h include/rum/block.h tests/ata-include/rum/io.h tests/ata-include/rum/cpu.h
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/ata-include -Iinclude tests/ata-test.c kernel/drivers/ata.c kernel/fs/block.c -o $@
+
+test-host: build/tests/ata-test
+
+test-host: build/tests/block-test build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
+	./build/tests/ata-test
+	./build/tests/block-test
 	./build/tests/console-test
 	./build/tests/memory-test
 	./build/tests/keyboard-test
@@ -404,6 +446,7 @@ test-host: build/tests/console-test build/tests/memory-test build/tests/keyboard
 	./build/tests/frame-test
 	./build/tests/abi-test
 	python3 tests/embed-test.py
+	python3 tests/disk-tools-test.py
 
 doctor:
 	bash scripts/doctor.sh
