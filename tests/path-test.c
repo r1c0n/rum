@@ -44,6 +44,11 @@ int main(void)
     char base[256]; memset(base, 'a', sizeof(base));
     assert(fs_path_parse(base, "x", &path) == FS_PATH_TOO_LONG);
     assert(fs_path_parse("/", "/disk/invalid-name/..", &path) == FS_NAME_TOO_LONG);
+    /* Raw arguments fit, but their resolved relative path does not. */
+    char parent[256] = "/", suffix[65];
+    memset(suffix, 'b', 63); suffix[63] = 0;
+    for (unsigned i = 0; i < 3; ++i) { strcat(parent, suffix); strcat(parent, "/"); }
+    assert(fs_path_parse(parent, suffix, &path) == FS_PATH_TOO_LONG);
     for (enum block_error e = BLOCK_OK; e <= BLOCK_UNSUPPORTED; ++e)
         assert(fs_error_from_block(e) != FS_END);
     assert(fs_error_from_block(BLOCK_TIMEOUT) == FS_TIMEOUT);

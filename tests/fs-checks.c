@@ -20,6 +20,47 @@ static void path_error(const char *path, enum fs_error expected, const char *nam
              fs_mkdir(NULL, path) == expected && calls == fs_test_backend_calls(), name);
 }
 static fs_reference refs[FS_REFERENCE_LIMIT];
+static void *guards[HEAP_LIMIT / RUM_PAGE_SIZE];
+
+static void ram_writes(void)
+{
+    static const unsigned char binary[] = {0, 'r', 0xff, 'u', 'm', '\n'};
+    fs_reference ref, second;
+    struct fs_information info;
+    unsigned char bytes[sizeof binary];
+    unsigned char *payload = kmalloc(RAMFS_FILE_LIMIT);
+    fs_check(payload != NULL, "allocate RAM file limit payload");
+    memset(payload, 0xa5, RAMFS_FILE_LIMIT);
+    fs_check(fs_replace(NULL, "/rw-test", binary, sizeof binary) == FS_OK &&
+             fs_open(NULL, "rw-test", FS_READ | FS_WRITE, &ref) == FS_OK &&
+             fs_open(NULL, "rw-test", FS_READ, &second) == FS_OK, "open shared RAM read write object");
+    unsigned count = 0;
+    while (count < HEAP_LIMIT / RUM_PAGE_SIZE && (guards[count] = kmalloc(RUM_PAGE_SIZE))) ++count;
+    fs_check(count < HEAP_LIMIT / RUM_PAGE_SIZE, "reach heap exhaustion");
+    struct heap_statistics heap = heap_stats();
+    fs_check(fs_write(ref, 0, payload, RAMFS_FILE_LIMIT).error == FS_NO_MEMORY &&
+             fs_stat(second, &info) == FS_OK && info.size == sizeof binary &&
+             fs_read(second, 0, bytes, sizeof bytes).transferred == sizeof binary &&
+             !memcmp(bytes, binary, sizeof bytes) && heap_stats().used_bytes == heap.used_bytes &&
+             heap_stats().allocations == heap.allocations, "failed RAM growth preserves bytes and heap owners");
+    while (count) fs_check(kfree(guards[--count]), "release OOM guards");
+    const unsigned char *borrowed; size_t size;
+    fs_check(ramfs_read("rw-test", &borrowed, &size) &&
+             fs_write(ref, 2, borrowed, 4).transferred == 4 &&
+             fs_read(second, 0, bytes, sizeof bytes).transferred == sizeof bytes &&
+             !memcmp(bytes, (const unsigned char[]){0, 'r', 0, 'r', 0xff, 'u'}, sizeof bytes),
+             "overlapping borrowed RAM write uses stable identity");
+    fs_check(fs_write(ref, sizeof binary + 1, "x", 1).error == FS_RANGE &&
+             fs_read(second, UINT64_MAX, bytes, 1).error == FS_RANGE &&
+             fs_read(second, sizeof binary, bytes, 1).transferred == 0, "RAM holes overflow and EOF");
+    fs_check(fs_write(ref, 0, payload, RAMFS_FILE_LIMIT).transferred == RAMFS_FILE_LIMIT &&
+             fs_stat(second, &info) == FS_OK && info.size == RAMFS_FILE_LIMIT &&
+             fs_write(ref, RAMFS_FILE_LIMIT, "x", 1).error == FS_RANGE &&
+             fs_read(second, RAMFS_FILE_LIMIT - 1, bytes, 1).transferred == 1 && bytes[0] == 0xa5,
+             "common RAM writes retain 64 KiB boundary and exact bytes");
+    fs_check(fs_close(ref) == FS_OK && fs_close(second) == FS_OK && fs_remove(NULL, "/rw-test") == FS_OK &&
+             kfree(payload), "RAM write owners released");
+}
 
 void fs_checks(void)
 {
@@ -44,6 +85,11 @@ void fs_checks(void)
              fs_stat_path(NULL, "//disk//DOCS//README.TXT", &other) == FS_OK &&
              info.identity.object == other.identity.object && info.identity.mount == FS_MOUNT_DISK,
              "equivalent paths and FAT case folding");
+    fs_check(fs_stat_path(NULL, "/../..//.", &info) == FS_OK && info.identity.mount == FS_MOUNT_RAM &&
+             fs_open(NULL, "/disk/ROOT.TXT", 0, &disk) == FS_INVALID &&
+             fs_open(NULL, "/disk", FS_WRITE, &disk) == FS_IS_DIRECTORY &&
+             fs_replace(NULL, "/disk/abcdefgh.xyz", binary, sizeof binary) == FS_OK &&
+             fs_remove(NULL, "/disk/ABCDEFGH.XYZ") == FS_OK, "root traversal, modes and maximum 8.3 name");
     fs_check(fs_stat_path(NULL, "/disk/MISSING/../ROOT.TXT", &info) == FS_NOT_FOUND &&
              fs_stat_path(NULL, "/disk/DOCS/README.TXT/..", &info) == FS_NOT_DIRECTORY &&
              fs_stat_path(NULL, "/disk/ROOT.TXT/.", &info) == FS_NOT_DIRECTORY &&
@@ -53,6 +99,10 @@ void fs_checks(void)
              fs_context_clone(&cwd, &clone) == FS_OK && fs_context_chdir(&clone, "../EMPTY") == FS_OK &&
              equal(clone.path, "/disk/EMPTY") && equal(cwd.path, "/disk/DOCS"), "independent cloned working directory");
     fs_reference before = cwd.directory;
+    unsigned validation_calls = fs_test_backend_calls();
+    fs_check(fs_context_chdir(&cwd, "../..") == FS_MOUNT_ESCAPE &&
+             validation_calls == fs_test_backend_calls() && cwd.directory == before,
+             "relative mount escape rejected before backend");
     fs_check(fs_context_chdir(&cwd, "README.TXT") == FS_NOT_DIRECTORY &&
              fs_context_chdir(&cwd, "MISSING") == FS_NOT_FOUND && cwd.directory == before,
              "failed chdir keeps owner unchanged");
@@ -181,4 +231,7 @@ void fs_checks(void)
     fs_check(fs_unmount_disk() == FS_OK && fs_stats().references == baseline.references &&
              fs_stats().objects == baseline.objects && fs_stats().mounts == baseline.mounts && !fs_test_backend_pins(),
              "filesystem ownership returns to baseline");
+    ram_writes();
+    fs_check(fs_stats().references == baseline.references && fs_stats().objects == baseline.objects,
+             "RAM write test restores reference baseline");
 }

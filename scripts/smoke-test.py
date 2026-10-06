@@ -284,13 +284,16 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
 
     node = struct.unpack("<I", dump_ram(stream, symbols["ramfs_first"], 4,
                                        artifacts / f"{mode}-ramfs-root.bin"))[0]
-    loaded, owners = {}, set()
+    loaded, owners, file_ids = {}, set(), set()
     while node:
-        if node in owners or live_blocks.get(node, 0) < 76:
+        if node in owners or live_blocks.get(node, 0) < 88:
             raise RuntimeError("RAM filesystem list is invalid")
         owners.add(node)
-        following, size, address = struct.unpack_from("<III", heap_bytes(node, 76))
-        name = bytes(heap_bytes(node + 12, 64)).split(b"\0", 1)[0].decode("ascii")
+        following, identity, references, size, address = struct.unpack_from("<IQIII", heap_bytes(node, 88))
+        if identity <= 1 or identity in file_ids or references:
+            raise RuntimeError("RAM file identity or retained-reference count is invalid")
+        file_ids.add(identity)
+        name = bytes(heap_bytes(node + 24, 64)).split(b"\0", 1)[0].decode("ascii")
         if name in loaded:
             raise RuntimeError("Duplicate RAM filename")
         if size:

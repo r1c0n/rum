@@ -4,7 +4,6 @@
 #include <rum/ramfs.h>
 
 #define ROOT_ID UINT64_C(1)
-_Static_assert(RAMFS_NAME_CAPACITY == FS_NAME_CAPACITY, "RAM names retain their capacity");
 struct file {
     struct file *next;
     uint64_t id;
@@ -13,6 +12,10 @@ struct file {
     unsigned char *data;
     char name[RAMFS_NAME_CAPACITY];
 };
+#ifdef __i386__
+_Static_assert(sizeof(struct file) == 88 && offsetof(struct file, name) == 24,
+               "i386 RAM node layout audited by QEMU smoke tests");
+#endif
 static struct file *ramfs_first, *ramfs_last;
 static struct ramfs_statistics statistics;
 static uint64_t next_id = ROOT_ID + 1;

@@ -82,6 +82,7 @@ static struct fs_io_result transfer(uint64_t id, uint64_t offset, void *data, si
     struct node *node = by_id(id);
     if (!node) return (struct fs_io_result){ .error = FS_NOT_FOUND };
     if (node->kind != FS_FILE) return (struct fs_io_result){ .error = FS_IS_DIRECTORY };
+    if (!write && offset >= node->size) return (struct fs_io_result){0};
     if (offset > node->size || (write && bytes > BYTES - (size_t)offset))
         return (struct fs_io_result){ .error = FS_RANGE };
     if (!write && bytes > node->size - (size_t)offset) bytes = node->size - (size_t)offset;
