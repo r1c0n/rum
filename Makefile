@@ -19,7 +19,7 @@ LDFLAGS := -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie \
 CORE_SOURCES := kernel/core/kernel.c kernel/core/memory.c
 DRIVER_SOURCES := kernel/drivers/terminal.c kernel/drivers/serial.c \
                   kernel/drivers/timer.c kernel/drivers/keyboard.c \
-                  kernel/drivers/keyboard_decode.c
+                  kernel/drivers/keyboard_decode.c kernel/drivers/ata.c
 MM_SOURCES := kernel/mm/pmm.c kernel/mm/heap.c
 PROCESS_SOURCES := kernel/process/task.c kernel/process/syscall.c \
                    kernel/process/elf.c kernel/process/process.c
@@ -396,7 +396,14 @@ build/tests/block-test: tests/block-test.c kernel/fs/block.c include/rum/block.h
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/include -Iinclude tests/block-test.c kernel/fs/block.c -o $@
 
+build/tests/ata-test: tests/ata-test.c kernel/drivers/ata.c kernel/fs/block.c include/rum/ata.h include/rum/block.h tests/ata-include/rum/io.h tests/ata-include/rum/cpu.h
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/ata-include -Iinclude tests/ata-test.c kernel/drivers/ata.c kernel/fs/block.c -o $@
+
+test-host: build/tests/ata-test
+
 test-host: build/tests/block-test build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
+	./build/tests/ata-test
 	./build/tests/block-test
 	./build/tests/console-test
 	./build/tests/memory-test

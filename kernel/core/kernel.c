@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <rum/ata.h>
 #include <rum/cpu.h>
 #include <rum/interrupts.h>
 #include <rum/heap.h>
@@ -94,6 +95,10 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
         print("rum: cannot initialize kernel contexts. Halting.\n");
         return;
     }
+    struct block_result disk = ata_initialize();
+    serial_writestring("rum_disk: ");
+    serial_writestring(block_error_name(disk.error));
+    serial_writestring("\n");
     struct pmm_statistics memory = pmm_stats();
     serial_writestring("rum_memory_ok info="); serial_number(multiboot_info_address);
     serial_writestring(" usable="); serial_number(memory.usable_pages);
