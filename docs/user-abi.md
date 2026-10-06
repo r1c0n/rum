@@ -125,6 +125,15 @@ callee-saved registers.
 | 1 | `rum_read(handle, buffer, capacity)` | Writable user buffer | Bytes read |
 | 2 | `rum_write(handle, buffer, bytes)` | Readable user buffer | Bytes written |
 | 3 | `rum_getpid()` | None | Positive process ID |
+| 4 | `rum_open(path, access, flags)` | Address of versioned open packet | Handle 3–31 |
+| 5 | `rum_close(handle)` | Handle | Zero |
+| 6 | `rum_seek(handle, displacement, whence, position)` | Handle, in/out seek packet | Zero; position in packet |
+| 7 | `rum_readdir(handle, entry)` | Handle, versioned directory-entry packet | One entry or zero at end |
+| 8 | `rum_chdir(path)` | NUL-terminated path | Zero |
+| 9 | `rum_getcwd(buffer, capacity)` | Writable buffer, capacity | Bytes including NUL |
+| 10 | `rum_mkdir(path)` | NUL-terminated path | Zero |
+| 11 | `rum_remove(path)` | NUL-terminated path | Zero |
+| 12 | `rum_flush(handle)` | Filesystem handle | Zero |
 
 Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
 means success. A negative result is the negation of a `RUM_E*` value from
@@ -132,23 +141,31 @@ means success. A negative result is the negation of a `RUM_E*` value from
 `errno`.
 
 Read and write calls may return fewer bytes than requested. A zero-length call
-returns zero without using the buffer. The current console backend transfers at
-most 128 bytes per call, so callers must handle partial results.
+validates the handle, direction and object kind, then returns zero without using
+the buffer. Console calls transfer at most 128 bytes; file calls transfer at most
+512 bytes. File reads return zero at EOF.
 
-`rum_write` accepts standard output and standard error. It verifies the complete
-arithmetic range, then checks and copies only the chunk it will transfer through
-a kernel buffer. Console code and drivers never receive a raw user pointer.
+`rum_write` accepts standard output, standard error, and writable file handles.
+Both I/O calls verify the complete requested range and every covered user page
+before copying a chunk through a kernel buffer. Console code, filesystems and
+drivers never receive a raw user pointer.
 
-`rum_read` accepts standard input and requires a writable user range. If no
+`rum_read` accepts readable file handles and standard input, and requires a
+writable user range. For standard input, if no
 decoded character is queued, the calling process sleeps on a keyboard-specific
 event. Keyboard IRQs remain enabled while it waits, PIT ticks continue, and
 other runnable tasks can execute. The call returns after copying one or more
 available characters, up to its 128-byte limit.
 
-An unsupported number returns `-RUM_ENOSYS`, an invalid standard handle returns
+An unsupported number returns `-RUM_ENOSYS`, an invalid or wrong-direction handle returns
 `-RUM_EBADF`, and an overflowing, unmapped, supervisor-only, or wrongly
 protected buffer returns `-RUM_EFAULT`. These checks return an ABI error rather
 than turning bad user input into a kernel fault.
+
+See [Filesystem syscalls](filesystem-syscalls.md) for packet layouts, seek rules,
+directory iteration, access modes, partial errors, and working-directory examples.
+The original syscall numbers and ABI version remain compatible; filesystem
+packets have their own version field.
 
 ## Process arguments and initial stack
 

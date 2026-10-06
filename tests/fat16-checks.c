@@ -102,6 +102,7 @@ void fat16_checks(struct block_device *device, const char *phase, const char *pa
         fat16_check(mounted != FS_OK && !fat16_info().mounted, "reject malformed volume geometry or FAT");
         fat16_report("mount", mounted);
     } else {
+        if (mounted != FS_OK) fat16_report("unexpected-mount-error", mounted);
         fat16_check(mounted == FS_OK && fat16_info().mounted, "mount host FAT16 image");
         if (equal(phase, "open")) {
             fs_reference file;

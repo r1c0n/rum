@@ -26,8 +26,9 @@ virtual memory management, guarded task stacks, cooperative scheduling, and a
 controlled double-fault path. Prepared processes enter ring 3 through the
 production interrupt-return path, and a user exception terminates only that
 process while preserving its fault record for the parent. The production
-`int 0x80` dispatcher provides process exit, PID lookup, and checked console
-input and output. The shell can launch one foreground user process, wait for its
+`int 0x80` dispatcher provides process exit, PID lookup, checked console/file
+input and output, directory listing, and working-directory operations.
+The shell can launch one foreground user process, wait for its
 result, report its signed status or fault, and cancel it with Ctrl+C.
 
 Stripped user ELF programs are embedded in the normal boot RAM filesystem. The
@@ -36,8 +37,8 @@ stack, and hands the image to the process system for `run`. File changes remain
 in RAM and disappear on reboot.
 
 An optional secondary IDE disk exposes raw sector I/O to the kernel. Boot mounts
-supported FAT16 volumes at `/disk`, with writes available to kernel callers on
-writable devices. Shell commands still use RAM files.
+supported FAT16 volumes at `/disk`, with writes available to kernel callers and
+user programs on writable devices. Shell commands still use RAM files.
 
 ## User guides
 
@@ -62,6 +63,7 @@ writable devices. Shell commands still use RAM files.
 | [Memory management](memory.md) | Multiboot memory discovery, physical pages, paging, and checked user access |
 | [Memory map and ownership](memory-layout.md) | Virtual ranges, limits, and who must release each resource |
 | [User ABI and ELF programs](user-abi.md) | Building user code and following the public syscall, stack, and ELF contracts |
+| [Filesystem syscalls](filesystem-syscalls.md) | Opening files from userspace, directory iteration, seek, paths and error handling |
 
 The [roadmap](roadmap.md) is project planning rather than a description of
 released behavior. It tracks the planned persistent storage and userspace-shell

@@ -13,5 +13,18 @@
 #define RUM_E2BIG   8
 #define RUM_EBUSY   9
 #define RUM_EINTR  10
+#define RUM_EACCES 11
+#define RUM_EROFS 12
+#define RUM_ENOSPC 13
+#define RUM_EMFILE 14
+#define RUM_ENOTDIR 15
+#define RUM_EISDIR 16
+#define RUM_EEXIST 17
+#define RUM_ENOTEMPTY 18
+#define RUM_ENAMETOOLONG 19
+#define RUM_EOVERFLOW 20
+#define RUM_ERANGE 21
+#define RUM_ETIMEDOUT 22
+#define RUM_ENODEV 23
 
 #endif

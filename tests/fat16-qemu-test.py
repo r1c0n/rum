@@ -83,20 +83,14 @@ def run(qemu, ram, label, arguments, marker, case=None):
                 (ARTIFACTS / f"{label}.serial.log").write_bytes(serial.read_bytes())
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--qemu", default="qemu-system-i386")
-    parser.add_argument("--ram", type=int, choices=(16, 64), default=64)
-    args = parser.parse_args()
-    ARTIFACTS.mkdir(parents=True, exist_ok=True)
-    directory = ROOT / "build/tests/fat16"
+def exercise(qemu, ram, directory):
     cases = json.loads((directory / "manifest.json").read_text())
     for case in cases:
         image = directory / case["image"]
         before = hashlib.sha256(image.read_bytes()).digest()
         arguments = launcher.boot_arguments(ROOT / "build/tests/fat16.elf", kernel=True, disk=image)
         arguments += ["-append", case["phase"] + " " + case["path"]]
-        run(args.qemu, args.ram, f"{args.ram}m-{case['name']}", arguments, "rum_fat_ok", case)
+        run(qemu, ram, f"{ram}m-{case['name']}", arguments, "rum_fat_ok", case)
         assert hashlib.sha256(image.read_bytes()).digest() == before, "guest wrote the read-only volume"
     for kernel in (False, True):
         for name in ("valid", "signature"):
@@ -104,8 +98,32 @@ def main():
             before = hashlib.sha256(image.read_bytes()).digest()
             boot = ROOT / ("build/rum.elf" if kernel else "build/rum.iso")
             arguments = launcher.boot_arguments(boot, kernel=kernel, disk=image)
-            run(args.qemu, args.ram, f"{args.ram}m-{'elf' if kernel else 'iso'}-{name}", arguments, "rum_boot_ok")
+            run(qemu, ram, f"{ram}m-{'elf' if kernel else 'iso'}-{name}", arguments, "rum_boot_ok")
             assert hashlib.sha256(image.read_bytes()).digest() == before
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--qemu", default="qemu-system-i386")
+    parser.add_argument("--ram", type=int, choices=(16, 64), default=64)
+    args = parser.parse_args()
+    ARTIFACTS.mkdir(parents=True, exist_ok=True)
+    # DrvFs latency can consume a bounded ATA poll even for small reads while
+    # parallel builds run. Keep guest I/O on Linux's temporary filesystem and
+    # compare both staged and source images; never retry a failed guest check.
+    source = ROOT / "build/tests/fat16"
+    with tempfile.TemporaryDirectory(prefix="rum-fat16-read-volume-") as temporary:
+        directory = Path(temporary)
+        (directory / "manifest.json").write_bytes((source / "manifest.json").read_bytes())
+        originals = {}
+        for image in source.glob("*.raw"):
+            data = image.read_bytes()
+            originals[image.name] = hashlib.sha256(data).digest()
+            (directory / image.name).write_bytes(data)
+        exercise(args.qemu, args.ram, directory)
+        for name, digest in originals.items():
+            assert hashlib.sha256((source / name).read_bytes()).digest() == digest
+            assert hashlib.sha256((directory / name).read_bytes()).digest() == digest
 
 
 if __name__ == "__main__":

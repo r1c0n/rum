@@ -78,7 +78,7 @@ input with `Ctrl+Alt+G`.
 - Supervisor paging with protected kernel pages and private user address spaces.
 - Process records with positive PIDs, trusted user frames, and owned-resource accounting.
 - Production ring-3 entry with isolated user-fault recovery and recorded fault state.
-- A versioned `int 0x80` ABI with process exit, PID lookup, and validated console I/O.
+- An `int 0x80` ABI with process exit, PID lookup, checked console/file I/O and versioned filesystem packets.
 - A page-backed heap with aligned allocation, resizing, and free-block reuse.
 - A flat RAM filesystem with build-time file embedding.
 - An optional secondary IDE raw disk with bounded ATA PIO, sector I/O and cache flushing.
@@ -88,8 +88,9 @@ input with `Ctrl+Alt+G`.
 
 rum is a single-CPU system. The shell and Snake still run in ring 0; programs
 started with `run` execute in ring 3. Supported FAT16 disks mount at `/disk` for
-kernel callers, with file and directory mutations on writable devices. Shell
-commands still use RAM files; userspace filesystem access remains planned work.
+kernel callers and user programs, with file and directory mutations on writable
+devices. Shell commands still use RAM files. See [filesystem syscalls](docs/filesystem-syscalls.md)
+to read and write disk files from a user program.
 
 Create and attach a disposable disk with `make create-disk DISK_IMAGE=build/scratch.raw`
 then `make run DISK_IMAGE=build/scratch.raw`. PowerShell equivalents and the

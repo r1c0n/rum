@@ -8,8 +8,8 @@ validation itself.
 RAM files occupy `/`. A supported [FAT16 disk](fat16.md) mounts at
 `/disk` during boot. `/disk` returns `FS_UNAVAILABLE` without a valid volume.
 The existing kernel shell, ELF loader, and Snake continue to use the flat
-RAM-file API. These kernel
-interfaces do not yet introduce filesystem syscalls or shell `cd` commands.
+RAM-file API. User programs can access this namespace through
+[filesystem syscalls](filesystem-syscalls.md). The kernel shell has no `cd` command.
 
 ## Path rules
 
@@ -110,7 +110,7 @@ can accompany backend failures in `fs_io_result`.
 looks up a path without retaining it. Neither gives a borrowed payload pointer.
 `fs_duplicate` returns another independently closable reference with the same
 identity and access mode. Generic references do not store a current offset;
-per-process handle offsets belong to the later handle/syscall layer.
+per-process handle offsets belong to the handle/syscall layer.
 
 ## Mutation and object lifetime
 
