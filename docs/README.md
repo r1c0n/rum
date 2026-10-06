@@ -56,6 +56,7 @@ probes it; shell files remain in RAM until a disk filesystem is implemented.
 | [Boot, exceptions, and CPU state](exceptions.md) | GDT, TSS, IDT, interrupt frames, user CPU policy, and double faults |
 | [Device interrupts](interrupts.md) | PIC routing, PIT ticks, keyboard input, and IRQ restrictions |
 | [Kernel tasks and process records](tasks.md) | Scheduling, guarded stacks, events, process publication, and cleanup |
+| [Filesystems and paths](filesystems.md) | Backend operations, mounts, naming, access, retained objects, and working directories |
 | [Memory management](memory.md) | Multiboot memory discovery, physical pages, paging, and checked user access |
 | [Memory map and ownership](memory-layout.md) | Virtual ranges, limits, and who must release each resource |
 | [User ABI and ELF programs](user-abi.md) | Building user code and following the public syscall, stack, and ELF contracts |
@@ -93,6 +94,7 @@ before opening a pull request:
 make test-host   # C tests for portable kernel components
 make test-user   # User ELF and public-header validation
 make test-block  # Block API, ATA driver and disposable QEMU disk tests
+make test-fs     # Paths, filesystem backends and process working directories
 make test-package # Release archive and embedded-ISO validation
 make test        # Complete host, package, and QEMU suite
 ```
