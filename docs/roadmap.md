@@ -42,16 +42,20 @@ errors and timeout paths. Canary sectors outside each request must not change.
 
 ### 2. Filesystem and path layer
 
-- [ ] Introduce common filesystem operations for RAM and disk backends.
-- [ ] Resolve absolute and relative paths through one bounded parser.
-- [ ] Support directories, `.`, `..`, repeated separators and a per-process
+- [x] Introduce common filesystem operations for RAM and disk backends.
+- [x] Resolve absolute and relative paths through one bounded parser.
+- [x] Support directories, `.`, `..`, repeated separators and a per-process
   working directory without escaping a mounted root.
-- [ ] Mount the persistent volume at `/disk` while preserving embedded RAM files
-  in the existing root namespace.
-- [ ] Define path, component and directory-depth limits in public/private headers.
-- [ ] Define backend naming, access-mode and error translation rules.
-- [ ] Track open objects by backend identity so removal and replacement have
+- [x] Provide a `/disk` mount point for persistent backends while preserving
+  embedded RAM files in the existing root namespace.
+- [x] Define path, component and directory-depth limits in public/private headers.
+- [x] Define backend naming, access-mode and error translation rules.
+- [x] Track open objects by backend identity so removal and replacement have
   explicit behavior while handles remain open.
+
+The mount interface and directory backend contract are tested independently
+of disk format. FAT16 validation and boot-time mounting follow in step 3.
+See [Filesystems and paths](filesystems.md) for the current kernel API.
 
 Reject invalid bytes, overlong paths/components, arithmetic overflow and mount
 traversal before calling a backend. RAM filenames keep their existing rules.

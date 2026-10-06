@@ -157,6 +157,24 @@ a blocking wait resumes, or on a trusted interrupt/syscall return to ring 3.
 The parent then observes and reaps it through the same path used for normal
 exit and user faults.
 
+## Working directories
+
+The boot task starts at `/`. Each worker or process inherits its creator's
+working directory as an independent referenced context. Use
+`task_current_filesystem()` in foreground kernel code and `fs_context_chdir`
+to change it. A child's change leaves the parent unchanged. Idle owns no
+working directory.
+
+Failed task construction releases the cloned reference. Exit, user fault, and
+cancellation retain it until the task is reaped; a disk mount stays busy while
+an unreaped process still owns a directory on it. Reaping releases the directory
+pin without performing filesystem I/O. See [Filesystems and paths](filesystems.md)
+for path limits, mount boundaries, and backend lifetime rules.
+
+`task_working_directory(id, buffer, capacity)` copies a path without allocating
+and is safe from IRQ context. It returns false for idle, an unknown task, or
+an insufficient buffer.
+
 ## Inspecting task state
 
 `task_query(id, &information)` returns one record with its kind, state, IDs,

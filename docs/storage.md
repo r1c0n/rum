@@ -110,12 +110,18 @@ fails, an existing file with the same name remains untouched. This also makes
 replacement safe when the input pointer refers to that file's currently
 borrowed bytes.
 
-`ramfs_read` returns a borrowed pointer valid until that file is replaced or
-removed. The payload is not NUL-terminated unless the stored data includes a
-NUL. Empty files have length zero and may return a null byte pointer.
+`ramfs_read` returns a borrowed pointer valid until that file is written,
+replaced, or removed. The payload is not NUL-terminated unless the stored data
+includes a NUL. Empty files have length zero and may return a null byte pointer.
 
 `ramfs_list` visits files in filesystem order. A visitor may stop by returning
 false but must not mutate the filesystem during iteration.
+
+The [common filesystem API](filesystems.md) opens referenced RAM objects and
+provides explicit errors and byte offsets. Whole-file replacement and removal
+fail while one of those references remains open. RAM's filenames and size
+limits stay the same; the common namespace also accepts normalized paths and
+provides the `/disk` mount interface.
 
 ## Common problems
 
@@ -126,7 +132,7 @@ false but must not mutate the filesystem during iteration.
 - **`cat` shows dots:** the file contains control or binary bytes; the shell is
   sanitizing display output, not changing the stored file.
 - **Heap mapped bytes do not shrink:** pages stay mapped for reuse by design.
-- **A borrowed file pointer became invalid:** a replacement or removal ended its
+- **A borrowed file pointer became invalid:** a write, replacement or removal ended its
   lifetime; copy the data if it must survive mutation.
 
 Run `make test-host` after changing allocation, block splitting/coalescing,

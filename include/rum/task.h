@@ -1,6 +1,7 @@
 #ifndef RUM_TASK_H
 #define RUM_TASK_H
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <rum/interrupts.h>
 #include <rum/paging.h>
@@ -9,6 +10,7 @@
 #define RUM_TASK_CAPACITY (RUM_PROCESS_LIMIT + 2u)
 
 typedef uint32_t task_id;
+struct fs_context;
 enum task_state { TASK_UNUSED, TASK_RUNNABLE, TASK_RUNNING, TASK_BLOCKED, TASK_EXITED };
 enum task_kind { TASK_KERNEL, TASK_PROCESS };
 enum task_termination {
@@ -69,6 +71,11 @@ task_id task_current_id(void);
 bool task_current_is_process(void);
 rum_pid_t task_current_process_id(void);
 struct paging_space *task_current_process_space(void);
+/* Each boot/worker/process context owns a directory reference inherited at
+   creation. Foreground only; idle has no working directory. */
+struct fs_context *task_current_filesystem(void);
+/* Bounded, IRQ-safe copy. False for idle, unknown IDs or insufficient capacity. */
+bool task_working_directory(task_id id, char *buffer, size_t capacity);
 bool task_query(task_id id, struct task_information *information);
 /* Bounded, allocation-free and IRQ-safe. Copies one consistent registry view;
    false before initialization (with a zeroed result) or for a NULL result. */

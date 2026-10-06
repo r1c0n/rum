@@ -76,6 +76,7 @@ Callers must handle allocation failure without changing existing ownership.
 | Task/process record | Fixed registry | Clear only after every owned resource is detached |
 | Shared kernel-table reference | Borrowing address space | Never frees the referenced kernel table |
 | RAM-file node and payload | RAM filesystem | Release on removal or atomic replacement |
+| Filesystem reference and backend pin | Open object or working-directory context | Close before removal, replacement, or unmount |
 
 An alias does not transfer ownership. `paging_unmap_page` removes a virtual
 mapping but does not free the returned data frame. The component that allocated
@@ -90,14 +91,14 @@ trusted CPU frame. Everything must be complete before `task_create_process` is
 called.
 
 On successful publication, ownership of the space moves to the process record.
-On failure, the caller keeps the space and tears it down. The kernel stack is
-the only resource acquired by publication itself, and partial stack allocation
-is rolled back internally.
+On failure, the caller keeps the space and tears it down. Publication acquires
+a kernel stack and clones the creator's working-directory reference. Failure
+rolls back both internally.
 
 Exit changes state and switches to a surviving context before reclamation. The
 reaper may then destroy the inactive CR3, user pages and tables, guarded kernel
-stack, and record. Never free the active directory, the executing stack, or a
-structure still referenced by another owner.
+stack, working-directory reference, and record. Never free the active directory,
+the executing stack, or a structure still referenced by another owner.
 
 ## Rules to preserve
 

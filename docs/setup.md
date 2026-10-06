@@ -75,6 +75,7 @@ make test-package    # Build and validate the release ZIP
 make test-host       # Run host tests only
 make test-user       # Check user ELF assets and malformed inputs
 make test-block      # Sector API, ATA faults and disposable QEMU images
+make test-fs         # Paths, filesystem backends and process directory ownership
 make clean           # Remove build/
 ```
 

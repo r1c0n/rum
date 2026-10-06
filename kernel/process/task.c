@@ -1,5 +1,6 @@
 #include <rum/context.h>
 #include <rum/cpu.h>
+#include <rum/fs.h>
 #include <rum/gdt.h>
 #include <rum/interrupts.h>
 #include <rum/abi/syscall.h>
@@ -31,6 +32,7 @@ struct task {
     struct task_fault fault;
     struct task_resources resources;
     struct task_event *waiting;
+    struct fs_context filesystem;
     bool cancellation_requested;
 };
 static struct task tasks[TASK_SLOTS];
@@ -82,10 +84,16 @@ bool task_initialize(void)
         (void)paging_kernel_stack_release(0);
         return false;
     }
+    struct fs_context filesystem = {0};
+    if (!fs_initialize() || fs_context_initialize(&filesystem) != FS_OK) {
+        (void)paging_kernel_stack_release(EMERGENCY_STACK_SLOT);
+        (void)paging_kernel_stack_release(0);
+        return false;
+    }
     uint32_t saved = cpu_interrupt_save();
     tasks[BOOT] = (struct task){ .id = 1, .state = TASK_RUNNING,
         .stack_base = (uintptr_t)__boot_stack_bottom, .stack_top = (uintptr_t)__boot_stack_top,
-        .space = paging_kernel_space() };
+        .space = paging_kernel_space(), .filesystem = filesystem };
     tasks[IDLE] = idle;
     prepare_stack(&tasks[IDLE]);
     current = &tasks[BOOT];
@@ -96,6 +104,7 @@ bool task_initialize(void)
         cpu_interrupt_restore(saved);
         (void)paging_kernel_stack_release(EMERGENCY_STACK_SLOT);
         (void)paging_kernel_stack_release(0);
+        (void)fs_context_destroy(&filesystem);
         return false;
     }
     task_idle_stack_base = idle.stack_base;
@@ -155,7 +164,11 @@ task_id task_create(void (*entry)(void *), void *argument, struct paging_space *
         .directory_pages = 1, .user_table_pages = space.private_table_pages,
         .user_pages = space.user_pages,
     };
-    if (!new_stack(&constructed, stack_slot)) return 0;
+    if (fs_context_clone(&current->filesystem, &constructed.filesystem) != FS_OK) return 0;
+    if (!new_stack(&constructed, stack_slot)) {
+        (void)fs_context_destroy(&constructed.filesystem);
+        return 0;
+    }
     saved = cpu_interrupt_save();
     ++next_id;
     *slot = constructed;
@@ -188,7 +201,11 @@ static task_id create_process(const struct task_process *process, bool make_fore
         .resources = { .directory_pages = 1, .user_table_pages = space.private_table_pages,
                        .user_pages = space.user_pages },
     };
-    if (!new_stack(&constructed, stack_slot)) return 0;
+    if (fs_context_clone(&current->filesystem, &constructed.filesystem) != FS_OK) return 0;
+    if (!new_stack(&constructed, stack_slot)) {
+        (void)fs_context_destroy(&constructed.filesystem);
+        return 0;
+    }
 
     /* The record becomes visible only after every owned resource and the saved
        kernel context are complete. Failed calls leave the caller's space alone. */
@@ -232,6 +249,31 @@ rum_pid_t task_current_process_id(void)
 struct paging_space *task_current_process_space(void)
 {
     return task_current_is_process() ? current->space : NULL;
+}
+
+struct fs_context *task_current_filesystem(void)
+{
+    return ready && current && current->filesystem.directory && !irq_in_handler() ? &current->filesystem : NULL;
+}
+
+bool task_working_directory(task_id id, char *buffer, size_t capacity)
+{
+    if (!ready || !id || !buffer || !capacity) return false;
+    uint32_t saved = cpu_interrupt_save();
+    bool found = false;
+    buffer[0] = 0;
+    for (unsigned i = 0; i < TASK_SLOTS; ++i) {
+        const struct task *task = &tasks[i];
+        if (task->state == TASK_UNUSED || task->id != id || !task->filesystem.directory) continue;
+        size_t length = 0;
+        while (length < FS_PATH_CAPACITY && task->filesystem.path[length]) ++length;
+        if (length < capacity && length < FS_PATH_CAPACITY) {
+            memcpy(buffer, task->filesystem.path, length + 1); found = true;
+        }
+        break;
+    }
+    cpu_interrupt_restore(saved);
+    return found;
 }
 
 static struct task_information information(const struct task *task)
@@ -296,6 +338,9 @@ static bool reap_slot(struct task *task)
 {
     if (!task || task->state != TASK_EXITED || task == current ||
         (task->owns_space && task->space == paging_active_space())) return false;
+    /* Pin release is allocation-free and performs no backend I/O. Keep the
+       address space intact if a foreground filesystem operation is busy. */
+    if (fs_context_destroy(&task->filesystem) != FS_OK) return false;
     if (task->owns_space && !paging_space_destroy(task->space)) return false;
     if (!paging_kernel_stack_release(task->stack_slot)) cpu_halt();
     *task = (struct task){0};
