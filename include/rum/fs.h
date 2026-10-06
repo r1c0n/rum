@@ -23,6 +23,7 @@ struct fs_operations {
     /* Called once after all pins close and the mount is detached. Foreground,
        no reentry or disk I/O; release backend-owned caches here if needed. */
     void (*unmount)(void *);
+    enum fs_error (*truncate)(void *, uint64_t id, uint64_t size);
 };
 struct fs_backend {
     const struct fs_operations *operations;
@@ -50,6 +51,9 @@ enum fs_error fs_stat(fs_reference, struct fs_information *);
 enum fs_error fs_stat_path(const struct fs_context *, const char *, struct fs_information *);
 struct fs_io_result fs_read(fs_reference, uint64_t offset, void *, size_t);
 struct fs_io_result fs_write(fs_reference, uint64_t offset, const void *, size_t);
+/* Resize through a write handle. Growth fills with zero bytes; no sparse files.
+   References keep their identity and observe the new size after success. */
+enum fs_error fs_truncate(fs_reference, uint64_t size);
 enum fs_error fs_readdir(fs_reference, uint64_t *cursor, struct fs_entry *);
 enum fs_error fs_flush(fs_reference);
 enum fs_error fs_replace(const struct fs_context *, const char *, const void *, size_t);

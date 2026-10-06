@@ -82,19 +82,19 @@ input with `Ctrl+Alt+G`.
 - A page-backed heap with aligned allocation, resizing, and free-block reuse.
 - A flat RAM filesystem with build-time file embedding.
 - An optional secondary IDE raw disk with bounded ATA PIO, sector I/O and cache flushing.
-- A shared path layer and read-only FAT16 mount at `/disk`, with checked cluster chains.
+- A shared path layer and writable FAT16 mount at `/disk`, with checked cluster ownership.
 - A separate freestanding user ELF build, production loader, and public ABI.
 - Foreground user-process launch, waiting, fault reporting, cleanup, and Ctrl+C.
 
 rum is a single-CPU system. The shell and Snake still run in ring 0; programs
-started with `run` execute in ring 3. Supported FAT16 disks mount read-only at
-`/disk` for kernel callers. Shell commands still use RAM files; disk writes and
-userspace filesystem access remain planned work.
+started with `run` execute in ring 3. Supported FAT16 disks mount at `/disk` for
+kernel callers, with file and directory mutations on writable devices. Shell
+commands still use RAM files; userspace filesystem access remains planned work.
 
 Create and attach a disposable disk with `make create-disk DISK_IMAGE=build/scratch.raw`
 then `make run DISK_IMAGE=build/scratch.raw`. PowerShell equivalents and the
 kernel API are covered in [Raw disks and block devices](docs/block-devices.md).
-To create a volume containing files, follow [Read-only FAT16 disks](docs/fat16.md).
+To create a volume containing files, follow [FAT16 disks](docs/fat16.md).
 
 ## Building and testing
 

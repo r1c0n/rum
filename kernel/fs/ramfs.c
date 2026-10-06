@@ -228,10 +228,26 @@ static enum fs_error readdir(void *context, uint64_t id, uint64_t cursor,
 }
 
 static enum fs_error flush(void *context) { (void)context; return FS_OK; }
+static enum fs_error truncate_file(void *context, uint64_t id, uint64_t size)
+{
+    (void)context;
+    struct file *file = find_id(id);
+    if (!file) return FS_NOT_FOUND;
+    if (size > RAMFS_FILE_LIMIT) return FS_RANGE;
+    if (size == file->size) return FS_OK;
+    unsigned char *copy = size ? kmalloc((size_t)size) : NULL;
+    if (size && !copy) return FS_NO_MEMORY;
+    size_t keep = size < file->size ? (size_t)size : file->size;
+    if (keep) memcpy(copy, file->data, keep);
+    if (size > keep) memset(copy + keep, 0, (size_t)size - keep);
+    statistics.bytes = statistics.bytes - file->size + (size_t)size;
+    (void)kfree(file->data); file->data = copy; file->size = (size_t)size;
+    return FS_OK;
+}
 static const struct fs_operations operations = {
     .lookup = lookup, .stat = stat, .retain = retain, .release = release,
     .read = read_at, .write = write_at, .replace = replace, .remove = remove_file,
-    .readdir = readdir, .flush = flush,
+    .readdir = readdir, .flush = flush, .truncate = truncate_file,
 };
 static const struct fs_backend backend = { .operations = &operations, .root = ROOT_ID, .naming = FS_NAMES_RAM };
 const struct fs_backend *ramfs_backend(void) { return &backend; }

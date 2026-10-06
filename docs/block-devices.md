@@ -2,10 +2,11 @@
 
 rum can attach one raw disk as the secondary IDE master in QEMU. The kernel
 identifies it at boot and provides sector reads, writes and cache flushing to
-kernel callers. A supported [FAT16 volume](fat16.md) mounts read-only at `/disk`.
+kernel callers. A supported [FAT16 volume](fat16.md) mounts at `/disk`, writable
+when the device supports writes and flushing.
 Shell commands still use RAM files; the shell's `write` is temporary.
 
-Normal boot identifies the disk and attempts a read-only FAT16 mount. It does
+Normal boot identifies the disk and attempts a FAT16 mount. It does
 not format, resize, repair or write the image. Without a supported disk, rum
 continues to its usual shell.
 The serial `rum_disk:` line reports discovery, ATA status/error bytes in decimal,
@@ -133,7 +134,8 @@ supported flush command is rejected. A device without caching or flush support
 can complete flush as a no-op. Transfers issue one sector per command, including
 large requests, avoiding ATA's special count-zero meaning of 256 sectors.
 
-Every status-poll phase stops after at most 1,000,000 reads. The bound works even
+Status-poll phases stop after at most 1,000,000 reads; flush completion allows
+50,000,000 because it may wait for device media or a host `fsync`. The bound works
 before PIT interrupts start; it is an iteration limit, not a calibrated duration.
 Busy status is checked before other status bits. Device faults and ATA errors
 retain their status and error-register bytes in the result. Timeouts, device

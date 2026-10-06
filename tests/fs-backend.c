@@ -156,7 +156,7 @@ static enum fs_error readdir_node(void *context, uint64_t id, uint64_t cursor,
 }
 static enum fs_error flush(void *context) { (void)context; ++calls; return fs_test_backend_failure; }
 static const struct fs_operations operations = {
-    lookup, stat_node, retain, release, read_node, write_node, replace, remove_node, mkdir_node, readdir_node, flush, NULL
+    lookup, stat_node, retain, release, read_node, write_node, replace, remove_node, mkdir_node, readdir_node, flush, NULL, NULL
 };
 static const struct fs_backend backend = { .operations = &operations, .root = 1, .naming = FS_NAMES_FAT83 };
 

@@ -77,6 +77,7 @@ make test-user       # Check user ELF assets and malformed inputs
 make test-block      # Sector API, ATA faults and disposable QEMU images
 make test-fs         # Paths, filesystem backends and process directory ownership
 make test-fat16      # FAT16 host images, validation and guest reads
+make test-fat16-write # FAT16 writes, failure injection and host FAT validation
 make clean           # Remove build/
 ```
 

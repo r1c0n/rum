@@ -392,6 +392,24 @@ enum fs_error fs_readdir(fs_reference token, uint64_t *cursor, struct fs_entry *
     leave(); return error;
 }
 
+enum fs_error fs_truncate(fs_reference token, uint64_t size)
+{
+    enum fs_error error = enter();
+    if (error != FS_OK) return error;
+    struct reference *ref = find_reference(token);
+    if (!ref) error = FS_INVALID;
+    else {
+        struct object *object = &objects[ref->object];
+        struct fs_backend *backend = &mounts[object->mount].backend;
+        if (!(ref->access & FS_WRITE)) error = FS_ACCESS;
+        else if (object->kind != FS_FILE) error = FS_IS_DIRECTORY;
+        else if (backend->read_only) error = FS_READ_ONLY;
+        else error = backend->operations->truncate ?
+            backend->operations->truncate(backend->context, object->id, size) : FS_UNSUPPORTED;
+    }
+    leave(); return error;
+}
+
 enum fs_error fs_flush(fs_reference token)
 {
     enum fs_error error = enter();

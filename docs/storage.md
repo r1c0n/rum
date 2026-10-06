@@ -123,9 +123,9 @@ fail while one of those references remains open. RAM's filenames and size
 limits stay the same; the common namespace also accepts normalized paths and
 provides the `/disk` mount interface.
 
-Supported [FAT16 volumes](fat16.md) mount read-only at `/disk` and can be read
-through the common kernel API. RAM files and the existing shell commands retain
-their limits and temporary storage behavior.
+Supported [FAT16 volumes](fat16.md) mount at `/disk` and support file and directory
+mutations through the common kernel API on writable devices. RAM files and the
+existing shell commands retain their limits and temporary storage behavior.
 
 ## Common problems
 

@@ -6,11 +6,12 @@
 #include <rum/cpu.h>
 #include <rum/io.h>
 
-enum failure { NONE, MISSING, FLOATING, STUCK_BUSY, NO_DRQ, FAULT, ERROR, WRITE_PROTECTED, FLUSH_ERROR };
+enum failure { NONE, MISSING, FLOATING, STUCK_BUSY, NO_DRQ, FAULT, ERROR, WRITE_PROTECTED, FLUSH_ERROR, SLOW_FLUSH, STUCK_FLUSH };
 static enum failure failure;
 static uint8_t registers[8], status, opcode;
 static uint16_t identify[256];
 static unsigned position, commands, polls;
+static unsigned flush_delay;
 static uint32_t selected_lba, fail_lba;
 static unsigned char media[32][512];
 static bool interrupt_enabled, test_reentry;
@@ -25,7 +26,11 @@ void cpu_interrupt_restore(uint32_t flags) { interrupt_enabled = (flags & 0x200)
 
 uint8_t inb(uint16_t port)
 {
-    if (port == 0x376 || port == 0x177) { ++polls; return status; }
+    if (port == 0x376 || port == 0x177) {
+        ++polls;
+        if (opcode == 0xe7 && flush_delay && !--flush_delay) status = 0x50;
+        return status;
+    }
     if (port == 0x171) return 4;
     assert(port >= 0x172 && port <= 0x176);
     return registers[port - 0x170];
@@ -44,7 +49,7 @@ void outb(uint16_t port, uint8_t value)
     assert(opcode == 0x20 || opcode == 0x30 || opcode == 0xe7);
     if (opcode != 0xe7) assert(registers[2] == 1 && (registers[6] & 0xf0) == 0xe0);
     status = opcode == 0xe7 ? 0x50 : 0x58;
-    if (selected_lba != fail_lba && failure != FLUSH_ERROR) return;
+    if (selected_lba != fail_lba && failure != FLUSH_ERROR && failure != SLOW_FLUSH && failure != STUCK_FLUSH) return;
     switch (failure) {
     case STUCK_BUSY: status = 0x81; break; /* ERR must be ignored while BSY. */
     case NO_DRQ: status = 0x50; break;
@@ -52,6 +57,8 @@ void outb(uint16_t port, uint8_t value)
     case ERROR: status = 0x51; break;
     case WRITE_PROTECTED: if (opcode == 0x30) status = 0x51; break;
     case FLUSH_ERROR: if (opcode == 0xe7) status = 0x51; break;
+    case SLOW_FLUSH: if (opcode == 0xe7) { status = 0x80; flush_delay = 2000000; } break;
+    case STUCK_FLUSH: if (opcode == 0xe7) status = 0x80; break;
     default: break;
     }
 }
@@ -90,7 +97,7 @@ static void reset(enum failure mode)
     memset(registers, 0, sizeof(registers)); memset(identify, 0, sizeof(identify));
     identify[0] = 0x40; identify[49] = 1u << 9; identify[60] = 32;
     identify[83] = 0x5000; identify[85] = 1u << 5;
-    commands = polls = 0; fail_lba = 0; test_reentry = false; interrupt_enabled = true;
+    commands = polls = flush_delay = 0; fail_lba = 0; test_reentry = false; interrupt_enabled = true;
     for (unsigned sector = 0; sector < 32; ++sector)
         for (unsigned byte = 0; byte < 512; ++byte)
             media[sector][byte] = (unsigned char)(sector * 13 + byte * 7);
@@ -171,5 +178,12 @@ int main(void)
     assert(memcmp(media[5], buffer, 512) == 0 && memcmp(media[6], original[6], 26 * 512) == 0);
     failure = NONE;
     assert(block_read(ata_device(), 0, 1, buffer, 512).error == BLOCK_OK); /* stale ERR */
+    reset(SLOW_FLUSH); assert(ata_initialize().error == BLOCK_OK); polls = 0;
+    assert(block_flush(ata_device()).error == BLOCK_OK && polls >= 2000000 && polls < 2000020);
+    reset(STUCK_FLUSH); assert(ata_initialize().error == BLOCK_OK); polls = 0;
+    assert(block_flush(ata_device()).error == BLOCK_TIMEOUT && polls >= 50000000 && polls < 50000020 &&
+           !ata_device()->online && interrupt_enabled && !ata_device()->busy);
+    before = commands;
+    assert(block_read(ata_device(), 0, 1, buffer, 512).error == BLOCK_NO_DEVICE && commands == before);
     puts("ATA port-model tests passed");
 }

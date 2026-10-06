@@ -15,6 +15,7 @@
 #define ATA_DRQ 0x08
 #define ATA_ERR 0x01
 #define ATA_POLL_LIMIT 1000000u
+#define ATA_FLUSH_POLL_LIMIT 50000000u
 #define ATA_SECTOR_SIZE 512u
 #define ATA_LBA_LIMIT (UINT64_C(1) << 28)
 
@@ -29,10 +30,10 @@ static void settle(void)
 
 enum poll_phase { POLL_IDLE, POLL_DATA, POLL_COMPLETE };
 
-static struct block_result poll(enum poll_phase phase)
+static struct block_result poll_limit(enum poll_phase phase, unsigned limit)
 {
     uint8_t status = 0;
-    for (unsigned i = 0; i < ATA_POLL_LIMIT; ++i) {
+    for (unsigned i = 0; i < limit; ++i) {
         status = inb(ATA_CONTROL);
         if (status == 0 || status == 0xff) {
             disk.online = false;
@@ -55,6 +56,7 @@ static struct block_result poll(enum poll_phase phase)
     disk.online = false;
     return (struct block_result){ .error = BLOCK_TIMEOUT, .status = status };
 }
+static struct block_result poll(enum poll_phase phase) { return poll_limit(phase, ATA_POLL_LIMIT); }
 
 static struct block_result command(uint32_t lba, uint8_t opcode)
 {
@@ -124,7 +126,9 @@ static struct block_result flush_cache(struct block_device *device)
     if (result.error != BLOCK_OK) return result;
     outb(ATA_COMMAND, 0xe7);
     settle();
-    return poll(POLL_COMPLETE);
+    /* Cache flushes can include slow host fsync/device media work. Preserve a
+       finite boot-safe bound while allowing more time than a sector transfer. */
+    return poll_limit(POLL_COMPLETE, ATA_FLUSH_POLL_LIMIT);
 }
 
 static const struct block_operations operations = { read_sectors, write_sectors, flush_cache };
