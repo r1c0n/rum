@@ -455,6 +455,19 @@ test-fat16-host: build/tests/fat16-test
 	python3 tests/fat16-host-test.py
 
 test-host: test-fat16-host
+test-host: test-fat16-write-host
+.PHONY: test-fat16-write-host
+test-fat16-write-host: build/tests/fat16-write-test
+	python3 tests/fat16-write-host-test.py
+test: test-fat16-write
+.PHONY: test-fat16-write
+test-fat16-write: test-fat16-write-host build/tests/fat16-write.elf
+	python3 tests/fat16-write-qemu-test.py --qemu $(QEMU) --ram 16 --faults
+	python3 tests/fat16-write-qemu-test.py --qemu $(QEMU) --ram 64
+
+TEST_DEPENDENCIES += build/tests/fat16-write-kernel.d build/tests/fat16-write-checks.d
+build/tests/fat16-write.elf: build/tests/fat16-write-kernel.o build/tests/fat16-write-checks.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 test: test-fat16
 .PHONY: test-fat16
 test-fat16: test-fat16-host build/tests/fat16.elf iso
