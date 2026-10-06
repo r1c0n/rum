@@ -112,9 +112,8 @@ static rum_result_t list_directory(struct paging_space *space, struct process_ha
     struct rum_directory_entry output;
     if (!accessible(space, address, sizeof output, true) ||
         !paging_copy_from_user(space, &output, address, sizeof output)) return -RUM_EFAULT;
-    if (output.version != RUM_FS_ABI_VERSION || output.size != sizeof output || output.kind ||
-        output.size_lo || output.size_hi || output.reserved) return -RUM_EINVAL;
-    for (unsigned i = 0; i < sizeof output.name; ++i) if (output.name[i]) return -RUM_EINVAL;
+    if (output.version != RUM_FS_ABI_VERSION || output.size != sizeof output || output.reserved) return -RUM_EINVAL;
+    output = (struct rum_directory_entry){ .version = RUM_FS_ABI_VERSION, .size = sizeof output };
     struct fs_entry entry;
     rum_result_t result = process_handle_readdir(handle, &entry);
     if (result < 0) return result;

@@ -45,6 +45,13 @@ static void invalid_calls(rum_handle_t file)
     struct rum_seek_request seek = {1, sizeof seek, 0, 0, 0, 1, 0, 0};
     check(rum_syscall3(RUM_SYS_SEEK, file, (rum_address_t)(uintptr_t)&seek, 0) == -RUM_EINVAL &&
           rum_syscall3(RUM_SYS_SEEK, file, PAGE + 2 * 4096, 0) == -RUM_EFAULT, 24);
+    seek.reserved = 0; seek.position_hi = 1;
+    check(rum_syscall3(RUM_SYS_SEEK, file, (rum_address_t)(uintptr_t)&seek, 0) == -RUM_EINVAL, 37);
+    seek.position_hi = 0;
+    struct rum_seek_request *cross_seek = (void *)(PAGE + 4096 - 12);
+    *cross_seek = seek;
+    check(rum_syscall3(RUM_SYS_SEEK, file, (rum_address_t)(uintptr_t)cross_seek, 0) == 0 &&
+          !cross_seek->position_lo && !cross_seek->position_hi, 38);
     check(rum_getcwd(buffer, 1) == -RUM_ERANGE && rum_getcwd((char *)UINT32_MAX, 0) == -RUM_ERANGE &&
           rum_getcwd((char *)(PAGE + 3 * 4096 - 600), 700) == -RUM_EFAULT, 25);
     rum_result_t other = rum_open("/data.bin", RUM_OPEN_READ, 0);
@@ -87,8 +94,11 @@ static void directory_tests(void)
     entry.reserved = 1;
     check(rum_syscall3(RUM_SYS_READDIR, directory, (rum_address_t)(uintptr_t)&entry, 0) == -RUM_EINVAL, 41);
     check(rum_syscall3(RUM_SYS_READDIR, directory, PAGE + 2 * 4096 - 16, 0) == -RUM_EFAULT, 42);
+    check(rum_readdir(directory, 0) == -RUM_EFAULT, 49);
+    entry.reserved = 0;
     check(rum_readdir(directory, &entry) == 1 && equal(entry.name, "disk") && entry.kind == RUM_ENTRY_DIRECTORY, 43);
     struct rum_directory_entry *cross = (void *)(PAGE + 4096 - 16);
+    *cross = (struct rum_directory_entry){ .version = 1, .size = sizeof *cross };
     check(rum_readdir(directory, cross) == 1 && cross->kind == RUM_ENTRY_FILE && equal(cross->name, "data.bin"), 44);
     check(rum_seek(directory, 0, 0, 0) == 0 && rum_readdir(directory, &entry) == 1 && equal(entry.name, "disk"), 45);
     unsigned count = 0;
@@ -132,6 +142,11 @@ int main(int argc, char **argv)
     if (mode == 'd' || mode == 'r') {
         check(rum_chdir("/disk/DOCS") == 0 && rum_getcwd(buffer, sizeof buffer) == 11 && equal(buffer, "/disk/DOCS"), 70);
         check(rum_chdir("../..") == -RUM_EINVAL && rum_open("../..", 1, 0) == -RUM_EINVAL, 71);
+        rum_result_t directory = rum_open(".", 1, RUM_OPEN_DIRECTORY);
+        struct rum_directory_entry entry = { .version = 1, .size = sizeof entry };
+        check(directory == 4 && rum_readdir((rum_handle_t)directory, &entry) == 1 &&
+              equal(entry.name, "NOTE.TXT") && entry.kind == RUM_ENTRY_FILE && entry.size_lo == 13 &&
+              rum_readdir((rum_handle_t)directory, &entry) == 0 && rum_close((rum_handle_t)directory) == 0, 79);
         rum_result_t disk = rum_open("note.txt", 1, 0);
         check(disk == 4 && rum_read((rum_handle_t)disk, buffer, sizeof buffer) == 13 && equal(buffer, "persistent\r\n"), 72);
         check(rum_close((rum_handle_t)disk) == 0, 73);

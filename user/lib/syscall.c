@@ -20,7 +20,6 @@ rum_result_t rum_seek(rum_handle_t handle, int64_t displacement, uint32_t whence
 }
 rum_result_t rum_readdir(rum_handle_t handle, struct rum_directory_entry *entry)
 {
-    if (entry) *entry = (struct rum_directory_entry){ .version = RUM_FS_ABI_VERSION, .size = sizeof *entry };
     return rum_syscall3(RUM_SYS_READDIR, handle, (rum_address_t)(uintptr_t)entry, 0);
 }
 rum_result_t rum_chdir(const char *path) { return rum_syscall3(RUM_SYS_CHDIR, (rum_address_t)(uintptr_t)path, 0, 0); }

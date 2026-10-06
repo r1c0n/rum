@@ -358,6 +358,9 @@ static bool reap_slot(struct task *task)
 {
     if (!task || task->state != TASK_EXITED || task == current ||
         (task->owns_space && task->space == paging_active_space())) return false;
+    /* Exit must release file handles before this interrupt-protected reaper.
+       Refuse to discard a record with outstanding ownership. */
+    if (process_handles_count(&task->handles)) return false;
     /* Pin release is allocation-free and performs no backend I/O. Keep the
        address space intact if a foreground filesystem operation is busy. */
     if (fs_context_destroy(&task->filesystem) != FS_OK) return false;

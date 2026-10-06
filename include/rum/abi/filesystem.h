@@ -35,8 +35,9 @@ struct rum_seek_request {
     uint32_t version, size, offset_lo, offset_hi, whence, reserved;
     uint32_t position_lo, position_hi;
 };
-/* Initialize version/size, zero the other fields. readdir returns 1 for an
-   entry, 0 for end, or a negative error. A failed call does not advance. */
+/* Initialize version/size and zero reserved. Other fields are output only;
+   the same packet can be reused. readdir returns 1 for an entry, 0 for end,
+   or a negative error. A failed call does not advance. */
 struct rum_directory_entry {
     uint32_t version, size, kind, size_lo, size_hi, reserved;
     char name[RUM_ABI_COMPONENT_CAPACITY];
