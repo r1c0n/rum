@@ -1,6 +1,6 @@
 # Heap and RAM files
 
-rum's normal filesystem lives entirely in memory. Files embedded in the kernel
+Shell files live in memory. Files embedded in the kernel
 are copied into a writable RAM filesystem during boot. Files created or changed
 at runtime disappear when QEMU restarts.
 
@@ -122,6 +122,10 @@ provides explicit errors and byte offsets. Whole-file replacement and removal
 fail while one of those references remains open. RAM's filenames and size
 limits stay the same; the common namespace also accepts normalized paths and
 provides the `/disk` mount interface.
+
+Supported [FAT16 volumes](fat16.md) mount read-only at `/disk` and can be read
+through the common kernel API. RAM files and the existing shell commands retain
+their limits and temporary storage behavior.
 
 ## Common problems
 

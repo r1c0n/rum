@@ -29,7 +29,7 @@ DRIVER_SOURCES := kernel/drivers/terminal.c kernel/drivers/serial.c \
 MM_SOURCES := kernel/mm/pmm.c kernel/mm/heap.c
 PROCESS_SOURCES := kernel/process/task.c kernel/process/syscall.c \
                    kernel/process/elf.c kernel/process/process.c
-FS_SOURCES := kernel/fs/ramfs.c kernel/fs/block.c kernel/fs/path.c kernel/fs/fs-types.c kernel/fs/fs.c
+FS_SOURCES := kernel/fs/ramfs.c kernel/fs/block.c kernel/fs/path.c kernel/fs/fs-types.c kernel/fs/fs.c kernel/fs/fat16.c
 UI_SOURCES := kernel/ui/shell.c kernel/ui/snake.c kernel/ui/snake_model.c
 DEBUG_SOURCES := kernel/debug/diagnostics.c kernel/debug/diagnostics-report.c
 ARCH_SOURCES := arch/i386/cpu.c arch/i386/gdt.c arch/i386/interrupt.c \
@@ -440,6 +440,26 @@ build/tests/fs-test: tests/fs-test.c tests/fs-checks.c tests/fs-checks.h tests/f
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Iinclude tests/fs-test.c tests/fs-checks.c tests/fs-backend.c kernel/fs/fs.c $(STORAGE_HOST_SOURCES) -o $@
 
 test-host: build/tests/path-test build/tests/fs-test
+
+build/tests/fat16-test: tests/fat16-test.c tests/fat16-checks.c tests/fat16-checks.h kernel/fs/fat16.c kernel/fs/fs.c kernel/fs/block.c include/rum/fat16.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Iinclude tests/fat16-test.c tests/fat16-checks.c kernel/fs/fat16.c kernel/fs/fs.c kernel/fs/block.c $(STORAGE_HOST_SOURCES) -o $@
+
+.PHONY: test-fat16-host
+test-fat16-host: build/tests/fat16-test
+	python3 tests/fat16-host-test.py
+
+test-host: test-fat16-host
+test: test-fat16
+.PHONY: test-fat16
+test-fat16: test-fat16-host build/tests/fat16.elf iso
+	python3 tests/fat16-qemu-test.py --qemu $(QEMU) --ram 16
+	python3 tests/fat16-qemu-test.py --qemu $(QEMU) --ram 64
+
+TEST_DEPENDENCIES += build/tests/fat16-kernel.d build/tests/fat16-checks.d
+build/tests/fat16.elf: build/tests/fat16-kernel.o build/tests/fat16-checks.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
 
 .PHONY: test-fs
 test-fs: build/tests/path-test build/tests/fs-test build/tests/fs.elf
