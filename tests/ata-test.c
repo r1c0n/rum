@@ -134,6 +134,15 @@ int main(void)
     assert(block_flush(ata_device()).error == BLOCK_OK && commands == before);
     reset(MISSING); assert(ata_initialize().error == BLOCK_NO_DEVICE && polls < 20);
     reset(FLOATING); assert(ata_initialize().error == BLOCK_NO_DEVICE && polls < 20);
+    reset(NONE); status = 0x80;
+    assert(ata_initialize().error == BLOCK_TIMEOUT && !commands && polls < 1000020);
+    reset(NONE); identify[60] = 0;
+    assert(ata_initialize().error == BLOCK_UNSUPPORTED);
+    reset(NONE); identify[61] = 0x1001;
+    assert(ata_initialize().error == BLOCK_UNSUPPORTED);
+    reset(NONE); interrupt_enabled = false;
+    assert(ata_initialize().error == BLOCK_OK);
+    assert(block_read(ata_device(), 31, 1, buffer, 512).error == BLOCK_OK && !interrupt_enabled);
     for (enum failure mode = STUCK_BUSY; mode <= FLUSH_ERROR; ++mode) {
         reset(mode); assert(ata_initialize().error == BLOCK_OK);
         memcpy(original, media, sizeof(media));

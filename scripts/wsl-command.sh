@@ -14,5 +14,6 @@ case "${1:-build}" in
     panic) make build/tests/fault-ud.elf ;;
     test) make test ;;
     clean) make clean ;;
+    create-disk) python3 scripts/disk-image.py "${2:?Supply a new disk image path}" --size-mib "${3:-16}" ;;
     *) echo "Unknown action: $1" >&2; exit 2 ;;
 esac
