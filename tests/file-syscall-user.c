@@ -128,9 +128,16 @@ int main(int argc, char **argv)
     rum_result_t result = rum_open("/data.bin", 3, 0);
     check(result == 3, 2);
     rum_handle_t file = (rum_handle_t)result;
+    if (mode == 'F' || mode == 'C') {
+        check(rum_chdir("/disk/DOCS") == 0 && rum_open("NOTE.TXT", 3, 0) == 4, 90);
+        check(rum_read(4, buffer, sizeof buffer) == 13 && rum_seek(4, 0, RUM_SEEK_SET, 0) == 0 &&
+              rum_write(4, "user", 4) == 4 && rum_flush(4) == 0, 91);
+        check(rum_remove("NOTE.TXT") == -RUM_EBUSY && rum_replace("NOTE.TXT", "x", 1) == -RUM_EBUSY, 92);
+        /* Retain the real ATA-backed handle and cwd across a fault or sleep. */
+    }
     if (mode == 'f' || mode == 'c') check(rum_open("/disk/DOCS/README.TXT", 1, 0) == 4, 3);
-    if (mode == 'f') { __asm__ volatile("ud2"); }
-    if (mode == 'c') { rum_read(0, buffer, sizeof buffer); return 99; }
+    if (mode == 'f' || mode == 'F') { __asm__ volatile("ud2"); }
+    if (mode == 'c' || mode == 'C') { rum_read(0, buffer, sizeof buffer); return 99; }
     if (mode == 's') {
         rum_result_t disk = rum_open("/disk/DOCS/NOTE.TXT", 3, 0);
         check(disk == 4 && rum_read((rum_handle_t)disk, buffer, sizeof buffer) == 7, 60);
