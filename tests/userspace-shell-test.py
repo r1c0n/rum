@@ -59,14 +59,15 @@ def boot(qemu, ram, label, disk=None, iso=False, options="", readonly=False, mar
          image=None, disk_arguments=None):
     with tempfile.TemporaryDirectory(prefix="rum-shell-qmp-") as temporary:
         serial, monitor = Path(temporary) / "serial", Path(temporary) / "qmp"
-        family, address = socket.AF_UNIX, str(monitor)
-        qmp = f"unix:{monitor},server=on,wait=off"
         if os.name == "nt":
             family = socket.AF_INET
             with socket.socket(family, socket.SOCK_STREAM) as reservation:
                 reservation.bind(("127.0.0.1", 0))
                 address = reservation.getsockname()
             qmp = f"tcp:127.0.0.1:{address[1]},server=on,wait=off"
+        else:
+            family, address = socket.AF_UNIX, str(monitor)
+            qmp = f"unix:{monitor},server=on,wait=off"
         arguments = launcher.boot_arguments(image or ROOT / ("build/rum.iso" if iso else "build/rum.elf"),
             kernel=not iso, disk=disk, read_only=readonly, system_image=system_image)
         if disk_arguments:
