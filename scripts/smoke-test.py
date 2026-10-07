@@ -874,7 +874,7 @@ def process_shell_test(stream, symbols, artifacts, mode, serial):
 
     baseline = resources("baseline")
     for iteration in range(2):
-        run("run hello alpha beta", "Hello from rum userspace!\nProcess ")
+        run("run hello alpha beta", "Hello from rum userspace!\r\nProcess ")
         if "exited with status 0." not in serial.read_bytes()[-200:].decode():
             raise RuntimeError("hello did not return status zero")
         if resources(f"hello {iteration}") != baseline:
