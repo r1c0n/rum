@@ -62,14 +62,15 @@ file is preserved by an unsuccessful replacement.
 
 ## Contributor notes
 
-`kernel/snake_model.c` contains deterministic game rules without display, heap,
+`kernel/ui/snake_model.c` contains deterministic game rules without display, heap,
 or filesystem dependencies. The body uses a fixed-capacity coordinate ring.
 Food selection starts from a seeded pseudo-random cell and scans for free space.
 
-`kernel/snake.c` owns the heap-allocated session, controls, score loading/saving,
+`kernel/ui/snake.c` owns the heap-allocated session, controls, score loading/saving,
 and VGA rendering. It draws without moving the shell cursor or overwriting the
-uptime row. The foreground loop uses PIT ticks for movement and routes keyboard
-input to the game while it is active; IRQ handlers never update game state.
+uptime row. The userspace shell selects Snake with `rum_console`; its kernel
+syscall loop uses PIT ticks and routes input until Q or Ctrl+C returns. Recovery
+uses its original foreground loop. IRQ handlers never update game state.
 
 Keep model rules independent from I/O, preserve allocation cleanup on every exit
 path, and make score replacement atomic. Run `make test-host` for rule or

@@ -1,8 +1,11 @@
 #include <rum/context.h>
 #include <rum/cpu.h>
+#include <rum/fs.h>
 #include <rum/gdt.h>
+#include <rum/handles.h>
 #include <rum/interrupts.h>
 #include <rum/abi/syscall.h>
+#include <rum/abi/error.h>
 #include <rum/memory.h>
 #include <rum/process_limits.h>
 #include <rum/task.h>
@@ -31,7 +34,13 @@ struct task {
     struct task_fault fault;
     struct task_resources resources;
     struct task_event *waiting;
+    struct fs_context filesystem;
+    struct process_handles handles;
     bool cancellation_requested;
+    bool interactive_shell;
+    bool shell_command, shell_exit_requested;
+    rum_result_t shell_exit_status;
+    char command_text[RUM_COMMAND_TEXT_CAPACITY];
 };
 static struct task tasks[TASK_SLOTS];
 static struct task *current;
@@ -82,10 +91,16 @@ bool task_initialize(void)
         (void)paging_kernel_stack_release(0);
         return false;
     }
+    struct fs_context filesystem = {0};
+    if (!fs_initialize() || fs_context_initialize(&filesystem) != FS_OK) {
+        (void)paging_kernel_stack_release(EMERGENCY_STACK_SLOT);
+        (void)paging_kernel_stack_release(0);
+        return false;
+    }
     uint32_t saved = cpu_interrupt_save();
     tasks[BOOT] = (struct task){ .id = 1, .state = TASK_RUNNING,
         .stack_base = (uintptr_t)__boot_stack_bottom, .stack_top = (uintptr_t)__boot_stack_top,
-        .space = paging_kernel_space() };
+        .space = paging_kernel_space(), .filesystem = filesystem };
     tasks[IDLE] = idle;
     prepare_stack(&tasks[IDLE]);
     current = &tasks[BOOT];
@@ -96,6 +111,7 @@ bool task_initialize(void)
         cpu_interrupt_restore(saved);
         (void)paging_kernel_stack_release(EMERGENCY_STACK_SLOT);
         (void)paging_kernel_stack_release(0);
+        (void)fs_context_destroy(&filesystem);
         return false;
     }
     task_idle_stack_base = idle.stack_base;
@@ -155,7 +171,11 @@ task_id task_create(void (*entry)(void *), void *argument, struct paging_space *
         .directory_pages = 1, .user_table_pages = space.private_table_pages,
         .user_pages = space.user_pages,
     };
-    if (!new_stack(&constructed, stack_slot)) return 0;
+    if (fs_context_clone(&current->filesystem, &constructed.filesystem) != FS_OK) return 0;
+    if (!new_stack(&constructed, stack_slot)) {
+        (void)fs_context_destroy(&constructed.filesystem);
+        return 0;
+    }
     saved = cpu_interrupt_save();
     ++next_id;
     *slot = constructed;
@@ -172,7 +192,7 @@ static task_id create_process(const struct task_process *process, bool make_fore
     uint32_t saved = cpu_interrupt_save();
     struct paging_space_statistics space = {0};
     bool valid = (saved & IF) && next_id && next_process_id <= RUM_ABI_PID_MAX &&
-        (!make_foreground || !foreground) &&
+        (!make_foreground || !foreground || (current->kind == TASK_PROCESS && foreground == current->id)) &&
         paging_space_stats(process->space, &space) && !space.kernel &&
         process->space != paging_active_space() && valid_user_frame(process->space, &process->user_frame);
     struct task *slot = valid ? available_slot(process->space) : NULL;
@@ -188,10 +208,15 @@ static task_id create_process(const struct task_process *process, bool make_fore
         .resources = { .directory_pages = 1, .user_table_pages = space.private_table_pages,
                        .user_pages = space.user_pages },
     };
-    if (!new_stack(&constructed, stack_slot)) return 0;
+    if (fs_context_clone(&current->filesystem, &constructed.filesystem) != FS_OK) return 0;
+    if (!new_stack(&constructed, stack_slot)) {
+        (void)fs_context_destroy(&constructed.filesystem);
+        return 0;
+    }
 
     /* The record becomes visible only after every owned resource and the saved
        kernel context are complete. Failed calls leave the caller's space alone. */
+    process_handles_initialize(&constructed.handles);
     saved = cpu_interrupt_save();
     ++next_id;
     ++next_process_id;
@@ -214,6 +239,74 @@ task_id task_create_foreground_process(const struct task_process *process)
     return create_process(process, true);
 }
 
+bool task_mark_foreground_shell(task_id id)
+{
+    if (!ready || !id || irq_in_handler() || current->kind != TASK_KERNEL) return false;
+    uint32_t saved = cpu_interrupt_save();
+    bool marked = false;
+    for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].id == id &&
+        tasks[i].parent == current->id && tasks[i].kind == TASK_PROCESS && foreground == id &&
+        tasks[i].state == TASK_RUNNABLE) {
+        tasks[i].interactive_shell = true; marked = true; break;
+    }
+    cpu_interrupt_restore(saved);
+    return marked;
+}
+
+bool task_current_is_shell(void)
+{
+    return task_current_is_process() && current->interactive_shell;
+}
+
+bool task_mark_shell_command(task_id id, const char *text)
+{
+    if (!task_current_is_shell() || !id || !text || irq_in_handler()) return false;
+    size_t bytes = 0;
+    while (bytes < RUM_COMMAND_TEXT_CAPACITY && text[bytes]) ++bytes;
+    if (bytes == RUM_COMMAND_TEXT_CAPACITY) return false;
+    uint32_t saved = cpu_interrupt_save();
+    bool marked = false;
+    for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].id == id &&
+        tasks[i].parent == current->id && tasks[i].kind == TASK_PROCESS && foreground == id &&
+        tasks[i].state == TASK_RUNNABLE) {
+        tasks[i].shell_command = true;
+        memcpy(tasks[i].command_text, text, bytes + 1);
+        marked = true; break;
+    }
+    cpu_interrupt_restore(saved);
+    return marked;
+}
+
+const char *task_current_command_text(void)
+{
+    return task_current_is_process() && current->shell_command ? current->command_text : NULL;
+}
+
+rum_result_t task_session_control(unsigned action, const char *path)
+{
+    if (action < RUM_SESSION_CHDIR || action > RUM_SESSION_RECOVERY) return -RUM_EINVAL;
+    if (!process_filesystem_context()) return -RUM_EBUSY;
+    if (!task_current_command_text() || foreground != current->id) return -RUM_EACCES;
+    struct task *parent = NULL;
+    for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].id == current->parent) parent = &tasks[i];
+    if (!parent || !parent->interactive_shell || parent->state != TASK_BLOCKED ||
+        parent->waiting != &process_event) return -RUM_EACCES;
+    /* The parent cannot run or be reaped until this direct child ends. Disk
+       traversal runs with interrupts enabled, outside any registry update. */
+    if (action == RUM_SESSION_CHDIR) return process_fs_error(fs_context_chdir(&parent->filesystem, path));
+    uint32_t saved = cpu_interrupt_save();
+    parent->shell_exit_requested = true;
+    parent->shell_exit_status = action == RUM_SESSION_RECOVERY ? RUM_SHELL_RECOVERY_STATUS : 0;
+    cpu_interrupt_restore(saved);
+    return 0;
+}
+
+void task_exit_shell_if_requested(void)
+{
+    if (task_current_is_shell() && current->shell_exit_requested)
+        task_exit_with_status(current->shell_exit_status);
+}
+
 task_id task_current_id(void)
 {
     return ready ? current->id : 0;
@@ -232,6 +325,48 @@ rum_pid_t task_current_process_id(void)
 struct paging_space *task_current_process_space(void)
 {
     return task_current_is_process() ? current->space : NULL;
+}
+
+struct fs_context *task_current_filesystem(void)
+{
+    return ready && current && current->filesystem.directory && !irq_in_handler() ? &current->filesystem : NULL;
+}
+
+struct process_handles *task_current_handles(void)
+{
+    return task_current_is_process() && !irq_in_handler() ? &current->handles : NULL;
+}
+
+unsigned task_handle_count(task_id id)
+{
+    uint32_t saved = cpu_interrupt_save();
+    unsigned count = 0;
+    if (ready && id) for (unsigned i = 0; i < TASK_SLOTS; ++i)
+        if (tasks[i].state != TASK_UNUSED && tasks[i].id == id) {
+            count = process_handles_count(&tasks[i].handles); break;
+        }
+    cpu_interrupt_restore(saved);
+    return count;
+}
+
+bool task_working_directory(task_id id, char *buffer, size_t capacity)
+{
+    if (!ready || !id || !buffer || !capacity) return false;
+    uint32_t saved = cpu_interrupt_save();
+    bool found = false;
+    buffer[0] = 0;
+    for (unsigned i = 0; i < TASK_SLOTS; ++i) {
+        const struct task *task = &tasks[i];
+        if (task->state == TASK_UNUSED || task->id != id || !task->filesystem.directory) continue;
+        size_t length = 0;
+        while (length < FS_PATH_CAPACITY && task->filesystem.path[length]) ++length;
+        if (length < capacity && length < FS_PATH_CAPACITY) {
+            memcpy(buffer, task->filesystem.path, length + 1); found = true;
+        }
+        break;
+    }
+    cpu_interrupt_restore(saved);
+    return found;
 }
 
 static struct task_information information(const struct task *task)
@@ -296,6 +431,12 @@ static bool reap_slot(struct task *task)
 {
     if (!task || task->state != TASK_EXITED || task == current ||
         (task->owns_space && task->space == paging_active_space())) return false;
+    /* Exit must release file handles before this interrupt-protected reaper.
+       Refuse to discard a record with outstanding ownership. */
+    if (process_handles_count(&task->handles)) return false;
+    /* Pin release is allocation-free and performs no backend I/O. Keep the
+       address space intact if a foreground filesystem operation is busy. */
+    if (fs_context_destroy(&task->filesystem) != FS_OK) return false;
     if (task->owns_space && !paging_space_destroy(task->space)) return false;
     if (!paging_kernel_stack_release(task->stack_slot)) cpu_halt();
     *task = (struct task){0};
@@ -404,6 +545,12 @@ static _Noreturn void terminate_current(enum task_termination termination,
             .stack = exception_frame_esp(frame),
         };
     }
+    /* IRQ entry may arrive with IF clear. Copy its frame first, then release
+       file pins in task context before publishing EXITED. IRQs cannot schedule
+       a kernel continuation; no backend callback runs under the update lock. */
+    cpu_interrupt_enable();
+    if (process_handles_destroy(&current->handles)) cpu_halt();
+    (void)cpu_interrupt_save();
     current->state = TASK_EXITED;
     ++exited;
     if (current->kind == TASK_PROCESS) task_event_signal(&process_event);
@@ -438,7 +585,7 @@ bool task_foreground_end(task_id id)
         for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
             if (tasks[i].id == id && tasks[i].kind == TASK_PROCESS &&
                 tasks[i].parent == current->id && tasks[i].state == TASK_EXITED) {
-                foreground = 0;
+                foreground = current->kind == TASK_PROCESS ? current->id : 0;
                 cleared = true;
                 break;
             }
@@ -457,6 +604,7 @@ bool task_cancel_foreground(void)
             struct task *task = &tasks[i];
             if (task->id != foreground || task->kind != TASK_PROCESS ||
                 task->state == TASK_EXITED || task->state == TASK_UNUSED) continue;
+            if (task->interactive_shell) break;
             task->cancellation_requested = true;
             if (task->state == TASK_BLOCKED) {
                 task->waiting = NULL;
@@ -470,7 +618,7 @@ bool task_cancel_foreground(void)
     return requested;
 }
 
-static bool current_cancelled(void)
+bool task_current_cancelled(void)
 {
     uint32_t saved = cpu_interrupt_save();
     bool requested = ready && current && current->kind == TASK_PROCESS &&
@@ -481,7 +629,7 @@ static bool current_cancelled(void)
 
 void task_cancel_current_if_requested(void)
 {
-    if (current_cancelled())
+    if (task_current_cancelled())
         terminate_current(TASK_TERMINATION_CANCELLED, 0, NULL, 0);
 }
 

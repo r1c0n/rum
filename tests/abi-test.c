@@ -9,7 +9,8 @@
 
 int main(void)
 {
-    _Static_assert(RUM_SYS_COUNT == 4, "kernel-only services must not enter the user ABI");
+    _Static_assert(RUM_SYS_EXIT == 0 && RUM_SYS_READ == 1 && RUM_SYS_WRITE == 2 && RUM_SYS_GETPID == 3,
+                   "preserve the original syscall numbers");
     assert(RUM_ABI_PROGRAM_BASE == RUM_USER_BASE &&
            RUM_ABI_PROGRAM_END == RUM_USER_PROGRAM_END &&
            RUM_ABI_STACK_BASE == RUM_USER_STACK_BASE &&
@@ -22,7 +23,11 @@ int main(void)
                           sizeof(rum_address_t) + RUM_ABI_ARGUMENT_BYTES +
                           RUM_ABI_STACK_ALIGNMENT - 1;
     assert(largest_stack < RUM_ABI_STACK_SIZE);
-    const unsigned numbers[] = {RUM_SYS_EXIT, RUM_SYS_READ, RUM_SYS_WRITE, RUM_SYS_GETPID};
+    const unsigned numbers[] = {RUM_SYS_EXIT, RUM_SYS_READ, RUM_SYS_WRITE, RUM_SYS_GETPID,
+        RUM_SYS_OPEN, RUM_SYS_CLOSE, RUM_SYS_SEEK, RUM_SYS_READDIR, RUM_SYS_CHDIR,
+        RUM_SYS_GETCWD, RUM_SYS_MKDIR, RUM_SYS_REMOVE, RUM_SYS_FLUSH,
+        RUM_SYS_RUN, RUM_SYS_REPLACE, RUM_SYS_CONSOLE, RUM_SYS_COMMAND_TEXT, RUM_SYS_SESSION};
+    _Static_assert(sizeof numbers / sizeof numbers[0] == RUM_SYS_COUNT, "complete syscall list");
     for (unsigned i = 0; i < RUM_SYS_COUNT; ++i) {
         assert(numbers[i] < RUM_SYS_COUNT);
         for (unsigned j = 0; j < i; ++j) assert(numbers[i] != numbers[j]);

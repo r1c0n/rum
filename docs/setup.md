@@ -74,17 +74,27 @@ make test            # Run the complete host, package, and QEMU suite
 make test-package    # Build and validate the release ZIP
 make test-host       # Run host tests only
 make test-user       # Check user ELF assets and malformed inputs
+make test-block      # Sector API, ATA faults and disposable QEMU images
+make test-fs         # Paths, filesystem backends and process directory ownership
+make test-fat16      # FAT16 host images, validation and guest reads
+make test-fat16-write # FAT16 writes, failure injection and host FAT validation
 make clean           # Remove build/
 ```
 
 QEMU starts with 64 MiB of RAM. Serial output appears in the launching terminal.
 Close the QEMU window or press `Ctrl+C` in that terminal to stop it.
 
-Normal builds also produce stripped assets in `build/user/ramfs/` and symbol-rich
+To attach a raw disk, pass `-DiskImage <path>` to the PowerShell run/debug actions
+or `DISK_IMAGE=<path>` to Make. Image creation is a separate `create-disk` command
+that refuses existing paths. See [Raw disks and block devices](block-devices.md)
+for commands, supported sizes and the current read-only IDE limitation.
+
+Normal builds also produce stripped assets in `build/user/system/` and symbol-rich
 executables/maps in `build/user/debug/`. Use `.\rum.ps1 user` in PowerShell to
 build those separately. See [User ABI and executables](user-abi.md) for the
-runtime and loading contract. Launch an embedded program from the kernel shell
-with `run <program> [args]`.
+runtime and loading contract. These programs live in `build/rum-system.img`,
+mounted at `/rum`; the ISO includes that image automatically. Launch a program
+by name, or use `run <program> [args]` to report its exit status.
 
 ## Debugging
 

@@ -237,6 +237,20 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
     if any(entry for slot, entry in enumerate(stack_table)
            if entry and slot not in {(address >> 12) & 1023 for address in stack_addresses}):
         raise RuntimeError("Normal boot owns an unexpected kernel stack slot")
+    system_address = struct.unpack("<I", dump_ram(stream, symbols["system_image_address"], 4,
+        artifacts / f"{mode}-system-address.bin"))[0]
+    system_pages = struct.unpack("<I", dump_ram(stream, symbols["system_image_pages"], 4,
+        artifacts / f"{mode}-system-pages.bin"))[0]
+    system_bytes = (project / "build/rum-system.img").read_bytes()
+    if not system_address or system_address % 4096 or system_pages != (len(system_bytes) + 4095) // 4096:
+        raise RuntimeError("Invalid owned system volume")
+    copied = dump_ram(stream, system_address, system_pages * 4096, artifacts / f"{mode}-system-image.bin")
+    if copied[:len(system_bytes)] != system_bytes or any(copied[len(system_bytes):]):
+        raise RuntimeError("System module copy differs from the standalone userspace image")
+    for frame in range(system_address, system_address + system_pages * 4096, 4096):
+        if frame in frames or frame // 4096 not in pages:
+            raise RuntimeError("System image overlaps another physical owner")
+        frames.add(frame)
     for frame in frames: owned[frame // 4096 // 8] |= 1 << (frame // 4096 % 8)
     if allocated != owned or free != managed_count - len(frames):
         raise RuntimeError("Page table/heap/task stack physical frame accounting incorrect")
@@ -284,13 +298,16 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
 
     node = struct.unpack("<I", dump_ram(stream, symbols["ramfs_first"], 4,
                                        artifacts / f"{mode}-ramfs-root.bin"))[0]
-    loaded, owners = {}, set()
+    loaded, owners, file_ids = {}, set(), set()
     while node:
-        if node in owners or live_blocks.get(node, 0) < 76:
+        if node in owners or live_blocks.get(node, 0) < 88:
             raise RuntimeError("RAM filesystem list is invalid")
         owners.add(node)
-        following, size, address = struct.unpack_from("<III", heap_bytes(node, 76))
-        name = bytes(heap_bytes(node + 12, 64)).split(b"\0", 1)[0].decode("ascii")
+        following, identity, references, size, address = struct.unpack_from("<IQIII", heap_bytes(node, 88))
+        if identity <= 1 or identity in file_ids or references:
+            raise RuntimeError("RAM file identity or retained-reference count is invalid")
+        file_ids.add(identity)
+        name = bytes(heap_bytes(node + 24, 64)).split(b"\0", 1)[0].decode("ascii")
         if name in loaded:
             raise RuntimeError("Duplicate RAM filename")
         if size:
@@ -302,7 +319,7 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
         loaded[name] = bytes(heap_bytes(address, size)) if size else b""
         node = following
     assets = {path.name: path.read_bytes()
-              for directory in (project / "assets/ramfs", project / "build/user/ramfs")
+              for directory in (project / "assets/ramfs",)
               for path in directory.iterdir()}
     if (loaded != assets or len(loaded) != file_count or sum(map(len, loaded.values())) != file_bytes or
             owners != set(live_blocks)):
@@ -603,7 +620,7 @@ def user_abi_memory_test(stream, symbols, artifacts, mode, registers, project, c
     if any(entry & ~0x60 != (symbols["abi_stack_pages"] + (i - 1008) * 4096 | 7 if i >= 1008 else 0)
            for i, entry in enumerate(stack)):
         raise RuntimeError("Wrong fixture stack pages or missing guard")
-    image = (project / ("build/user/ramfs/hello.elf" if case == "hello" else "build/tests/user/abi-probe.elf")).read_bytes()
+    image = (project / ("build/user/system/hello.elf" if case == "hello" else "build/tests/user/abi-probe.elf")).read_bytes()
     phoff, phnum = struct.unpack_from("<I", image, 28)[0], struct.unpack_from("<H", image, 44)[0]
     mappings = {}
     for i in range(phnum):
@@ -766,7 +783,7 @@ def shell_test(stream, symbols, artifacts, mode, serial):
            "  run <program> [args]  Run an embedded user program.\r\n"
            "  snake        Play ASCII Snake.\r\n> ")
     type_text("about\n")
-    expect("rum OS v0.3.0\r\n"
+    expect("rum OS v0.4.0\r\n"
            "An island of our own. A hobby kernel in C and x86 assembly.\r\n"
            "32-bit x86 | GRUB Multiboot | PIC, PIT and PS/2\r\n> ")
     start = len(serial.read_bytes())
@@ -826,7 +843,7 @@ def shell_test(stream, symbols, artifacts, mode, serial):
     memory = dump_ram(stream, 0xB8000, 4000, artifacts / f"{mode}-shell-vga.bin")
     rows = [memory[y*160:(y+1)*160:2].decode("ascii").rstrip() for y in range(25)]
     screen = "\n".join(rows)
-    for text in ("Commands:", "echo <text>", "rum OS v0.3.0", "rum has a shell!", "uptime:"):
+    for text in ("Commands:", "echo <text>", "rum OS v0.4.0", "rum has a shell!", "uptime:"):
         if text not in screen:
             raise RuntimeError(f"Missing shell VGA text {text!r}")
     (artifacts / f"{mode}-shell-screen.txt").write_text(screen + "\n")
@@ -859,6 +876,10 @@ def process_shell_test(stream, symbols, artifacts, mode, serial):
             if not match:
                 raise RuntimeError(f"Missing {label} process resource field {pattern!r}: {report}")
             values.extend(map(int, match.groups()))
+        # Executable reads use a temporary heap buffer. Freed buffers may leave
+        # cached heap pages, but every private allocation/page must be released.
+        values[4] += values[14] // 4096
+        values[14] = 0
         return tuple(values)
 
     def run(command, expected):
@@ -871,7 +892,7 @@ def process_shell_test(stream, symbols, artifacts, mode, serial):
 
     baseline = resources("baseline")
     for iteration in range(2):
-        run("run hello alpha beta", "Hello from rum userspace!\nProcess ")
+        run("run hello alpha beta", "Hello from rum userspace!\r\nProcess ")
         if "exited with status 0." not in serial.read_bytes()[-200:].decode():
             raise RuntimeError("hello did not return status zero")
         if resources(f"hello {iteration}") != baseline:
@@ -1114,7 +1135,7 @@ def storage_shell_test(stream, symbols, artifacts, mode, serial, project):
     qmp_command(stream, "cont")
     _, expect, type_text = guest_keyboard(stream, serial)
     assets = {path.name: path.read_bytes()
-              for directory in (project / "assets/ramfs", project / "build/user/ramfs")
+              for directory in (project / "assets/ramfs",)
               for path in sorted(directory.iterdir())}
     start = len(serial.read_bytes())
     type_text("ls\n")
@@ -1295,7 +1316,7 @@ def snake_test(stream, symbols, artifacts, mode, serial):
     timer_test(stream, symbols, artifacts, mode)
 
 
-def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False, cpu=None, tasks=False, user_abi=None, task_fault=False, double_fault=False, process_fault=None, syscalls=False, elf_loader=False):
+def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging=None, ram=64, interactive=True, iso=False, storage=False, cpu=None, tasks=False, user_abi=None, task_fault=False, double_fault=False, process_fault=None, syscalls=False, elf_loader=False, filesystem=False):
     if task_fault:
         fault = "ud"
     serial_artifact = artifacts / f"{mode}-serial.log"
@@ -1303,11 +1324,15 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
     screenshot = artifacts / f"{mode}.ppm"
     image = project / ("build/tests/elf-loader.elf" if elf_loader else "build/tests/syscall.elf" if syscalls else f"build/tests/process-fault-{process_fault}.elf" if process_fault else "build/tests/task-double-fault.elf" if double_fault else "build/tests/task-fault.elf" if task_fault else f"build/tests/abi-{user_abi}.elf" if user_abi else "build/tests/task.elf" if tasks else f"build/tests/cpu-{cpu}.elf" if cpu else "build/tests/storage.elf" if storage else f"build/tests/paging-{paging}.elf" if paging else "build/tests/irq.elf" if irq_test else
                        f"build/tests/fault-{fault}.elf" if fault else "build/rum.elf")
+    if filesystem:
+        image = project / "build/tests/fs.elf"
     symbols = elf_symbols(image)
     boot_layout_test(symbols)
     marker = ("rum_elf_loader_test_ok" if elf_loader else "rum_syscall_test_ready" if syscalls else "rum_process_irq_ready" if process_fault == "irq" else "rum_process_fault_test_ok" if process_fault else "rum_panic_halted" if double_fault else "rum_abi_test_ok" if user_abi else "rum_task_test_ok" if tasks else "rum_cpu_test_ok" if cpu else "rum_storage_test_ok" if storage else "rum_paging_test_ok" if paging == "ok" else "rum_panic_halted" if paging else
               "rum_irq_test_ok" if irq_test else "rum_panic_halted" if fault else "rum_boot_ok")
     normal = not elf_loader and not syscalls and not process_fault and not fault and not irq_test and not paging and not storage and not cpu and not tasks and not user_abi and not double_fault
+    if filesystem:
+        marker, normal = "rum_fs_test_ok", False
     with tempfile.TemporaryDirectory(prefix="rum-qmp-") as temporary:
         # Keep the live writer/readers on one filesystem. DrvFs can return
         # ENODATA when a WSL guest creates/truncates a log on the Windows drive.
@@ -1323,8 +1348,10 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
             monitor_spec = f"tcp:127.0.0.1:{port},server=on,wait=off"
         else:
             monitor_spec = f"unix:{monitor},server=on,wait=off"
-        image_args = (["-boot", "d", "-cdrom", str(project / "build/rum.iso")]
+        image_args = (["-boot", "d", "-cdrom", str(project / "build/tests/recovery.iso")]
                       if mode == "iso" or iso else ["-kernel", str(image)])
+        if normal and not (mode == "iso" or iso):
+            image_args += ["-initrd", str(project / "build/rum-system.img"), "-append", "rum.recovery"]
         args = [qemu, "-machine", "pc", "-accel", "tcg", "-m", f"{ram}M", "-display", "none",
                 "-serial", f"file:{serial}", "-qmp", monitor_spec,
                 "-no-reboot", "-no-shutdown", *image_args]
@@ -1333,7 +1360,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
         try:
             deadline = time.monotonic() + 20
             while marker not in serial.read_text(errors="replace"):
-                if any(marker in serial.read_text(errors="replace") for marker in ("rum_elf_loader_test_failed", "rum_syscall_test_failed", "rum_process_fault_test_failed", "rum_paging_test_failed", "rum_storage_test_failed", "rum_cpu_test_failed", "rum_task_test_failed", "rum_abi_test_failed")):
+                if any(marker in serial.read_text(errors="replace") for marker in ("rum_fs_test_failed", "rum_elf_loader_test_failed", "rum_syscall_test_failed", "rum_process_fault_test_failed", "rum_paging_test_failed", "rum_storage_test_failed", "rum_cpu_test_failed", "rum_task_test_failed", "rum_abi_test_failed")):
                     raise RuntimeError(serial.read_text(errors="replace"))
                 if process.poll() is not None:
                     raise RuntimeError(f"QEMU exited: {process.stderr.read().decode(errors='replace')}")
@@ -1385,7 +1412,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                             for y in range(25)]
                     screen = "\n".join(rows)
                     (artifacts / f"{mode}-screen.txt").write_text(screen + "\n")
-                    expected_text = (("rum ELF loader tests passed.",) if elf_loader else ("rum production syscall tests",) if syscalls else
+                    expected_text = (("rum filesystem and working directory tests passed.",) if filesystem else
+                                     ("rum ELF loader tests passed.",) if elf_loader else ("rum production syscall tests",) if syscalls else
                                      ("rum user fault recovery tests passed.",) if process_fault else
                                      ("rum kernel panic", "Double fault", "CPU halted.") if double_fault else
                                      ("rum user ABI and startup tests passed.",) if user_abi else
@@ -1396,7 +1424,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                                      ("rum kernel panic", "Page fault", "CPU halted.") if paging else
                                      ("rum IRQ return and spurious interrupt tests passed.",) if irq_test else
                                      ("rum kernel panic", FAULT_CASES[fault][2], "CPU halted.") if fault
-                                     else ("rum OS v0.3.0", "Hello, kernel world!", "[ok] Multiboot handoff",
+                                     else ("rum OS v0.4.0", "Hello, kernel world!", "[ok] Multiboot handoff",
                                            "[ok] Kernel GDT and segments", "[ok] IDT and CPU exception handlers",
                                            "[ok] PIT timer at 100 Hz", "[ok] PS/2 keyboard (US layout)",
                                            "[ok] Multiboot memory map", "[ok] Physical page allocator",
@@ -1432,7 +1460,8 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                         snake_test(stream, symbols, artifacts, mode, serial)
                     qmp_command(stream, "quit")
             print(f"PASS: {mode}, GDT/IDT/segments, " +
-                  ("validated ELF mapping, initial stack, allocation rollback, execution and cleanup" if elf_loader else
+                  ("filesystem paths, mounted backends, retained identities, inherited cwd, OOM/exit/fault/cancel cleanup" if filesystem else
+                   "validated ELF mapping, initial stack, allocation rollback, execution and cleanup" if elf_loader else
                    "production int 0x80, validated partial I/O, blocking input, register and task preservation" if syscalls else
                    "production ring-3 process entry, isolated fault recovery, parent/CR3/TSS restore, cleanup" if process_fault else
                    "hardware task gate, independent guarded stack, saved failed TSS, controlled panic" if double_fault else
@@ -1460,10 +1489,15 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--qemu", default="qemu-system-i386")
+    parser.add_argument("--filesystem-only", action="store_true", help="Run the focused filesystem kernel fixtures")
     args = parser.parse_args()
     project = Path(__file__).resolve().parent.parent
     artifacts = project / "build/test-artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
+    if args.filesystem_only:
+        for ram in TEST_RAM_SIZES:
+            boot_test(args.qemu, project, f"filesystem-{ram}", artifacts, filesystem=True, ram=ram)
+        return
     for ram in TEST_RAM_SIZES:
         for loader, iso in (("iso", True), ("elf", False)):
             boot_test(args.qemu, project, f"{loader}-processes-{ram}", artifacts,
@@ -1493,6 +1527,7 @@ def main():
             boot_test(args.qemu, project, f"paging-{case}-{ram}", artifacts,
                       paging=case, ram=ram)
         boot_test(args.qemu, project, f"storage-{ram}", artifacts, storage=True, ram=ram)
+        boot_test(args.qemu, project, f"filesystem-{ram}", artifacts, filesystem=True, ram=ram)
     for ram in BOOT_RAM_SIZES:
         for loader, iso in (("iso", True), ("elf", False)):
             boot_test(args.qemu, project, f"{loader}-boot-{ram}", artifacts,

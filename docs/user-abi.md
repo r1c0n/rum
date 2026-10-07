@@ -2,7 +2,7 @@
 
 rum builds freestanding i386 user executables with a separate startup, runtime,
 linker script, and public include tree. The kernel validates and maps stripped
-ELF files from its RAM filesystem, constructs their initial stacks, enters the
+ELF files from the system volume, RAM or FAT16, constructs their initial stacks, enters the
 prepared process in ring 3, recovers user faults, and serves ABI version 1
 through the production syscall dispatcher. The normal shell launches one
 foreground process with `run`, waits for its result, and reclaims its complete
@@ -26,7 +26,7 @@ The build produces:
 | --- | --- |
 | `build/user/debug/<name>.elf` | Symbol-rich executable for GDB and `addr2line` |
 | `build/user/debug/<name>.map` | Linker map |
-| `build/user/ramfs/<name>.elf` | Stripped, validated runtime asset |
+| `build/user/system/<name>.elf` | Stripped, validated runtime asset |
 | `build/user/include/rum/abi/` | Generated public headers only |
 
 Private kernel headers are deliberately absent from the user include tree.
@@ -62,25 +62,27 @@ pattern.
 
 ## Launching a program
 
-At the rum prompt, use a build name or the full RAM filename:
+At the rum prompt, use a build name or a full path:
 
 ```text
 > run hello first second
 Hello from rum userspace!
-Process 1 exited with status 0.
+Program exited with status 0.
 
 > run nonzero
-Process 2 exited with status -37.
+Program exited with status -37.
 ```
 
 The shell treats spaces and tabs as argument separators and does not implement
-quotes or escapes. The typed program name becomes `argv[0]`. If the exact RAM
-filename is absent, `run` tries the same name with `.elf` appended.
+quotes or escapes. The typed program name becomes `argv[0]`. Bare names resolve
+in `/rum` first, then the working directory; paths containing `/` use the working directory or absolute root.
+If the exact filename is absent, the loader tries `.elf`.
 
-Only one foreground child is supported. Its parent sleeps on a process-exit
+Only one active foreground child is supported. A child can launch its own
+foreground child through [process syscalls](process-syscalls.md). Its parent sleeps on a process-exit
 event while the child owns console input. Normal exit preserves the full signed
-status. A user exception preserves its vector, error code, fault address, EIP,
-and user stack pointer. Ctrl+C records a cancellation request; a blocking child
+status. A user exception preserves a detailed record inside the kernel; public
+results expose only the exception vector. Ctrl+C records a cancellation request; a blocking child
 is woken, and a CPU-bound child observes the request on the next timer or
 keyboard return before ring 3 resumes. Every outcome switches away from the
 child before releasing its user pages, private tables, directory, guarded
@@ -88,12 +90,14 @@ kernel stack, and task record.
 
 ## Loading an executable
 
-Normal kernel builds merge the stripped files from `build/user/ramfs/` with the
-ordinary files from `assets/ramfs/`. Symbol-rich ELFs and linker maps stay under
-`build/user/debug/` and are not embedded.
+`make user` packs stripped executables into `build/rum-system.img`. GRUB loads
+it separately from the kernel and it mounts read-only at `/rum`. No userspace
+ELF is linked into `rum.elf`. Ordinary root files still come from `assets/ramfs/`.
+Symbol-rich ELFs and linker maps stay under `build/user/debug/`.
 
-`elf_load_ramfs` reads one of those borrowed RAM-file images and applies the same
-checks as `elf_load_process`. The loader validates the complete ELF and argument
+The common filesystem loader copies a bounded executable image before applying
+`elf_load_process`. The legacy `elf_load_ramfs` helper remains for RAM fixtures
+and recovery files. The loader validates the complete ELF and argument
 packet before creating an address space. It then allocates distinct zeroed pages
 for each LOAD segment, copies only file-backed bytes, applies final read/write
 permissions, maps the fixed 64 KiB stack, and builds `argc`, `argv`, and an empty
@@ -125,6 +129,20 @@ callee-saved registers.
 | 1 | `rum_read(handle, buffer, capacity)` | Writable user buffer | Bytes read |
 | 2 | `rum_write(handle, buffer, bytes)` | Readable user buffer | Bytes written |
 | 3 | `rum_getpid()` | None | Positive process ID |
+| 4 | `rum_open(path, access, flags)` | Address of versioned open packet | Handle 3–31 |
+| 5 | `rum_close(handle)` | Handle | Zero |
+| 6 | `rum_seek(handle, displacement, whence, position)` | Handle, in/out seek packet | Zero; position in packet |
+| 7 | `rum_readdir(handle, entry)` | Handle, versioned directory-entry packet | One entry or zero at end |
+| 8 | `rum_chdir(path)` | NUL-terminated path | Zero |
+| 9 | `rum_getcwd(buffer, capacity)` | Writable buffer, capacity | Bytes including NUL |
+| 10 | `rum_mkdir(path)` | NUL-terminated path | Zero |
+| 11 | `rum_remove(path)` | NUL-terminated path | Zero |
+| 12 | `rum_flush(handle)` | Filesystem handle | Zero |
+| 13 | `rum_run(path, arguments, result)` | Versioned launch packet | Zero; sanitized child result |
+| 14 | `rum_replace(path, data, bytes)` | Versioned whole-file packet | Zero |
+| 15 | `rum_console(action)` | Clear or Snake selector | Zero |
+| 16 | `rum_command_text(buffer, capacity)` | Exact command argument tail | Bytes including NUL; command child only |
+| 17 | `rum_session(action, path)` | Session directory change, exit or recovery | Zero; command child only |
 
 Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
 means success. A negative result is the negation of a `RUM_E*` value from
@@ -132,23 +150,31 @@ means success. A negative result is the negation of a `RUM_E*` value from
 `errno`.
 
 Read and write calls may return fewer bytes than requested. A zero-length call
-returns zero without using the buffer. The current console backend transfers at
-most 128 bytes per call, so callers must handle partial results.
+validates the handle, direction and object kind, then returns zero without using
+the buffer. Console calls transfer at most 128 bytes; file calls transfer at most
+512 bytes. File reads return zero at EOF.
 
-`rum_write` accepts standard output and standard error. It verifies the complete
-arithmetic range, then checks and copies only the chunk it will transfer through
-a kernel buffer. Console code and drivers never receive a raw user pointer.
+`rum_write` accepts standard output, standard error, and writable file handles.
+Both I/O calls verify the complete requested range and every covered user page
+before copying a chunk through a kernel buffer. Console code, filesystems and
+drivers never receive a raw user pointer.
 
-`rum_read` accepts standard input and requires a writable user range. If no
+`rum_read` accepts readable file handles and standard input, and requires a
+writable user range. For standard input, if no
 decoded character is queued, the calling process sleeps on a keyboard-specific
 event. Keyboard IRQs remain enabled while it waits, PIT ticks continue, and
 other runnable tasks can execute. The call returns after copying one or more
 available characters, up to its 128-byte limit.
 
-An unsupported number returns `-RUM_ENOSYS`, an invalid standard handle returns
+An unsupported number returns `-RUM_ENOSYS`, an invalid or wrong-direction handle returns
 `-RUM_EBADF`, and an overflowing, unmapped, supervisor-only, or wrongly
 protected buffer returns `-RUM_EFAULT`. These checks return an ABI error rather
 than turning bad user input into a kernel fault.
+
+See [Filesystem syscalls](filesystem-syscalls.md) for packet layouts, seek rules,
+directory iteration, access modes, partial errors, and working-directory examples.
+The original syscall numbers and ABI version remain compatible; filesystem
+packets have their own version field.
 
 ## Process arguments and initial stack
 

@@ -1,5 +1,6 @@
 #include <rum/cpu.h>
 #include <rum/diagnostics.h>
+#include <rum/fs.h>
 #include <rum/gdt.h>
 #include <rum/heap.h>
 #include <rum/interrupts.h>
@@ -168,6 +169,7 @@ static __attribute__((noinline)) void allocation_boundaries(uint32_t baseline)
             uint32_t directory = paging_directory_address(candidate);
             check(candidate && directory, "allocation-boundary directory");
             struct heap_statistics heap = heap_stats();
+            struct fs_statistics filesystem = fs_stats();
             struct task_snapshot before, after;
             check(task_snapshot_read(&before), "allocation-boundary initial owners");
             uint32_t held = consume_until(remaining);
@@ -175,6 +177,8 @@ static __attribute__((noinline)) void allocation_boundaries(uint32_t baseline)
                   pmm_stats().free_pages == remaining && paging_directory_address(candidate) == directory &&
                   heap_stats().used_bytes == heap.used_bytes && heap_stats().allocations == heap.allocations,
                   "insufficient stack budget retains caller resources");
+            check(fs_stats().references == filesystem.references && fs_stats().objects == filesystem.objects,
+                  "failed worker creation releases inherited cwd");
             check(task_snapshot_read(&after) && after.count == before.count &&
                   after.stack_pages == before.stack_pages && after.directory_pages == before.directory_pages &&
                   after.created == before.created && after.exited == before.exited && after.reaped == before.reaped,
@@ -255,6 +259,7 @@ static __attribute__((noinline)) void process_records(uint32_t baseline)
         uint32_t held = consume_until(remaining);
         check(task_snapshot_read(&before), "snapshot before partial process stack");
         check(!task_create_process(&process), "partial process stack cannot publish");
+        check(fs_stats().references == 1 && fs_stats().objects == 1, "partial process stack releases cwd");
         check(pmm_stats().free_pages == remaining, "partial process stack restores pages");
         check(paging_directory_address(space) == process_directory,
               "partial process stack retains caller address space");
@@ -321,6 +326,7 @@ void kernel_main(uint32_t magic, uint32_t information)
         uint32_t consumed = consume_until(remaining);
         check(!task_initialize() && pmm_stats().free_pages == remaining && !task_current_id(),
               "idle/emergency stack OOM rollback");
+        check(!fs_stats().references && !fs_stats().objects, "failed initialization leaves no directory owner");
         release_pages(consumed);
         check(pmm_stats().free_pages == initial, "failed task initialization returns every frame");
     }
