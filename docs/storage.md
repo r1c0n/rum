@@ -7,11 +7,11 @@ at runtime disappear when QEMU restarts.
 ## Using files from the shell
 
 ```text
-> ls
-> cat welcome.txt
-> write notes.txt hello from rum
-> cat notes.txt
-> rm notes.txt
+/> ls
+/> cat welcome.txt
+/> write notes.txt hello from rum
+/> cat notes.txt
+/> rm notes.txt
 ```
 
 `write` creates or replaces a file. Omitting the text creates an empty file.
@@ -27,7 +27,7 @@ The filesystem has one flat root:
 - ASCII letters, digits, `.`, `_`, and `-` only.
 - An optional leading `/`; `/notes.txt` and `notes.txt` name the same file.
 - No RAM directories or persistent RAM storage. The common layer supplies
-  handles and a separate `/disk` mount; see [filesystems](filesystems.md).
+  handles, the read-only `/rum` system volume and the `/disk` mount; see [filesystems](filesystems.md).
 
 `.` and `..` are rejected as filenames. The shell's 255-character input limit
 usually bounds text created interactively before the 64 KiB file limit matters.

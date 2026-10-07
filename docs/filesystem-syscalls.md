@@ -5,7 +5,7 @@ open existing RAM files and files on a mounted FAT16 volume, read or overwrite
 their contents, list directories, change their working directory, create
 directories, remove closed objects, and flush a backend.
 
-The normal [userspace shell](shell.md) uses these calls on both mounts. The
+The normal [userspace shell](shell.md) uses these calls on RAM, `/rum` and `/disk`. The
 kernel recovery shell keeps its original RAM commands.
 
 ## Opening and reading

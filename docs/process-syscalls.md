@@ -14,7 +14,7 @@ struct rum_arguments args = {
 struct rum_process_result child = {
     .version = RUM_PROCESS_ABI_VERSION, .size = sizeof child
 };
-rum_result_t error = rum_run("/hello.elf", &args, &child);
+rum_result_t error = rum_run("/rum/hello.elf", &args, &child);
 if (error < 0) return 1; /* No child was launched. */
 if (child.termination == RUM_PROCESS_EXITED) return child.status;
 return 1;
@@ -25,7 +25,7 @@ filesystem, validates the static i386 ELF, publishes one foreground child,
 waits for termination and reaps it before returning. Relative paths use the
 calling process's working directory. The kernel has no program-search path;
 if a file is absent and its name does not end in `.elf`, it tries that suffix.
-The shell itself resolves bare program names in RAM root.
+The shell resolves bare program names in `/rum` first, then its working directory.
 
 The 32-byte `rum_run_request` contains eight fixed-width words:
 
@@ -84,6 +84,34 @@ shell as interactive: Ctrl+C reaches that shell as a character for line editing.
 
 There are no background jobs, independent wait syscall, process-handle inheritance
 or general asynchronous kill interface.
+
+## Standalone commands and session control
+
+The supervised initial shell can use `rum_run_command(path, args, text, result)`
+instead of `rum_run`. It uses syscall 13 with a 32-byte `rum_command_request`:
+version `RUM_COMMAND_ABI_VERSION` (2), the exact structure size, the same path,
+arguments and result addresses, flags `RUM_RUN_COMMAND`, a `text` address, and
+zero `reserved`. The original version-1 packet remains supported unchanged.
+
+`text` is the unparsed argument tail, at most 255 printable ASCII bytes plus
+NUL. It preserves spaces for `echo` and `write`, while `argc` and `argv` retain
+the usual split argument layout. The kernel validates and copies it before
+launch. Ordinary programs cannot request this launch mode.
+
+The direct command child may call `rum_command_text(buffer, capacity)` (16).
+It validates the full writable range and returns bytes including NUL. A short
+or zero capacity returns `-RUM_ERANGE`; other processes receive `-RUM_EACCES`.
+
+`rum_session(action, path)` (17) accepts `RUM_SESSION_CHDIR` with a bounded path,
+or `RUM_SESSION_EXIT`/`RUM_SESSION_RECOVERY` with a null path. The unused third
+register must be zero. The caller must be the direct foreground command child
+of the blocked initial shell; nested and ordinary children are denied.
+`CHDIR` changes only the waiting shell's directory using normal path validation.
+An exit request is applied after the command ends and its launch syscall has
+reaped the child and freed temporary buffers. Existing restart/recovery rules
+then apply. This interface exposes no parent pointer, arbitrary PID or kernel
+address. `run cd /disk` is denied because `run` launches an ordinary nested child;
+type `cd /disk` directly.
 
 ## Console actions
 

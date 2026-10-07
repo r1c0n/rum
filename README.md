@@ -38,7 +38,8 @@ installation, toolchain options, and troubleshooting.
 
 ## Using rum
 
-Click inside QEMU and enter `help` at the `> ` prompt. Input uses a US QWERTY
+Click inside QEMU and enter `help` at the `/> ` prompt. The prompt shows your
+working directory, such as `/disk/DOCS> `. Input uses a US QWERTY
 layout; Enter runs a command, Backspace edits, and Tab inserts four spaces.
 The bottom row shows uptime.
 
@@ -48,17 +49,21 @@ The bottom row shows uptime.
 | `clear` | Clear the console |
 | `about` | Show version and kernel information |
 | `echo <text>` | Print text |
-| `ls [path]` | List a RAM or disk directory |
+| `ls [path]` | List a directory |
 | `cat <path>` | Read a file |
 | `pwd`, `cd [path]` | Show or change the working directory |
 | `write <path> [text]` | Create or replace a file |
 | `mkdir <path>`, `rm <path>` | Create a disk directory or remove an object |
-| `run <program> [args]` | Run a RAM or disk ELF in the foreground |
+| `run <program> [args]` | Run an ELF in the foreground and report its status |
 | `snake` | Play ASCII Snake |
 | `recovery` | Enter the kernel shell for `mem`, `diag` and recovery commands |
 
 Snake uses **WASD** to move, **P** to pause, **R** to restart, and **Q** to return
 to the shell. Best scores are saved in `snake.score` for the current boot.
+
+Commands are separate userspace programs in `/rum`, loaded from a system image
+alongside the kernel. Type `ls /rum` to see them, or `hello` to launch an example.
+The shell searches `/rum` first, then your working directory.
 
 Root files are stored in RAM. Rebooting restores files embedded from
 `assets/ramfs/` and discards RAM changes. An optional FAT16 image mounted at
@@ -110,7 +115,10 @@ To create a volume containing files, follow [FAT16 disks](docs/fat16.md).
 | `.\rum.ps1 panic` | `make panic` | Boot a test kernel that triggers a panic |
 | `.\rum.ps1 clean` | `make clean` | Remove generated build files |
 
-Build outputs are `build/rum.elf` and `build/rum.iso`. Tests cover game rules,
+Build outputs are `build/rum.elf`, `build/rum-system.img`, and `build/rum.iso`.
+The ISO contains both the kernel and system image; the direct ELF launcher
+supplies the system image separately. See [the system volume](docs/system-volume.md).
+Tests cover game rules,
 shell input, memory allocation, RAM files, boot checks, CPU faults, ring-3
 syscalls, foreground process outcomes, cleanup, and device interrupts. Storage
 tests also check exact sector bytes, persistence, canaries and injected I/O
@@ -165,6 +173,7 @@ qemu-system-i386 -m 64M -cdrom rum.iso
 | [`kernel/`](kernel/README.md) | Core, drivers, memory, processes, filesystems, UI, and diagnostics |
 | `include/rum/` | Kernel interfaces |
 | `assets/ramfs/` | Embedded boot files |
+| `user/` | Userspace shell, standalone command programs, public runtime and linker script |
 | `scripts/` | Toolchain setup, environment checks, embedding, and QEMU tests |
 | `tests/` | Host tests and isolated test kernels |
 | `docs/` | Setup, usage, architecture, and contributor guides |

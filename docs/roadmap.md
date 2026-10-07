@@ -139,8 +139,8 @@ to their baseline.
 - [x] Report filesystem and process errors without exposing kernel addresses or
   internal error values.
 
-The userspace shell may keep commands as built-ins initially; separate tool ELFs
-can follow when the launch interface is stable. Background jobs, pipelines,
+The shell and commands are separate ELFs in the read-only `/rum` boot volume.
+The prompt shows the working directory. Background jobs, pipelines,
 redirection, quoting, history and completion remain future work. Snake may stay
 as a kernel application for this release and later move through the same public
 interfaces.

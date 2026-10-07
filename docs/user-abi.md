@@ -2,7 +2,7 @@
 
 rum builds freestanding i386 user executables with a separate startup, runtime,
 linker script, and public include tree. The kernel validates and maps stripped
-ELF files from RAM or FAT16, constructs their initial stacks, enters the
+ELF files from the system volume, RAM or FAT16, constructs their initial stacks, enters the
 prepared process in ring 3, recovers user faults, and serves ABI version 1
 through the production syscall dispatcher. The normal shell launches one
 foreground process with `run`, waits for its result, and reclaims its complete
@@ -26,7 +26,7 @@ The build produces:
 | --- | --- |
 | `build/user/debug/<name>.elf` | Symbol-rich executable for GDB and `addr2line` |
 | `build/user/debug/<name>.map` | Linker map |
-| `build/user/ramfs/<name>.elf` | Stripped, validated runtime asset |
+| `build/user/system/<name>.elf` | Stripped, validated runtime asset |
 | `build/user/include/rum/abi/` | Generated public headers only |
 
 Private kernel headers are deliberately absent from the user include tree.
@@ -62,7 +62,7 @@ pattern.
 
 ## Launching a program
 
-At the rum prompt, use a build name or the full RAM filename:
+At the rum prompt, use a build name or a full path:
 
 ```text
 > run hello first second
@@ -75,7 +75,7 @@ Program exited with status -37.
 
 The shell treats spaces and tabs as argument separators and does not implement
 quotes or escapes. The typed program name becomes `argv[0]`. Bare names resolve
-in RAM root; paths containing `/` use the working directory or absolute root.
+in `/rum` first, then the working directory; paths containing `/` use the working directory or absolute root.
 If the exact filename is absent, the loader tries `.elf`.
 
 Only one active foreground child is supported. A child can launch its own
@@ -90,12 +90,14 @@ kernel stack, and task record.
 
 ## Loading an executable
 
-Normal kernel builds merge the stripped files from `build/user/ramfs/` with the
-ordinary files from `assets/ramfs/`. Symbol-rich ELFs and linker maps stay under
-`build/user/debug/` and are not embedded.
+`make user` packs stripped executables into `build/rum-system.img`. GRUB loads
+it separately from the kernel and it mounts read-only at `/rum`. No userspace
+ELF is linked into `rum.elf`. Ordinary root files still come from `assets/ramfs/`.
+Symbol-rich ELFs and linker maps stay under `build/user/debug/`.
 
-`elf_load_ramfs` reads one of those borrowed RAM-file images and applies the same
-checks as `elf_load_process`. The loader validates the complete ELF and argument
+The common filesystem loader copies a bounded executable image before applying
+`elf_load_process`. The legacy `elf_load_ramfs` helper remains for RAM fixtures
+and recovery files. The loader validates the complete ELF and argument
 packet before creating an address space. It then allocates distinct zeroed pages
 for each LOAD segment, copies only file-backed bytes, applies final read/write
 permissions, maps the fixed 64 KiB stack, and builds `argc`, `argv`, and an empty
@@ -139,6 +141,8 @@ callee-saved registers.
 | 13 | `rum_run(path, arguments, result)` | Versioned launch packet | Zero; sanitized child result |
 | 14 | `rum_replace(path, data, bytes)` | Versioned whole-file packet | Zero |
 | 15 | `rum_console(action)` | Clear or Snake selector | Zero |
+| 16 | `rum_command_text(buffer, capacity)` | Exact command argument tail | Bytes including NUL; command child only |
+| 17 | `rum_session(action, path)` | Session directory change, exit or recovery | Zero; command child only |
 
 Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
 means success. A negative result is the negation of a `RUM_E*` value from
