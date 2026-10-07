@@ -53,6 +53,7 @@ directories, file creation and ELF launch.
 | [Heap and RAM files](storage.md) | File limits, embedded files, and the kernel storage APIs |
 | [Raw disks and block devices](block-devices.md) | Image creation, safe attachment, sector I/O, ATA limits and errors |
 | [FAT16 disks](fat16.md) | Image setup, file and directory operations, limits, flush ordering and repair expectations |
+| [Building a release](release.md) | Clean builds, disk/session checks, packaging, persistence and recovery |
 | [Kernel diagnostics](diagnostics.md) | Reading `diag` output and investigating a panic |
 
 ## Kernel guides
@@ -112,6 +113,7 @@ make test-fs     # Paths, filesystem backends and process working directories
 make test-fat16  # Host FAT images, malformed volumes and guest byte comparisons
 make test-fat16-write # Writable FAT16, interrupted writes and host FAT validation
 make test-package # Release archive and embedded-ISO validation
+make test-release-integration # Storage failures, full media, reboot and packaged ISO
 make test        # Complete host, package, and QEMU suite
 ```
 

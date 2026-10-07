@@ -149,6 +149,11 @@ python3 scripts/package.py
 Validate the archive and its embedded ISO with `make test-package` on Linux or
 WSL, or `py -3 tests/package-test.py` on Windows.
 
+For a clean build, the complete test suite and a boot of the exact packaged ISO,
+run `python3 scripts/release-check.py` from a committed checkout in Ubuntu/WSL.
+See [building a release](docs/release.md) for results, Windows verification and
+persistent-disk checks.
+
 This creates `rum.zip` in the repository directory, replacing an existing
 archive. Its contents are:
 
