@@ -6,6 +6,12 @@
 #define RUM_ABI_ARGUMENT_LIMIT 32 /* Includes argv[0]. */
 #define RUM_ABI_ARGUMENT_BYTES 4096 /* Includes every string's NUL. */
 #define RUM_PROCESS_ABI_VERSION 1
+#define RUM_COMMAND_ABI_VERSION 2
+#define RUM_COMMAND_TEXT_CAPACITY 256
+#define RUM_RUN_COMMAND 1
+#define RUM_SESSION_CHDIR 1
+#define RUM_SESSION_EXIT 2
+#define RUM_SESSION_RECOVERY 3
 #define RUM_PROCESS_EXITED 1
 #define RUM_PROCESS_FAULTED 2
 #define RUM_PROCESS_CANCELLED 3
@@ -31,6 +37,19 @@ struct rum_run_request {
     rum_address_t path, arguments, result;
     uint32_t flags, reserved[2];
 };
+/* Initial interactive shell only: argv retains its normal layout; text is
+   the exact unparsed argument tail, copied before launch (max 255 bytes).
+   The direct child may request a session directory change or shell exit. */
+struct rum_command_request {
+    uint32_t version, size;
+    rum_address_t path, arguments, result;
+    uint32_t flags;
+    rum_address_t text;
+    uint32_t reserved;
+};
+_Static_assert(sizeof(struct rum_command_request) == sizeof(struct rum_run_request) &&
+               offsetof(struct rum_command_request, text) == offsetof(struct rum_run_request, reserved),
+               "command launch packet layout");
 /* Initialize version, size and reserved. Other words are output only. Faults
    expose a vector, never an instruction, stack, kernel or physical address. */
 struct rum_process_result {

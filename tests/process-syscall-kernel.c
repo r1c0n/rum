@@ -20,19 +20,22 @@ static void check(bool ok, const char *name)
 {
     if (!ok) { serial_writestring("rum_process_syscall_failed: "); serial_writestring(name); serial_writestring("\n"); cpu_halt(); }
 }
-static void exercise(bool cancel)
+static void exercise(unsigned mode)
 {
+    bool cancel = mode == 1;
     uint32_t pages = pmm_stats().free_pages;
     struct heap_statistics heap = heap_stats();
     struct fs_statistics fs = fs_stats();
     struct rum_arguments args = { .argc = 2, .string_bytes = 13, .offsets = {0, 6}, .strings = "probe\0normal" };
     if (cancel) for (unsigned i = 0; i < 7; ++i) args.strings[6 + i] = "cancel"[i];
+    if (mode == 2) { args.string_bytes = 14; for (unsigned i = 0; i < 8; ++i) args.strings[6 + i] = "session"[i]; }
     struct task_process process;
     check(elf_load_process(process_syscall_asset_start, process_syscall_asset_end - process_syscall_asset_start,
         &args, &process) && paging_user_allocate(process.space, PAGE, 3, PAGING_WRITABLE) &&
         paging_user_protect(process.space, PAGE + 8192, 1, 0), "load parent and validation pages");
     task_id parent = task_create_foreground_process(&process);
     check(parent != 0, "publish parent");
+    if (mode == 2) check(task_mark_foreground_shell(parent), "mark session supervisor");
     if (cancel) {
         bool blocked = false;
         for (unsigned tries = 0; tries < 20 && !blocked; ++tries) {
@@ -68,7 +71,7 @@ void kernel_main(uint32_t magic, uint32_t information)
     cpu_interrupt_enable();
     check(fs_mount_disk(fs_test_backend()) == FS_OK, "directory fixture mount");
     pic_unmask(0); pic_unmask(1);
-    for (unsigned i = 0; i < 4; ++i) { exercise(false); exercise(true); }
+    for (unsigned i = 0; i < 4; ++i) { exercise(0); exercise(1); exercise(2); }
     check(!fs_test_backend_pins() && fs_unmount_disk() == FS_OK, "backend pin baseline");
     serial_writestring("rum_process_syscall_ok\n"); cpu_halt();
 }

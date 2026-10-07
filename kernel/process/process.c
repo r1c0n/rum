@@ -1,5 +1,6 @@
 #include <stddef.h>
 #include <rum/elf.h>
+#include <rum/cpu.h>
 #include <rum/abi/error.h>
 #include <rum/handles.h>
 #include <rum/heap.h>
@@ -58,18 +59,33 @@ rum_result_t process_start_foreground(const char *program, const struct rum_argu
     return 0;
 }
 
-rum_result_t process_run_foreground(const char *path, const struct rum_arguments *arguments, struct process_result *result)
+static rum_result_t run_foreground(const char *path, const struct rum_arguments *arguments,
+                                   const char *command_text, struct process_result *result)
 {
     if (!result) return -RUM_EINVAL;
+    if (command_text && !task_current_is_shell()) return -RUM_EACCES;
     *result = (struct process_result){0};
     task_id child;
     rum_result_t error = process_start_foreground(path, arguments, &child);
     if (error) return error;
+    if (command_text && !task_mark_shell_command(child, command_text)) cpu_halt();
     struct task_information info;
     if (!task_wait_process(child, &info) || !task_foreground_end(child)) return -RUM_EIO;
     *result = (struct process_result){ info.process_id, info.termination, info.exit_status, info.fault };
     if (!task_reap_process(child)) return -RUM_EIO;
     return 0;
+}
+
+rum_result_t process_run_foreground(const char *path, const struct rum_arguments *arguments, struct process_result *result)
+{
+    return run_foreground(path, arguments, NULL, result);
+}
+
+rum_result_t process_run_command(const char *path, const struct rum_arguments *arguments,
+                                const char *text, struct process_result *result)
+{
+    if (!text) return -RUM_EINVAL;
+    return run_foreground(path, arguments, text, result);
 }
 
 static bool add_argument(struct rum_arguments *packet, const char *text, size_t bytes)

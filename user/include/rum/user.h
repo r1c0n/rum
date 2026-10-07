@@ -19,6 +19,9 @@ rum_result_t rum_flush(rum_handle_t);
 rum_result_t rum_run(const char *, const struct rum_arguments *, struct rum_process_result *);
 rum_result_t rum_replace(const char *, const void *, rum_size_t);
 rum_result_t rum_console(uint32_t);
+rum_result_t rum_run_command(const char *, const struct rum_arguments *, const char *, struct rum_process_result *);
+rum_result_t rum_command_text(char *, rum_size_t);
+rum_result_t rum_session(uint32_t action, const char *path);
 
 rum_result_t rum_syscall3(uint32_t number, uint32_t first, uint32_t second, uint32_t third);
 rum_result_t rum_read(rum_handle_t handle, void *buffer, rum_size_t capacity);

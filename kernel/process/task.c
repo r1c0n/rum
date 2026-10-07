@@ -5,6 +5,7 @@
 #include <rum/handles.h>
 #include <rum/interrupts.h>
 #include <rum/abi/syscall.h>
+#include <rum/abi/error.h>
 #include <rum/memory.h>
 #include <rum/process_limits.h>
 #include <rum/task.h>
@@ -37,6 +38,9 @@ struct task {
     struct process_handles handles;
     bool cancellation_requested;
     bool interactive_shell;
+    bool shell_command, shell_exit_requested;
+    rum_result_t shell_exit_status;
+    char command_text[RUM_COMMAND_TEXT_CAPACITY];
 };
 static struct task tasks[TASK_SLOTS];
 static struct task *current;
@@ -247,6 +251,60 @@ bool task_mark_foreground_shell(task_id id)
     }
     cpu_interrupt_restore(saved);
     return marked;
+}
+
+bool task_current_is_shell(void)
+{
+    return task_current_is_process() && current->interactive_shell;
+}
+
+bool task_mark_shell_command(task_id id, const char *text)
+{
+    if (!task_current_is_shell() || !id || !text || irq_in_handler()) return false;
+    size_t bytes = 0;
+    while (bytes < RUM_COMMAND_TEXT_CAPACITY && text[bytes]) ++bytes;
+    if (bytes == RUM_COMMAND_TEXT_CAPACITY) return false;
+    uint32_t saved = cpu_interrupt_save();
+    bool marked = false;
+    for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].id == id &&
+        tasks[i].parent == current->id && tasks[i].kind == TASK_PROCESS && foreground == id &&
+        tasks[i].state == TASK_RUNNABLE) {
+        tasks[i].shell_command = true;
+        memcpy(tasks[i].command_text, text, bytes + 1);
+        marked = true; break;
+    }
+    cpu_interrupt_restore(saved);
+    return marked;
+}
+
+const char *task_current_command_text(void)
+{
+    return task_current_is_process() && current->shell_command ? current->command_text : NULL;
+}
+
+rum_result_t task_session_control(unsigned action, const char *path)
+{
+    if (action < RUM_SESSION_CHDIR || action > RUM_SESSION_RECOVERY) return -RUM_EINVAL;
+    if (!process_filesystem_context()) return -RUM_EBUSY;
+    if (!task_current_command_text() || foreground != current->id) return -RUM_EACCES;
+    struct task *parent = NULL;
+    for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].id == current->parent) parent = &tasks[i];
+    if (!parent || !parent->interactive_shell || parent->state != TASK_BLOCKED ||
+        parent->waiting != &process_event) return -RUM_EACCES;
+    /* The parent cannot run or be reaped until this direct child ends. Disk
+       traversal runs with interrupts enabled, outside any registry update. */
+    if (action == RUM_SESSION_CHDIR) return process_fs_error(fs_context_chdir(&parent->filesystem, path));
+    uint32_t saved = cpu_interrupt_save();
+    parent->shell_exit_requested = true;
+    parent->shell_exit_status = action == RUM_SESSION_RECOVERY ? RUM_SHELL_RECOVERY_STATUS : 0;
+    cpu_interrupt_restore(saved);
+    return 0;
+}
+
+void task_exit_shell_if_requested(void)
+{
+    if (task_current_is_shell() && current->shell_exit_requested)
+        task_exit_with_status(current->shell_exit_status);
 }
 
 task_id task_current_id(void)

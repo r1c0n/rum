@@ -166,8 +166,11 @@ static rum_result_t run_child(struct paging_space *space, uint32_t address)
     struct rum_process_result output;
     if (!accessible(space, address, sizeof request, false) ||
         !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
-    if (request.version != RUM_PROCESS_ABI_VERSION || request.size != sizeof request ||
-        request.flags || request.reserved[0] || request.reserved[1]) return -RUM_EINVAL;
+    bool command = request.version == RUM_COMMAND_ABI_VERSION;
+    if (request.size != sizeof request || request.reserved[1] ||
+        (command ? request.flags != RUM_RUN_COMMAND :
+         request.version != RUM_PROCESS_ABI_VERSION || request.flags || request.reserved[0])) return -RUM_EINVAL;
+    if (command && !task_current_is_shell()) return -RUM_EACCES;
     if (!accessible(space, request.result, sizeof output, true) ||
         !paging_copy_from_user(space, &output, request.result, sizeof output)) return -RUM_EFAULT;
     if (output.version != RUM_PROCESS_ABI_VERSION || output.size != sizeof output || output.reserved)
@@ -175,6 +178,19 @@ static rum_result_t run_child(struct paging_space *space, uint32_t address)
     char path[RUM_ABI_PATH_CAPACITY];
     rum_result_t error = copy_path(space, request.path, path);
     if (error) return error;
+    char text[RUM_COMMAND_TEXT_CAPACITY];
+    if (command) {
+        /* Empty tails are valid; every byte must be printable shell input. */
+        unsigned i;
+        for (i = 0; i < sizeof text; ++i) {
+            if (i > UINT32_MAX - request.reserved[0] ||
+                !accessible(space, request.reserved[0] + i, 1, false) ||
+                !paging_copy_from_user(space, text + i, request.reserved[0] + i, 1)) return -RUM_EFAULT;
+            if (!text[i]) break;
+            if ((unsigned char)text[i] < 32 || (unsigned char)text[i] > 126) return -RUM_EINVAL;
+        }
+        if (i == sizeof text) return -RUM_E2BIG;
+    }
     if (!accessible(space, request.arguments, sizeof(struct rum_arguments), false)) return -RUM_EFAULT;
     if (!process_filesystem_context()) return -RUM_EBUSY;
     /* This packet is larger than a page. Keep it off the guarded kernel stack. */
@@ -183,7 +199,8 @@ static rum_result_t run_child(struct paging_space *space, uint32_t address)
     if (!paging_copy_from_user(space, arguments, request.arguments, sizeof *arguments)) error = -RUM_EFAULT;
     else if (!elf_arguments_valid(arguments)) error = -RUM_EINVAL;
     struct process_result result;
-    if (!error) error = process_run_foreground(path, arguments, &result);
+    if (!error) error = command ? process_run_command(path, arguments, text, &result) :
+                                process_run_foreground(path, arguments, &result);
     (void)kfree(arguments);
     if (error) return error;
     output = (struct rum_process_result){ .version = RUM_PROCESS_ABI_VERSION, .size = sizeof output,
@@ -191,6 +208,31 @@ static rum_result_t run_child(struct paging_space *space, uint32_t address)
         .status = result.exit_status, .fault_vector = result.termination == TASK_TERMINATION_FAULT ? result.fault.vector : 0 };
     if (!paging_copy_to_user(space, request.result, &output, sizeof output)) cpu_halt();
     return 0;
+}
+
+static rum_result_t command_text(struct paging_space *space, uint32_t address, uint32_t capacity, uint32_t reserved)
+{
+    if (reserved) return -RUM_EINVAL;
+    const char *text = task_current_command_text();
+    if (!text) return -RUM_EACCES;
+    if (!capacity) return -RUM_ERANGE;
+    if (!accessible(space, address, capacity, true)) return -RUM_EFAULT;
+    unsigned bytes = 1;
+    while (text[bytes - 1]) ++bytes;
+    if (bytes > capacity) return -RUM_ERANGE;
+    return paging_copy_to_user(space, address, text, bytes) ? (rum_result_t)bytes : -RUM_EFAULT;
+}
+
+static rum_result_t session_control(struct paging_space *space, uint32_t action, uint32_t address, uint32_t reserved)
+{
+    if (reserved || action < RUM_SESSION_CHDIR || action > RUM_SESSION_RECOVERY ||
+        (action != RUM_SESSION_CHDIR && address)) return -RUM_EINVAL;
+    char path[RUM_ABI_PATH_CAPACITY];
+    if (action == RUM_SESSION_CHDIR) {
+        rum_result_t error = copy_path(space, address, path);
+        if (error) return error;
+    }
+    return task_session_control(action, action == RUM_SESSION_CHDIR ? path : NULL);
 }
 
 static rum_result_t replace_file(struct paging_space *space, uint32_t address)
@@ -265,7 +307,10 @@ void syscall_dispatch(struct exception_frame *frame)
     case RUM_SYS_RUN: result = run_child(space, frame->ebx); break;
     case RUM_SYS_REPLACE: result = replace_file(space, frame->ebx); break;
     case RUM_SYS_CONSOLE: result = console_action(frame->ebx, frame->ecx, frame->edx); break;
+    case RUM_SYS_COMMAND_TEXT: result = command_text(space, frame->ebx, frame->ecx, frame->edx); break;
+    case RUM_SYS_SESSION: result = session_control(space, frame->ebx, frame->ecx, frame->edx); break;
     default: result = -RUM_ENOSYS; break;
     }
     frame->eax = (uint32_t)result;
+    task_exit_shell_if_requested();
 }

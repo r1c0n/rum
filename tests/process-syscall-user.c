@@ -66,6 +66,12 @@ static void invalid(void)
           rum_replace("/data.bin", (void *)PAGE, 65537) == -RUM_E2BIG, 32);
     check(rum_console(2) == -RUM_EINVAL && rum_syscall3(RUM_SYS_CONSOLE, 0, 1, 0) == -RUM_EINVAL &&
           rum_syscall3(RUM_SYS_CONSOLE, 0, 0, 1) == -RUM_EINVAL, 33);
+    char text[256];
+    check(rum_command_text(text, sizeof text) == -RUM_EACCES &&
+          rum_session(RUM_SESSION_CHDIR, "/") == -RUM_EACCES &&
+          rum_session(RUM_SESSION_EXIT, 0) == -RUM_EACCES &&
+          rum_session(RUM_SESSION_RECOVERY, 0) == -RUM_EACCES &&
+          rum_run_command("/probe.elf", &a, "", &r) == -RUM_EACCES, 37);
     rum_result_t file = rum_open("/data.bin", 1, 0); char original[4];
     check(file == 3 && rum_read(3, original, 4) == 4 && equal(original, "abc") && rum_close(3) == 0, 34);
     check(rum_replace("/empty", (void *)UINT32_MAX, 0) == 0 && rum_remove("/empty") == 0, 35);
@@ -76,6 +82,45 @@ static void invalid(void)
 int main(int argc, char **argv)
 {
     check(argc >= 2, 1);
+    if (equal(argv[1], "command")) {
+        static char buffer[8192] __attribute__((aligned(4096)));
+        char *cross = buffer + 4096 - 3;
+        check(rum_command_text(cross, 256) == 16 && equal(cross, "exact  text    "), 50);
+        check(rum_command_text((void *)UINT32_MAX, 8) == -RUM_EFAULT &&
+              rum_command_text(cross, 0) == -RUM_ERANGE && rum_command_text(cross, 2) == -RUM_ERANGE &&
+              rum_syscall3(RUM_SYS_COMMAND_TEXT, (rum_address_t)(uintptr_t)cross, 256, 1) == -RUM_EINVAL, 51);
+        struct rum_arguments a = args("child"); struct rum_process_result r = result();
+        check(rum_run_command("/probe.elf", &a, "", &r) == -RUM_EACCES, 52);
+        check(rum_session(0, 0) == -RUM_EINVAL && rum_session(RUM_SESSION_EXIT, "/") == -RUM_EINVAL &&
+              rum_syscall3(RUM_SYS_SESSION, RUM_SESSION_CHDIR, (rum_address_t)(uintptr_t)"/", 1) == -RUM_EINVAL &&
+              rum_session(RUM_SESSION_CHDIR, (void *)UINT32_MAX) == -RUM_EFAULT, 53);
+        check(rum_session(RUM_SESSION_CHDIR, "/disk/..") == -RUM_EINVAL &&
+              rum_session(RUM_SESSION_CHDIR, "/") == 0, 54);
+        char cwd[256];
+        check(rum_getcwd(cwd, sizeof cwd) > 0 && equal(cwd, "/disk/DOCS"), 55);
+        return 0;
+    }
+    if (equal(argv[1], "session")) {
+        check(rum_chdir("/disk/DOCS") == 0, 60);
+        struct rum_arguments a = args("command"); struct rum_process_result r = result();
+        struct rum_command_request p = {2, sizeof p, (rum_address_t)(uintptr_t)"/probe.elf",
+            (rum_address_t)(uintptr_t)&a, (rum_address_t)(uintptr_t)&r, 1, PAGE, 0};
+        char *text = (void *)PAGE;
+        for (unsigned i = 0; i < 256; ++i) text[i] = 'x';
+        check(rum_syscall3(RUM_SYS_RUN, (rum_address_t)(uintptr_t)&p, 0, 0) == -RUM_E2BIG, 61);
+        text[0] = '\x1b'; text[1] = 0;
+        check(rum_syscall3(RUM_SYS_RUN, (rum_address_t)(uintptr_t)&p, 0, 0) == -RUM_EINVAL, 62);
+        p.text = UINT32_MAX;
+        check(rum_syscall3(RUM_SYS_RUN, (rum_address_t)(uintptr_t)&p, 0, 0) == -RUM_EFAULT, 63);
+        p.reserved = 1;
+        check(rum_syscall3(RUM_SYS_RUN, (rum_address_t)(uintptr_t)&p, 0, 0) == -RUM_EINVAL, 64);
+        p.reserved = 0; p.text = PAGE + 4096 - 7;
+        for (unsigned i = 0; i < 16; ++i) ((char *)(uintptr_t)p.text)[i] = "exact  text    "[i];
+        check(rum_syscall3(RUM_SYS_RUN, (rum_address_t)(uintptr_t)&p, 0, 0) == 0 && !r.status &&
+              r.termination == RUM_PROCESS_EXITED, 65);
+        char cwd[256]; check(rum_getcwd(cwd, sizeof cwd) > 0 && equal(cwd, "/"), 66);
+        return 0;
+    }
     if (equal(argv[1], "child") || equal(argv[1], "fault") || equal(argv[1], "blocking")) {
         check(argc == 3 && !argv[2][0] && rum_open("/data.bin", 1, 0) == 3, 2);
         char cwd[256]; check(rum_getcwd(cwd, sizeof cwd) > 0 && equal(cwd, "/disk/DOCS"), 3);

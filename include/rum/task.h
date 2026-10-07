@@ -71,6 +71,12 @@ task_id task_create_foreground_process(const struct task_process *process);
 /* Kernel supervisor only: Ctrl+C becomes input for this shell while it owns
    the console. Nested foreground children remain cancellable. */
 bool task_mark_foreground_shell(task_id);
+bool task_current_is_shell(void);
+bool task_mark_shell_command(task_id, const char *text);
+const char *task_current_command_text(void);
+rum_result_t task_session_control(unsigned action, const char *path);
+/* Called only after a syscall has released temporary buffers/child resources. */
+void task_exit_shell_if_requested(void);
 task_id task_current_id(void);
 bool task_current_is_process(void);
 rum_pid_t task_current_process_id(void);
