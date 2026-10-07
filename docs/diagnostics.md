@@ -1,6 +1,6 @@
 # Kernel diagnostics
 
-Use the `diag` shell command when rum boots but something about memory or task
+Enter `recovery`, then use `diag` when rum boots but something about memory or task
 state looks wrong. It takes a consistent, allocation-free snapshot and prints
 it to both VGA and COM1.
 
@@ -42,13 +42,15 @@ error code, and user EIP.
 
 ## What healthy output looks like
 
-During an ordinary shell session:
+In the kernel recovery console:
 
 - Hardware `CR3`, active paging `CR3`, and the current record's `CR3` agree.
 - `Kernel ESP` lies between the current stack bounds.
 - `TSS.ESP0` equals the upper stack bound.
 - Exactly one task is `running`; boot and idle remain present.
-- The normal shell has zero published processes and zero task-owned user pages.
+- Recovery has zero published processes and zero task-owned user pages. During
+  normal operation, the userspace shell owns a process and private pages;
+  foreground command children add their own resources until they are reaped.
 - Free physical pages may decrease when the heap grows, even after individual
   heap allocations are freed. Heap pages stay mapped for reuse.
 

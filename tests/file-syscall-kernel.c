@@ -67,6 +67,7 @@ static void release_pages(uint32_t head)
 }
 static void exercise(char mode, bool construction)
 {
+    bool fault = mode == 'f' || mode == 'F', cancel = mode == 'c' || mode == 'C';
     check(ramfs_put("data.bin", pattern, sizeof pattern), "reset RAM fixture");
     struct fs_statistics baseline = fs_stats();
     uint32_t pages = pmm_stats().free_pages;
@@ -88,13 +89,18 @@ static void exercise(char mode, bool construction)
     }
     task_id id = task_create_foreground_process(&process);
     check(id && task_handle_count(id) == 3, "process starts with exactly three streams");
-    if (mode == 'c') {
+    if (cancel) {
         struct task_information waiting;
         do { check(task_yield() && task_query(id, &waiting), "schedule cancellation fixture"); }
         while (waiting.state != TASK_BLOCKED && waiting.state != TASK_EXITED);
         check(waiting.state == TASK_BLOCKED && task_handle_count(id) == 5 &&
               fs_remove(NULL, "/data.bin") == FS_BUSY && fs_replace(NULL, "/data.bin", NULL, 0) == FS_BUSY,
               "sleeping child retains file identity across removal and replacement");
+        if (mode == 'C')
+            check(fs_remove(NULL, "/disk/DOCS/NOTE.TXT") == FS_BUSY &&
+                  fs_replace(NULL, "/disk/DOCS/NOTE.TXT", NULL, 0) == FS_BUSY &&
+                  fs_remove(NULL, "/disk/DOCS") == FS_BUSY,
+                  "sleeping child retains real disk handles and cwd after ATA I/O");
         check(task_cancel_foreground(), "cancel child holding file");
     }
     struct task_information info;
@@ -102,7 +108,7 @@ static void exercise(char mode, bool construction)
     if (info.termination == TASK_TERMINATION_EXIT && info.exit_status) {
         serial_writestring("rum_file_syscall_user_error: "); number((uint32_t)info.exit_status); serial_writestring("\n");
     }
-    check(info.termination == (mode == 'f' ? TASK_TERMINATION_FAULT : mode == 'c' ? TASK_TERMINATION_CANCELLED : TASK_TERMINATION_EXIT) &&
+    check(info.termination == (fault ? TASK_TERMINATION_FAULT : cancel ? TASK_TERMINATION_CANCELLED : TASK_TERMINATION_EXIT) &&
           !info.exit_status && task_handle_count(id) == 0 && fs_stats().references == baseline.references + 1,
           "exit fault and cancellation close every handle immediately");
     check(task_foreground_end(id) && task_reap_process(id), "reap child");
@@ -140,6 +146,10 @@ void kernel_main(uint32_t magic, uint32_t information)
         check(ata_initialize().error == BLOCK_OK, "syscall fixture ATA disk");
         check((mode == 'd' ? fat16_mount(ata_device()) : fat16_mount_read_only(ata_device())) == FS_OK, "syscall fixture FAT mount");
         exercise(mode, false);
+        if (mode == 'd') {
+            pic_unmask(0); pic_unmask(1);
+            for (unsigned i = 0; i < 4; ++i) { exercise('F', false); exercise('C', false); }
+        }
         check(fat16_unmount() == FS_OK, "disk handles and cwd references were released");
     } else {
         fs_test_backend_initialize();

@@ -4,6 +4,7 @@ import argparse
 from contextlib import contextmanager
 import importlib.util
 import json
+import os
 import re
 from pathlib import Path
 import socket
@@ -54,15 +55,28 @@ class Console:
 
 
 @contextmanager
-def boot(qemu, ram, label, disk=None, iso=False, options="", readonly=False, marker="rum userspace shell.", system_image=True):
+def boot(qemu, ram, label, disk=None, iso=False, options="", readonly=False, marker="rum userspace shell.", system_image=True,
+         image=None, disk_arguments=None):
     with tempfile.TemporaryDirectory(prefix="rum-shell-qmp-") as temporary:
         serial, monitor = Path(temporary) / "serial", Path(temporary) / "qmp"
-        arguments = launcher.boot_arguments(ROOT / ("build/rum.iso" if iso else "build/rum.elf"),
+        if os.name == "nt":
+            family = socket.AF_INET
+            with socket.socket(family, socket.SOCK_STREAM) as reservation:
+                reservation.bind(("127.0.0.1", 0))
+                address = reservation.getsockname()
+            qmp = f"tcp:127.0.0.1:{address[1]},server=on,wait=off"
+        else:
+            family, address = socket.AF_UNIX, str(monitor)
+            qmp = f"unix:{monitor},server=on,wait=off"
+        arguments = launcher.boot_arguments(image or ROOT / ("build/rum.iso" if iso else "build/rum.elf"),
             kernel=not iso, disk=disk, read_only=readonly, system_image=system_image)
+        if disk_arguments:
+            assert disk is None, "supply either a normal disk or an injected device"
+            arguments += disk_arguments
         if options:
             arguments += ["-append", options]
         process = subprocess.Popen([qemu, "-m", f"{ram}M", "-display", "none", "-no-reboot", "-no-shutdown",
-            "-serial", f"file:{serial}", "-qmp", f"unix:{monitor},server=on,wait=off", *arguments],
+            "-serial", f"file:{serial}", "-qmp", qmp, *arguments],
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         try:
             deadline = time.monotonic() + 45
@@ -73,9 +87,9 @@ def boot(qemu, ram, label, disk=None, iso=False, options="", readonly=False, mar
                 if "rum kernel panic" in text or process.poll() is not None or time.monotonic() > deadline:
                     raise AssertionError(f"{label}: boot failed: {text[-5000:]}")
                 time.sleep(0.02)
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            with socket.socket(family, socket.SOCK_STREAM) as connection:
                 connection.settimeout(10)
-                connection.connect(str(monitor))
+                connection.connect(address)
                 with connection.makefile("rwb") as stream:
                     json.loads(stream.readline())
                     smoke.qmp_command(stream, "qmp_capabilities")
@@ -87,11 +101,12 @@ def boot(qemu, ram, label, disk=None, iso=False, options="", readonly=False, mar
                 process.kill(); process.wait(timeout=5)
             if serial.exists():
                 (ARTIFACTS / f"{label}.serial.log").write_bytes(serial.read_bytes())
+            (ARTIFACTS / f"{label}.qemu.log").write_bytes(process.stderr.read())
 
 
 def commands(console):
     console.command("help", "cat <path>")
-    console.command("about", "rum OS v0.3.0")
+    console.command("about", "rum OS v0.4.0")
     console.command("echo island life", "\r\nisland life\r\n> ")
     console.command("pwd", "\r\n/\r\n> ")
     console.command("write local.txt RAM file bytes")
