@@ -14,6 +14,7 @@
 #include "fs-checks.h"
 
 extern const char __kernel_start[], __kernel_end[];
+extern const unsigned char fs_hello_start[], fs_hello_end[], fs_fault_start[], fs_fault_end[], fs_spin_start[], fs_spin_end[];
 void kernel_main(uint32_t magic, uint32_t information);
 
 void fs_check(bool condition, const char *name)
@@ -87,6 +88,9 @@ void kernel_main(uint32_t magic, uint32_t information)
              paging_initialize() && heap_initialize() && ramfs_initialize() && embedded_files_install() &&
              task_initialize(), "filesystem kernel setup");
     cpu_interrupt_enable();
+    fs_check(ramfs_put("hello.elf", fs_hello_start, fs_hello_end - fs_hello_start) &&
+             ramfs_put("fault.elf", fs_fault_start, fs_fault_end - fs_fault_start) &&
+             ramfs_put("spin.elf", fs_spin_start, fs_spin_end - fs_spin_start), "install private ELF fixtures");
     fs_checks();
     /* Verify helpers preserve the caller's IF state even on rejected calls. */
     uint32_t flags = cpu_interrupt_save();

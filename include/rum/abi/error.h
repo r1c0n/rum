@@ -26,5 +26,6 @@
 #define RUM_ERANGE 21
 #define RUM_ETIMEDOUT 22
 #define RUM_ENODEV 23
+#define RUM_ENOEXEC 24
 
 #endif

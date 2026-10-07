@@ -37,6 +37,8 @@ try {
     Check ($drives[1].Contains('format=raw') -and $drives[1].Contains('werror=report')) 'raw format and reported errors'
     & $launcher run-kernel -DiskImage $disk -DiskReadOnly
     Check ($global:rumQemuArguments -contains '-kernel') 'direct ELF'
+    Check ($global:rumQemuArguments -contains '-initrd' -and
+           $global:rumQemuArguments -contains (Join-Path $root 'build\rum-system.img')) 'separate userspace module'
     Check (@($global:rumQemuArguments | Where-Object { $_ -like '*readonly=on*' }).Count -eq 1) 'read-only flag'
     & $launcher debug
     Check ($global:rumQemuArguments -contains '-S' -and $global:rumQemuArguments -contains '-s') 'debug flags'

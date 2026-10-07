@@ -19,7 +19,7 @@ _Static_assert(sizeof(struct file) == 88 && offsetof(struct file, name) == 24,
 static struct file *ramfs_first, *ramfs_last;
 static struct ramfs_statistics statistics;
 static uint64_t next_id = ROOT_ID + 1;
-static bool ready, disk_reserved;
+static bool ready, disk_reserved, system_reserved;
 
 static const char *normalize(const char *name)
 {
@@ -69,6 +69,7 @@ static enum fs_error replace(void *context, uint64_t parent, const char *name,
     if (!(name = normalize(name)) || (size && !data)) return FS_INVALID;
     if (size > RAMFS_FILE_LIMIT) return FS_RANGE;
     if (disk_reserved && equal(name, "disk")) return FS_BUSY;
+    if (system_reserved && equal(name, "rum")) return FS_BUSY;
     struct file *file = find(name);
     bool creating = !file;
     if (file && file->references) return FS_BUSY;
@@ -141,6 +142,7 @@ void ramfs_list(ramfs_visitor visitor, void *context)
 
 struct ramfs_statistics ramfs_stats(void) { return statistics; }
 void ramfs_reserve_disk(bool reserved) { disk_reserved = reserved; }
+void ramfs_reserve_system(bool reserved) { system_reserved = reserved; }
 
 static enum fs_error lookup(void *context, uint64_t parent, const char *name, struct fs_node *result)
 {

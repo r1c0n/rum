@@ -30,7 +30,8 @@ if ($DiskImage) {
         $diskFile.Length % 512 -ne 0 -or $diskFile.Length -gt 137438953472) {
         throw 'Raw disk must be a regular file with a nonzero multiple of 512 bytes, at most 128 GiB.'
     }
-    foreach ($output in @('build\rum.iso', 'build\rum.elf', 'build\isodir\boot\rum.elf')) {
+    foreach ($output in @('build\rum.iso', 'build\rum.elf', 'build\rum-system.img',
+                         'build\isodir\boot\rum.elf', 'build\isodir\boot\rum-system.img')) {
         if ($diskFile.FullName -eq (Join-Path $PSScriptRoot $output)) {
             throw 'A generated boot image cannot be attached as a writable disk.'
         }
@@ -66,6 +67,7 @@ if ($Action -in @('run', 'run-kernel', 'debug', 'panic')) {
         $qemuArguments += @('-kernel', (Join-Path $PSScriptRoot 'build\tests\fault-ud.elf'))
     } elseif ($Action -eq 'run-kernel') {
         $qemuArguments += @('-kernel', (Join-Path $PSScriptRoot 'build\rum.elf'))
+        $qemuArguments += @('-initrd', (Join-Path $PSScriptRoot 'build\rum-system.img'))
     } else {
         $isoPath = (Join-Path $PSScriptRoot 'build\rum.iso').Replace(',', ',,')
         $qemuArguments += @('-boot', 'd', '-drive', "file=$isoPath,format=raw,if=ide,index=0,media=cdrom")

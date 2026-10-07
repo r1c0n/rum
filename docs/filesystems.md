@@ -5,11 +5,13 @@ and referenced objects through the same operations for RAM and mounted backends.
 Include `<rum/fs.h>` for the API and `<rum/path.h>` only when working on path
 validation itself.
 
-RAM files occupy `/`. A supported [FAT16 disk](fat16.md) mounts at
+RAM files occupy `/`. The separate read-only [system volume](system-volume.md)
+mounts at `/rum` and contains the userspace programs. A supported [FAT16 disk](fat16.md) mounts at
 `/disk` during boot. `/disk` returns `FS_UNAVAILABLE` without a valid volume.
-The existing kernel shell, ELF loader, and Snake continue to use the flat
-RAM-file API. User programs can access this namespace through
-[filesystem syscalls](filesystem-syscalls.md). The kernel shell has no `cd` command.
+The normal shell and other user programs access all mounts through
+[filesystem syscalls](filesystem-syscalls.md). ELF launch uses the same common
+layer. Snake and the kernel recovery shell keep the flat RAM-file API; recovery
+has no `cd` command.
 
 ## Path rules
 
@@ -40,7 +42,7 @@ from the canonical spelling. An invalid component is rejected even if a later
 Paths are NUL-terminated kernel strings. Accepted name bytes are ASCII letters,
 digits, `.`, `_`, and `-`; `/` separates components. Spaces, control bytes,
 backslashes, colons, and non-ASCII bytes are rejected. Empty paths are invalid.
-The future syscall boundary must copy user strings into bounded kernel storage
+The syscall boundary copies user strings into bounded kernel storage
 before passing them here.
 
 ## Limits and names
@@ -53,7 +55,7 @@ table capacities live in `include/rum/fs_limits.h`.
 | Raw or canonical path | 255 bytes plus NUL |
 | RAM component | 63 bytes plus NUL |
 | Names below a mount root | 16, including the final filename |
-| Distinct retained objects | 128 across both backends |
+| Distinct retained objects | 128 across all backends |
 | Kernel references | 530 across contexts and open objects |
 | RAM files | 64 files, each at most 64 KiB |
 
@@ -75,6 +77,10 @@ that name, it remains readable and mounting returns `FS_EXISTS`. Remove it
 before mounting. Once mounted, the RAM API cannot create a colliding file.
 The common root listing includes the `disk` directory entry even while its
 backend is unavailable; a colliding legacy file appears instead when present.
+The lowercase `rum` name follows the same collision rule when installing the
+read-only system mount. Its directory entry appears only after a successful
+mount. Both mount roots reject `..` traversal; `/rum` uses case-sensitive RAM
+names for its immutable files.
 
 ## Opening and reading a file
 

@@ -14,7 +14,7 @@ case "${1:-build}" in
     doctor) bash scripts/doctor.sh ;;
     build) make all ;;
     user) make user ;;
-    run-kernel) make check ;;
+    run-kernel) make check user ;;
     panic) make build/tests/fault-ud.elf ;;
     test) make test ;;
     clean) make clean ;;

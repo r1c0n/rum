@@ -20,7 +20,7 @@ qemu-system-i386 -m 64M -cdrom rum.iso
 
 ## What works today
 
-The normal boot provides a VGA text console, a PS/2 keyboard, a kernel shell,
+The normal boot provides a VGA text console, a PS/2 keyboard, a userspace shell,
 temporary RAM files, diagnostics, and ASCII Snake. The kernel has physical and
 virtual memory management, guarded task stacks, cooperative scheduling, and a
 controlled double-fault path. Prepared processes enter ring 3 through the
@@ -31,14 +31,16 @@ input and output, directory listing, and working-directory operations.
 The shell can launch one foreground user process, wait for its
 result, report its signed status or fault, and cancel it with Ctrl+C.
 
-Stripped user ELF programs are embedded in the normal boot RAM filesystem. The
+Stripped user ELF programs live in a separate read-only boot volume at `/rum`. The
 kernel loader validates them again, builds private mappings and an initial user
-stack, and hands the image to the process system for `run`. File changes remain
-in RAM and disappear on reboot.
+stack, and hands the image to the process system. The shell and its commands
+are individual userspace executables. RAM-file changes
+disappear on reboot; disk-file changes persist.
 
 An optional secondary IDE disk exposes raw sector I/O to the kernel. Boot mounts
 supported FAT16 volumes at `/disk`, with writes available to kernel callers and
-user programs on writable devices. Shell commands still use RAM files.
+user programs on writable devices. Shell commands use all mounts, including
+directories, file creation and ELF launch.
 
 ## User guides
 
@@ -46,6 +48,7 @@ user programs on writable devices. Shell commands still use RAM files.
 | --- | --- |
 | [Setup](setup.md) | Installing dependencies, building, running, and attaching GDB |
 | [Shell](shell.md) | Commands, editing rules, RAM-file examples, and input limitations |
+| [System volume](system-volume.md) | `/rum`, standalone commands, build artifacts and boot-image validation |
 | [ASCII Snake](snake.md) | Controls, scoring, and score-file behavior |
 | [Heap and RAM files](storage.md) | File limits, embedded files, and the kernel storage APIs |
 | [Raw disks and block devices](block-devices.md) | Image creation, safe attachment, sector I/O, ATA limits and errors |
@@ -64,6 +67,7 @@ user programs on writable devices. Shell commands still use RAM files.
 | [Memory map and ownership](memory-layout.md) | Virtual ranges, limits, and who must release each resource |
 | [User ABI and ELF programs](user-abi.md) | Building user code and following the public syscall, stack, and ELF contracts |
 | [Filesystem syscalls](filesystem-syscalls.md) | Opening files from userspace, directory iteration, seek, paths and error handling |
+| [Process syscalls](process-syscalls.md) | Foreground launch, child results, console ownership and cancellation |
 
 The [roadmap](roadmap.md) is project planning rather than a description of
 released behavior. It tracks the planned persistent storage and userspace-shell
@@ -71,19 +75,23 @@ work for 0.4.0.
 
 ## Boot flow
 
-1. GRUB loads `rum.elf` and supplies the Multiboot v1 information structure.
+1. GRUB loads `rum.elf` and `rum-system.img`, then supplies the Multiboot v1 information structure.
 2. `_start` establishes the boot stack, GDT, segment registers, TSS, and CPU
    policy before calling `kernel_main`.
 3. The kernel starts VGA and COM1 output, installs the IDT, and configures the
    PIC, PIT, and PS/2 controller.
-4. The memory manager reserves the kernel and boot data, builds paging, protects
+4. The memory manager reserves the kernel and boot data. The kernel validates
+   the system image and copies it into owned low physical pages before paging.
+   It builds paging, protects
    kernel code and constants, and leaves page zero unmapped.
 5. The heap and RAM filesystem start, embedded files are copied into RAM, and
    the task system allocates guarded idle and double-fault stacks.
+   The system image mounts read-only at `/rum`.
    The ATA driver probes the optional secondary disk and mounts supported FAT16
    volumes without writing the image; later kernel filesystem calls can mutate them.
-6. IRQ0 and a detected keyboard are unmasked. The foreground loop then handles
-   shell input, game updates, and uptime while the idle task sleeps with
+6. IRQ0 and a detected keyboard are unmasked. The kernel starts `/rum/shell.elf` in
+   ring 3 and supervises restarts, with the kernel shell available for recovery.
+   User commands use syscalls; idle sleeps with
    `sti; hlt` whenever no work is ready.
 
 Interrupt handlers only acknowledge hardware, update bounded state, queue
@@ -98,6 +106,7 @@ before opening a pull request:
 ```sh
 make test-host   # C tests for portable kernel components
 make test-user   # User ELF and public-header validation
+make test-userspace-shell # Ring-3 commands, child launch and recovery
 make test-block  # Block API, ATA driver and disposable QEMU disk tests
 make test-fs     # Paths, filesystem backends and process working directories
 make test-fat16  # Host FAT images, malformed volumes and guest byte comparisons

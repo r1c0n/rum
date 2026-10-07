@@ -54,7 +54,7 @@ def run(qemu, ram, label, arguments, marker, case=None):
                     if case is None:
                         _, expect, type_text = smoke.guest_keyboard(stream, serial)
                         type_text("echo disk is usable\n")
-                        expect("\r\ndisk is usable\r\n> ")
+                        expect("\r\ndisk is usable\r\n/> ")
                         if "valid" in label:
                             assert "rum_fat16: ok\n" in text
                         else:

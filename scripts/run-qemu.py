@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def validate_disk(path):
     path = Path(path).resolve(strict=True)
-    outputs = (ROOT / "build/rum.iso", ROOT / "build/rum.elf", ROOT / "build/isodir/boot/rum.elf")
+    outputs = (ROOT / "build/rum.iso", ROOT / "build/rum.elf", ROOT / "build/rum-system.img",
+               ROOT / "build/isodir/boot/rum.elf", ROOT / "build/isodir/boot/rum-system.img")
     if any(path == output.resolve() or (output.exists() and path.samefile(output)) for output in outputs):
         raise ValueError("a generated boot image cannot be attached as a writable disk")
     if not path.is_file():
@@ -33,12 +34,16 @@ def drive(path, *, index, media, read_only=False):
     return ["-drive", options]
 
 
-def boot_arguments(image, kernel=False, disk=None, read_only=False):
+def boot_arguments(image, kernel=False, disk=None, read_only=False, system_image=True):
     image = Path(image).resolve(strict=True)
     # Suppress QEMU's implicit empty secondary CD-ROM; VGA is explicit. The PC
     # still supplies its PS/2 controller, PIT and PIC, and callers add serial.
     arguments = ["-nodefaults", "-vga", "std"] + (["-kernel", str(image)] if kernel else
                  ["-boot", "d"] + drive(image, index=0, media="cdrom"))
+    if kernel and system_image:
+        module = image.parent / "rum-system.img" if system_image is True else Path(system_image).resolve(strict=True)
+        if module.is_file():
+            arguments += ["-initrd", str(module)]
     if disk is not None:
         path = validate_disk(disk)
         if path.samefile(image):
