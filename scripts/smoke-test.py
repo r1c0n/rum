@@ -1330,8 +1330,10 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
             monitor_spec = f"tcp:127.0.0.1:{port},server=on,wait=off"
         else:
             monitor_spec = f"unix:{monitor},server=on,wait=off"
-        image_args = (["-boot", "d", "-cdrom", str(project / "build/rum.iso")]
+        image_args = (["-boot", "d", "-cdrom", str(project / "build/tests/recovery.iso")]
                       if mode == "iso" or iso else ["-kernel", str(image)])
+        if normal and not (mode == "iso" or iso):
+            image_args += ["-append", "rum.recovery"]
         args = [qemu, "-machine", "pc", "-accel", "tcg", "-m", f"{ram}M", "-display", "none",
                 "-serial", f"file:{serial}", "-qmp", monitor_spec,
                 "-no-reboot", "-no-shutdown", *image_args]

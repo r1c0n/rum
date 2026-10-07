@@ -45,6 +45,10 @@ rum_result_t process_start_foreground(const char *program, const struct rum_argu
     if (!result && !elf_load_process(image, (size_t)info.size, arguments, &process)) result = -RUM_ENOEXEC;
     (void)kfree(image);
     if (result) return result;
+    if (task_current_cancelled()) {
+        (void)paging_space_destroy(process.space);
+        return -RUM_EINTR;
+    }
     *child = task_create_foreground_process(&process);
     if (!*child) { (void)paging_space_destroy(process.space); return -RUM_ENOMEM; }
     return 0;

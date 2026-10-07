@@ -59,7 +59,7 @@ TEST_DEPENDENCIES += build/tests/fs-kernel.d build/tests/fs-checks.d build/tests
 STORAGE_HOST_HEADERS := include/rum/heap.h include/rum/ramfs.h include/rum/fs.h include/rum/path.h include/rum/fs_types.h include/rum/fs_limits.h $(ABI_HEADERS) include/rum/embedded.h include/rum/paging.h include/rum/pmm.h include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
 SNAKE_HOST_SOURCES := kernel/ui/snake.c kernel/ui/snake_model.c
 SNAKE_HOST_HEADERS := include/rum/snake.h include/rum/snake_model.h include/rum/timer.h
-USER_PROGRAMS := hello nonzero fault spin
+USER_PROGRAMS := hello nonzero fault spin shell readline
 USER_CPPFLAGS := -Iuser/include -Ibuild/user/include
 USER_INCLUDE_STAMP := build/user/include/.abi-stamp
 USER_CFLAGS := -std=gnu11 -ffreestanding -O2 -g -Wall -Wextra -Werror \
@@ -76,6 +76,7 @@ ABI_OBJECTS := $(ABI_KERNELS:.elf=.o)
 ABI_IMAGES := $(addprefix build/tests/abi-image-,$(addsuffix .o,$(ABI_CASES)))
 TEST_DEPENDENCIES += $(ABI_OBJECTS:.o=.d) $(ABI_IMAGES:.o=.d) build/tests/abi-entry.d build/tests/user/probe.d build/tests/user/probe-entry.d
 TEST_DEPENDENCIES += build/tests/file-syscall-kernel.d build/tests/file-syscall-image.d build/tests/user/file-syscall.d
+TEST_DEPENDENCIES += build/tests/process-syscall-kernel.d build/tests/process-syscall-image.d build/tests/user/process-syscall.d
 
 .PHONY: all check iso user test-user run run-kernel debug panic test test-host test-package doctor toolchain clean FORCE
 .SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) $(PROCESS_FAULT_OBJECTS) build/tests/paging-spaces.o build/tests/user-memory.o
@@ -186,6 +187,13 @@ build/rum.iso: build/rum.elf boot/grub/grub.cfg | check
 
 iso: build/rum.iso
 
+# Legacy diagnostics exercise the kernel recovery console deliberately.
+build/tests/recovery.iso: build/rum.elf Makefile
+	@mkdir -p build/recovery-isodir/boot/grub
+	cp build/rum.elf build/recovery-isodir/boot/rum.elf
+	printf 'set timeout=0\nmenuentry "rum recovery" {\n multiboot /boot/rum.elf rum.recovery\n boot\n}\n' > build/recovery-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/recovery-isodir
+
 run:
 	python3 scripts/run-qemu.py --validate-disk-only $(QEMU_DISK_ARGS)
 	$(MAKE) iso
@@ -209,7 +217,7 @@ create-disk:
 panic: build/tests/fault-ud.elf
 	$(QEMU) -m 64M -kernel $< -serial stdio -no-reboot -no-shutdown
 
-test: test-host test-user test-package test-block $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PROCESS_FAULT_KERNELS) build/tests/syscall.elf build/tests/elf-loader.elf $(PAGING_KERNELS) build/tests/storage.elf build/tests/fs.elf build/tests/task.elf build/tests/task-fault.elf build/tests/task-double-fault.elf $(ABI_KERNELS)
+test: test-host test-user test-package test-block build/tests/recovery.iso $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PROCESS_FAULT_KERNELS) build/tests/syscall.elf build/tests/elf-loader.elf $(PAGING_KERNELS) build/tests/storage.elf build/tests/fs.elf build/tests/task.elf build/tests/task-fault.elf build/tests/task-double-fault.elf $(ABI_KERNELS)
 	python3 scripts/smoke-test.py --qemu $(QEMU)
 
 .PHONY: test-file-syscalls
@@ -235,6 +243,27 @@ build/tests/file-syscall-image.o: build/tests/user/file-syscall.elf
 build/tests/file-syscall.elf: build/tests/file-syscall-kernel.o build/tests/file-syscall-image.o build/tests/fs-backend.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
+
+build/tests/user/process-syscall.o: tests/process-syscall-user.c $(USER_INCLUDE_STAMP) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/tests/user/process-syscall.debug.elf: build/tests/user/process-syscall.o $(USER_RUNTIME) build/user/linker.ld
+	$(CC) -T build/user/linker.ld -nostdlib -static -no-pie -Wl,--build-id=none \
+	    -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+build/tests/user/process-syscall.elf: build/tests/user/process-syscall.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@.tmp
+	build/tools/check-user-elf $@.tmp $<
+	mv -- $@.tmp $@
+build/tests/process-syscall-image.o: build/tests/user/process-syscall.elf
+build/tests/process-syscall.elf: build/tests/process-syscall-kernel.o build/tests/process-syscall-image.o build/tests/fs-backend.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
+
+.PHONY: test-userspace-shell
+test: test-userspace-shell
+test-userspace-shell: all build/tests/process-syscall.elf
+	python3 tests/process-syscall-qemu-test.py --qemu $(QEMU)
+	python3 tests/userspace-shell-test.py --qemu $(QEMU)
 
 test-package: iso
 	python3 tests/package-test.py

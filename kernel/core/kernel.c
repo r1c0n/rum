@@ -5,6 +5,7 @@
 #include <rum/interrupts.h>
 #include <rum/heap.h>
 #include <rum/keyboard.h>
+#include <rum/memory.h>
 #include <rum/multiboot.h>
 #include <rum/paging.h>
 #include <rum/pic.h>
@@ -60,6 +61,110 @@ static void update_uptime(uint32_t seconds)
     terminal_status(text);
 }
 
+static bool recovery;
+static bool disk_readonly;
+static char shell_path[FS_PATH_CAPACITY] = "/shell.elf";
+static volatile bool uptime_stop;
+
+/* PMM has already bounded/reserved the Multiboot command string. Parse it
+   before paging replaces the bootloader's address-space assumptions. */
+static void boot_options(const struct multiboot_info *info)
+{
+    if (!(info->flags & (1u << 2)) || !info->cmdline) return;
+    const char *text = (const void *)(uintptr_t)info->cmdline;
+    unsigned cursor = 0;
+    while (cursor < PAGE_SIZE && text[cursor]) {
+        while (cursor < PAGE_SIZE && text[cursor] == ' ') ++cursor;
+        unsigned start = cursor;
+        while (cursor < PAGE_SIZE && text[cursor] && text[cursor] != ' ') ++cursor;
+        unsigned bytes = cursor - start;
+        if (bytes == 12 && !memcmp(text + start, "rum.recovery", 12)) recovery = true;
+        if (bytes == 17 && !memcmp(text + start, "rum.disk-readonly", 17)) disk_readonly = true;
+        if (bytes >= 10 && !memcmp(text + start, "rum.shell=", 10)) {
+            if (bytes == 10 || bytes - 10 >= sizeof shell_path) recovery = true;
+            else { memcpy(shell_path, text + start + 10, bytes - 10); shell_path[bytes - 10] = 0; }
+        }
+    }
+}
+
+static void uptime_worker(void *unused)
+{
+    (void)unused;
+    uint32_t displayed = UINT32_MAX;
+    while (!uptime_stop) {
+        uint32_t observed = task_event_sequence(task_work_event());
+        uint32_t seconds = timer_ticks() / TIMER_HZ;
+        if (seconds != displayed) { displayed = seconds; update_uptime(seconds); }
+        if (!uptime_stop) (void)task_wait(task_work_event(), observed);
+    }
+}
+
+static void userspace_session(void)
+{
+    /* Supervisor owns the root shell; children are owned by the shell's RUN
+       continuation. The helper never reads keyboard input. */
+    task_id uptime = task_create(uptime_worker, NULL, NULL);
+    static struct rum_arguments arguments;
+    arguments.argc = 1;
+    while (shell_path[arguments.string_bytes]) ++arguments.string_bytes;
+    ++arguments.string_bytes;
+    memcpy(arguments.strings, shell_path, arguments.string_bytes);
+    unsigned failures = 0;
+    while (failures < 3) {
+        task_id child;
+        rum_result_t error = process_start_foreground(shell_path, &arguments, &child);
+        if (error) { print("Cannot load the userspace shell.\n"); break; }
+        if (!task_mark_foreground_shell(child)) cpu_halt();
+        uint32_t started = timer_ticks();
+        struct task_information result;
+        if (!task_wait_process(child, &result) || !task_foreground_end(child) || !task_reap_process(child)) cpu_halt();
+        if (result.termination == TASK_TERMINATION_EXIT && result.exit_status == RUM_SHELL_RECOVERY_STATUS) break;
+        /* A session lasting 30 seconds starts a new restart window. */
+        if ((uint32_t)(timer_ticks() - started) >= TIMER_HZ * 30u) failures = 0;
+        if (++failures == 3) { print("Userspace shell stopped repeatedly.\n"); break; }
+        print("Restarting the userspace shell.\n");
+    }
+    if (uptime) {
+        uptime_stop = true;
+        task_event_signal(task_work_event());
+        struct task_information result;
+        while (task_query(uptime, &result) && result.state != TASK_EXITED) (void)task_yield();
+        (void)task_reap();
+    }
+    /* Stale keys from an exiting shell do not become recovery commands. */
+    char unused;
+    while (keyboard_read(&unused)) {}
+}
+
+static void recovery_initialize(void)
+{
+    print("Kernel recovery shell.\n");
+    shell_set_launcher(process_launch_foreground);
+    shell_initialize();
+}
+
+static _Noreturn void recovery_session(void)
+{
+    uint32_t displayed = UINT32_MAX;
+    for (;;) {
+        uint32_t flags = cpu_interrupt_save();
+        uint32_t observed = task_event_sequence(task_work_event());
+        uint32_t ticks = timer_ticks();
+        uint32_t seconds = ticks / TIMER_HZ;
+        char character;
+        bool available = keyboard_read(&character);
+        if (seconds != displayed || available || shell_tick_due(ticks)) {
+            cpu_interrupt_restore(flags);
+            if (seconds != displayed) { displayed = seconds; update_uptime(seconds); }
+            if (available) shell_receive(character);
+            shell_tick(timer_ticks());
+        } else {
+            cpu_interrupt_restore(flags);
+            (void)task_wait(task_work_event(), observed);
+        }
+    }
+}
+
 void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address);
 
 void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
@@ -81,6 +186,7 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
         print("rum: missing or invalid Multiboot memory map. Halting.\n");
         return;
     }
+    boot_options(info);
     if (!paging_initialize()) {
         terminal_set_color(VGA_LIGHT_RED, VGA_BLACK);
         print("rum: cannot allocate page tables. Halting.\n");
@@ -103,7 +209,7 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     serial_writestring(" error="); serial_number(disk.device_error);
     serial_writestring(" sectors="); serial_number((uint32_t)ata_device()->sector_count);
     serial_writestring("\n");
-    enum fs_error filesystem = fat16_mount(ata_device());
+    enum fs_error filesystem = disk_readonly ? fat16_mount_read_only(ata_device()) : fat16_mount(ata_device());
     serial_writestring("rum_fat16: "); serial_writestring(fs_error_name(filesystem)); serial_writestring("\n");
     struct pmm_statistics memory = pmm_stats();
     serial_writestring("rum_memory_ok info="); serial_number(multiboot_info_address);
@@ -154,35 +260,13 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     terminal_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     print("  Type 'help' for commands; Backspace edits.\n");
     print("  Close QEMU to return to your host.\n");
-    shell_set_launcher(process_launch_foreground);
-    shell_initialize();
     update_uptime(0);
     pic_unmask(0);
     if (keyboard_ready)
         pic_unmask(1);
+    if (recovery) recovery_initialize();
     serial_writestring("rum_boot_ok\n");
     cpu_interrupt_enable();
-    uint32_t displayed = 0;
-    for (;;) {
-        uint32_t flags = cpu_interrupt_save();
-        uint32_t observed = task_event_sequence(task_work_event());
-        uint32_t ticks = timer_ticks();
-        uint32_t seconds = ticks / TIMER_HZ;
-        char character;
-        bool available = keyboard_read(&character);
-        if (seconds != displayed || available || shell_tick_due(ticks)) {
-            cpu_interrupt_restore(flags);
-            if (seconds != displayed) {
-                displayed = seconds;
-                update_uptime(seconds);
-            }
-            if (available)
-                shell_receive(character);
-            /* Input may have started/resumed a game after this tick snapshot. */
-            shell_tick(timer_ticks());
-        } else {
-            cpu_interrupt_restore(flags);
-            (void)task_wait(task_work_event(), observed);
-        }
-    }
+    if (!recovery) { userspace_session(); recovery_initialize(); }
+    recovery_session();
 }

@@ -70,7 +70,10 @@ static rum_result_t transfer(struct paging_space *space, struct process_handles 
     if (write && !paging_copy_from_user(space, buffer, address, chunk)) return -RUM_EFAULT;
     if (handle->kind == HANDLE_OUTPUT) {
         terminal_write(buffer, chunk);
-        for (unsigned i = 0; i < chunk; ++i) serial_putchar(buffer[i]);
+        for (unsigned i = 0; i < chunk; ++i) {
+            if (buffer[i] == '\n') serial_putchar('\r');
+            serial_putchar(buffer[i]);
+        }
         return (rum_result_t)chunk;
     }
     if (bytes > UINT64_MAX - handle->offset) return -RUM_EOVERFLOW;
