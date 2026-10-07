@@ -27,6 +27,20 @@ rum_result_t rum_getcwd(char *buffer, rum_size_t capacity) { return rum_syscall3
 rum_result_t rum_mkdir(const char *path) { return rum_syscall3(RUM_SYS_MKDIR, (rum_address_t)(uintptr_t)path, 0, 0); }
 rum_result_t rum_remove(const char *path) { return rum_syscall3(RUM_SYS_REMOVE, (rum_address_t)(uintptr_t)path, 0, 0); }
 rum_result_t rum_flush(rum_handle_t handle) { return rum_syscall3(RUM_SYS_FLUSH, handle, 0, 0); }
+rum_result_t rum_run(const char *path, const struct rum_arguments *arguments, struct rum_process_result *result)
+{
+    struct rum_run_request request = { RUM_PROCESS_ABI_VERSION, sizeof request,
+        (rum_address_t)(uintptr_t)path, (rum_address_t)(uintptr_t)arguments,
+        (rum_address_t)(uintptr_t)result, 0, {0, 0} };
+    return rum_syscall3(RUM_SYS_RUN, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
+rum_result_t rum_replace(const char *path, const void *data, rum_size_t bytes)
+{
+    struct rum_replace_request request = { RUM_FS_ABI_VERSION, sizeof request,
+        (rum_address_t)(uintptr_t)path, (rum_address_t)(uintptr_t)data, bytes, 0 };
+    return rum_syscall3(RUM_SYS_REPLACE, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
+rum_result_t rum_console(uint32_t action) { return rum_syscall3(RUM_SYS_CONSOLE, action, 0, 0); }
 
 rum_result_t rum_read(rum_handle_t handle, void *buffer, rum_size_t capacity)
 {

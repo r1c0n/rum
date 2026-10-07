@@ -68,6 +68,9 @@ task_id task_create(void (*entry)(void *), void *argument, struct paging_space *
 task_id task_create_process(const struct task_process *process);
 /* Atomically publishes and registers the sole foreground process. */
 task_id task_create_foreground_process(const struct task_process *process);
+/* Kernel supervisor only: Ctrl+C becomes input for this shell while it owns
+   the console. Nested foreground children remain cancellable. */
+bool task_mark_foreground_shell(task_id);
 task_id task_current_id(void);
 bool task_current_is_process(void);
 rum_pid_t task_current_process_id(void);
@@ -95,6 +98,7 @@ _Noreturn void task_exit_from_user_fault(const struct exception_frame *frame,
    a trusted kernel boundary before returning to user mode. */
 bool task_foreground_end(task_id id);
 bool task_cancel_foreground(void);
+bool task_current_cancelled(void);
 void task_cancel_current_if_requested(void);
 void task_cancel_on_user_return(const struct exception_frame *frame);
 bool task_wait_process(task_id id, struct task_information *information);

@@ -1,16 +1,22 @@
 #include <rum/abi/error.h>
+#include <rum/abi/console.h>
 #include <rum/abi/syscall.h>
 #include <rum/cpu.h>
+#include <rum/elf.h>
 #include <rum/handles.h>
+#include <rum/heap.h>
 #include <rum/interrupts.h>
 #include <rum/keyboard.h>
 #include <rum/memory.h>
 #include <rum/memory_layout.h>
 #include <rum/paging.h>
+#include <rum/process.h>
 #include <rum/serial.h>
+#include <rum/snake.h>
 #include <rum/syscall.h>
 #include <rum/task.h>
 #include <rum/terminal.h>
+#include <rum/timer.h>
 
 #define CONSOLE_CHUNK 128u
 #define FILE_CHUNK 512u
@@ -151,6 +157,82 @@ static rum_result_t working_directory(struct paging_space *space, uint32_t addre
     return (rum_result_t)bytes;
 }
 
+static rum_result_t run_child(struct paging_space *space, uint32_t address)
+{
+    struct rum_run_request request;
+    struct rum_process_result output;
+    if (!accessible(space, address, sizeof request, false) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    if (request.version != RUM_PROCESS_ABI_VERSION || request.size != sizeof request ||
+        request.flags || request.reserved[0] || request.reserved[1]) return -RUM_EINVAL;
+    if (!accessible(space, request.result, sizeof output, true) ||
+        !paging_copy_from_user(space, &output, request.result, sizeof output)) return -RUM_EFAULT;
+    if (output.version != RUM_PROCESS_ABI_VERSION || output.size != sizeof output || output.reserved)
+        return -RUM_EINVAL;
+    char path[RUM_ABI_PATH_CAPACITY];
+    rum_result_t error = copy_path(space, request.path, path);
+    if (error) return error;
+    if (!accessible(space, request.arguments, sizeof(struct rum_arguments), false)) return -RUM_EFAULT;
+    if (!process_filesystem_context()) return -RUM_EBUSY;
+    /* This packet is larger than a page. Keep it off the guarded kernel stack. */
+    struct rum_arguments *arguments = kmalloc(sizeof *arguments);
+    if (!arguments) return -RUM_ENOMEM;
+    if (!paging_copy_from_user(space, arguments, request.arguments, sizeof *arguments)) error = -RUM_EFAULT;
+    else if (!elf_arguments_valid(arguments)) error = -RUM_EINVAL;
+    struct process_result result;
+    if (!error) error = process_run_foreground(path, arguments, &result);
+    (void)kfree(arguments);
+    if (error) return error;
+    output = (struct rum_process_result){ .version = RUM_PROCESS_ABI_VERSION, .size = sizeof output,
+        .process_id = result.process_id, .termination = result.termination,
+        .status = result.exit_status, .fault_vector = result.termination == TASK_TERMINATION_FAULT ? result.fault.vector : 0 };
+    if (!paging_copy_to_user(space, request.result, &output, sizeof output)) cpu_halt();
+    return 0;
+}
+
+static rum_result_t replace_file(struct paging_space *space, uint32_t address)
+{
+    struct rum_replace_request request;
+    if (!accessible(space, address, sizeof request, false) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    if (request.version != RUM_FS_ABI_VERSION || request.size != sizeof request || request.reserved)
+        return -RUM_EINVAL;
+    if (request.bytes > RUM_ABI_REPLACE_LIMIT) return -RUM_E2BIG;
+    char path[RUM_ABI_PATH_CAPACITY];
+    rum_result_t error = copy_path(space, request.path, path);
+    if (error) return error;
+    if (!accessible(space, request.data, request.bytes, false)) return -RUM_EFAULT;
+    if (!process_filesystem_context()) return -RUM_EBUSY;
+    void *data = request.bytes ? kmalloc(request.bytes) : NULL;
+    if (request.bytes && !data) return -RUM_ENOMEM;
+    if (request.bytes && !paging_copy_from_user(space, data, request.data, request.bytes)) error = -RUM_EFAULT;
+    else error = process_fs_error(fs_replace(task_current_filesystem(), path, data, request.bytes));
+    (void)kfree(data);
+    return error;
+}
+
+static rum_result_t console_action(uint32_t action, uint32_t reserved1, uint32_t reserved2)
+{
+    if (reserved1 || reserved2 || action > RUM_CONSOLE_SNAKE) return -RUM_EINVAL;
+    if (!process_filesystem_context()) return -RUM_EBUSY;
+    if (action == RUM_CONSOLE_CLEAR) {
+        terminal_clear(); serial_writestring("\x1b[2J\x1b[H"); return 0;
+    }
+    if (!snake_start(timer_ticks())) return -RUM_ENOMEM;
+    while (snake_active()) {
+        uint32_t observed = task_event_sequence(task_work_event());
+        if (task_current_cancelled()) {
+            snake_receive('q', timer_ticks());
+            task_cancel_current_if_requested();
+        }
+        char key;
+        while (keyboard_read(&key)) snake_receive(key == '\x03' ? 'q' : key, timer_ticks());
+        snake_tick(timer_ticks());
+        if (snake_active()) (void)task_wait(task_work_event(), observed);
+    }
+    return 0;
+}
+
 void syscall_dispatch(struct exception_frame *frame)
 {
     if (!frame || frame->vector != RUM_SYSCALL_VECTOR || frame->error ||
@@ -177,6 +259,9 @@ void syscall_dispatch(struct exception_frame *frame)
         result = path_operation(space, frame->ebx, frame->eax); break;
     case RUM_SYS_GETCWD: result = working_directory(space, frame->ebx, frame->ecx); break;
     case RUM_SYS_FLUSH: result = process_handle_flush(process_handle_get(handles, frame->ebx)); break;
+    case RUM_SYS_RUN: result = run_child(space, frame->ebx); break;
+    case RUM_SYS_REPLACE: result = replace_file(space, frame->ebx); break;
+    case RUM_SYS_CONSOLE: result = console_action(frame->ebx, frame->ecx, frame->edx); break;
     default: result = -RUM_ENOSYS; break;
     }
     frame->eax = (uint32_t)result;

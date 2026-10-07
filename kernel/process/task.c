@@ -36,6 +36,7 @@ struct task {
     struct fs_context filesystem;
     struct process_handles handles;
     bool cancellation_requested;
+    bool interactive_shell;
 };
 static struct task tasks[TASK_SLOTS];
 static struct task *current;
@@ -187,7 +188,7 @@ static task_id create_process(const struct task_process *process, bool make_fore
     uint32_t saved = cpu_interrupt_save();
     struct paging_space_statistics space = {0};
     bool valid = (saved & IF) && next_id && next_process_id <= RUM_ABI_PID_MAX &&
-        (!make_foreground || !foreground) &&
+        (!make_foreground || !foreground || (current->kind == TASK_PROCESS && foreground == current->id)) &&
         paging_space_stats(process->space, &space) && !space.kernel &&
         process->space != paging_active_space() && valid_user_frame(process->space, &process->user_frame);
     struct task *slot = valid ? available_slot(process->space) : NULL;
@@ -232,6 +233,20 @@ task_id task_create_process(const struct task_process *process)
 task_id task_create_foreground_process(const struct task_process *process)
 {
     return create_process(process, true);
+}
+
+bool task_mark_foreground_shell(task_id id)
+{
+    if (!ready || !id || irq_in_handler() || current->kind != TASK_KERNEL) return false;
+    uint32_t saved = cpu_interrupt_save();
+    bool marked = false;
+    for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].id == id &&
+        tasks[i].parent == current->id && tasks[i].kind == TASK_PROCESS && foreground == id &&
+        tasks[i].state == TASK_RUNNABLE) {
+        tasks[i].interactive_shell = true; marked = true; break;
+    }
+    cpu_interrupt_restore(saved);
+    return marked;
 }
 
 task_id task_current_id(void)
@@ -512,7 +527,7 @@ bool task_foreground_end(task_id id)
         for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
             if (tasks[i].id == id && tasks[i].kind == TASK_PROCESS &&
                 tasks[i].parent == current->id && tasks[i].state == TASK_EXITED) {
-                foreground = 0;
+                foreground = current->kind == TASK_PROCESS ? current->id : 0;
                 cleared = true;
                 break;
             }
@@ -531,6 +546,7 @@ bool task_cancel_foreground(void)
             struct task *task = &tasks[i];
             if (task->id != foreground || task->kind != TASK_PROCESS ||
                 task->state == TASK_EXITED || task->state == TASK_UNUSED) continue;
+            if (task->interactive_shell) break;
             task->cancellation_requested = true;
             if (task->state == TASK_BLOCKED) {
                 task->waiting = NULL;
@@ -544,7 +560,7 @@ bool task_cancel_foreground(void)
     return requested;
 }
 
-static bool current_cancelled(void)
+bool task_current_cancelled(void)
 {
     uint32_t saved = cpu_interrupt_save();
     bool requested = ready && current && current->kind == TASK_PROCESS &&
@@ -555,7 +571,7 @@ static bool current_cancelled(void)
 
 void task_cancel_current_if_requested(void)
 {
-    if (current_cancelled())
+    if (task_current_cancelled())
         terminate_current(TASK_TERMINATION_CANCELLED, 0, NULL, 0);
 }
 

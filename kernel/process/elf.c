@@ -22,7 +22,7 @@ struct load_plan {
     struct load_segment segments[RUM_ELF_PROGRAM_LIMIT];
 };
 
-static bool valid_arguments(const struct rum_arguments *arguments)
+bool elf_arguments_valid(const struct rum_arguments *arguments)
 {
     if (!arguments || !arguments->argc ||
         arguments->argc > RUM_PROCESS_ARGUMENT_LIMIT || !arguments->string_bytes ||
@@ -126,7 +126,7 @@ bool elf_load_process(const void *image, size_t image_bytes,
     if (!process) return false;
     *process = (struct task_process){0};
     struct load_plan plan;
-    if (!valid_arguments(arguments) || !plan_image(image, image_bytes, &plan)) return false;
+    if (!elf_arguments_valid(arguments) || !plan_image(image, image_bytes, &plan)) return false;
 
     struct paging_space *space = paging_space_create();
     if (!space) return false;

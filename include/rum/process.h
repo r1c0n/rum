@@ -23,5 +23,9 @@ struct process_result {
 enum process_launch_error process_launch_foreground(const char *program,
                                                      const char *arguments,
                                                      struct process_result *result);
+/* Common-FS executable loading. Starts a foreground child; caller must wait,
+   end foreground ownership and reap. On failure no task/space is published. */
+rum_result_t process_start_foreground(const char *, const struct rum_arguments *, task_id *);
+rum_result_t process_run_foreground(const char *, const struct rum_arguments *, struct process_result *);
 
 #endif

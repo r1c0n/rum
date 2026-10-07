@@ -1,10 +1,68 @@
 #include <stddef.h>
 #include <rum/elf.h>
+#include <rum/abi/error.h>
+#include <rum/handles.h>
+#include <rum/heap.h>
 #include <rum/memory.h>
 #include <rum/paging.h>
 #include <rum/process.h>
 #include <rum/process_limits.h>
 #include <rum/ramfs.h>
+
+rum_result_t process_start_foreground(const char *program, const struct rum_arguments *arguments, task_id *child)
+{
+    if (!child || !program || !elf_arguments_valid(arguments)) return -RUM_EINVAL;
+    *child = 0;
+    if (!process_filesystem_context()) return -RUM_EBUSY;
+    char path[FS_PATH_CAPACITY]; size_t length = 0;
+    while (length < sizeof path && program[length]) ++length;
+    if (!length || length == sizeof path) return -RUM_ENAMETOOLONG;
+    memcpy(path, program, length + 1);
+    fs_reference file = 0;
+    enum fs_error error = fs_open(task_current_filesystem(), path, FS_READ, &file);
+    if (error == FS_NOT_FOUND && (length < 4 || memcmp(path + length - 4, ".elf", 4))) {
+        if (length + 5 > sizeof path) return -RUM_ENAMETOOLONG;
+        memcpy(path + length, ".elf", 5);
+        error = fs_open(task_current_filesystem(), path, FS_READ, &file);
+    }
+    if (error != FS_OK) return process_fs_error(error);
+    struct fs_information info;
+    error = fs_stat(file, &info);
+    rum_result_t result = process_fs_error(error);
+    if (!result && (info.kind != FS_FILE || !info.size || info.size > RAMFS_FILE_LIMIT)) result = -RUM_ENOEXEC;
+    void *image = !result ? kmalloc((size_t)info.size) : NULL;
+    if (!result && !image) result = -RUM_ENOMEM;
+    size_t read = 0;
+    while (!result && read < info.size) {
+        struct fs_io_result io = fs_read(file, read, (char *)image + read, (size_t)info.size - read);
+        read += io.transferred;
+        if (io.error != FS_OK) result = process_fs_error(io.error);
+        else if (!io.transferred) result = -RUM_EIO;
+    }
+    enum fs_error closed = fs_close(file);
+    if (!result) result = process_fs_error(closed);
+    struct task_process process = {0};
+    if (!result && !elf_load_process(image, (size_t)info.size, arguments, &process)) result = -RUM_ENOEXEC;
+    (void)kfree(image);
+    if (result) return result;
+    *child = task_create_foreground_process(&process);
+    if (!*child) { (void)paging_space_destroy(process.space); return -RUM_ENOMEM; }
+    return 0;
+}
+
+rum_result_t process_run_foreground(const char *path, const struct rum_arguments *arguments, struct process_result *result)
+{
+    if (!result) return -RUM_EINVAL;
+    *result = (struct process_result){0};
+    task_id child;
+    rum_result_t error = process_start_foreground(path, arguments, &child);
+    if (error) return error;
+    struct task_information info;
+    if (!task_wait_process(child, &info) || !task_foreground_end(child)) return -RUM_EIO;
+    *result = (struct process_result){ info.process_id, info.termination, info.exit_status, info.fault };
+    if (!task_reap_process(child)) return -RUM_EIO;
+    return 0;
+}
 
 static bool add_argument(struct rum_arguments *packet, const char *text, size_t bytes)
 {
