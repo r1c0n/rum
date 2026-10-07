@@ -274,6 +274,18 @@ test-userspace-shell: all build/tests/process-syscall.elf
 	python3 tests/process-syscall-qemu-test.py --qemu $(QEMU)
 	python3 tests/userspace-shell-test.py --qemu $(QEMU)
 
+.PHONY: test-release-integration
+test: test-release-integration
+test-release-integration: all build/tests/readonly.iso test-package
+	python3 tests/release-integration-test.py --qemu $(QEMU)
+
+build/tests/readonly.iso: build/rum.elf build/rum-system.img Makefile
+	@mkdir -p build/readonly-isodir/boot/grub
+	cp build/rum.elf build/readonly-isodir/boot/rum.elf
+	cp build/rum-system.img build/readonly-isodir/boot/rum-system.img
+	printf 'set timeout=0\nmenuentry "rum read-only disk" {\n multiboot /boot/rum.elf rum.disk-readonly\n module /boot/rum-system.img\n boot\n}\n' > build/readonly-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/readonly-isodir
+
 test-package: iso
 	python3 tests/package-test.py
 

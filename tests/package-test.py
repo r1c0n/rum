@@ -28,6 +28,8 @@ with ZipFile(output) as archive:
     assert not any(name.startswith("build/") or "/debug/" in name or
                    name.endswith((".map", ".o", ".d")) for name in names), \
         "release archive contains a build or debug artifact"
+    assert not any(name.lower().endswith((".raw", ".img", ".elf")) for name in names), \
+        "release archive contains a mutable disk or separate boot payload"
     assert archive.read("rum.iso") == iso.read_bytes(), "packaged ISO differs from build"
     assert archive.read("README.md") == (root / "README.md").read_bytes()
     for path in source_paths:
