@@ -10,9 +10,14 @@ ENTRY = struct.Struct("<64s4I")
 IMAGE_LIMIT = 1024 * 1024
 
 
-def pack(directory):
+def pack(directory, names=None):
     directory = Path(directory)
-    files = sorted(directory.iterdir(), key=lambda path: path.name)
+    if names is not None:
+        if len(set(names)) != len(names) or any(
+                not re.fullmatch(r"[A-Za-z0-9_.-]{1,63}", name) or name in (".", "..") for name in names):
+            raise ValueError("invalid or duplicate system manifest filename")
+    files = sorted(directory.iterdir() if names is None else (directory / name for name in names),
+                   key=lambda path: path.name)
     if not 1 <= len(files) <= 64:
         raise ValueError("system volume needs 1..64 regular files")
     index, data = bytearray(), bytearray()
@@ -38,9 +43,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--files", nargs="+", help="exact build manifest; ignore old staged outputs")
     args = parser.parse_args()
     try:
-        data = pack(args.directory)
+        data = pack(args.directory, args.files)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         if not args.output.exists() or args.output.read_bytes() != data:
             temporary = args.output.with_suffix(args.output.suffix + ".tmp")

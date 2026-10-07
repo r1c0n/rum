@@ -39,7 +39,9 @@ waiting shell. Other child processes have independent working directories.
 `make user` builds and validates each ELF, then `scripts/pack-system.py` writes
 `build/rum-system.img`. `make` also builds the kernel and ISO. Adding a program
 requires its C source and a `USER_PROGRAMS` entry; there is no shell command
-dispatch table to update. Rebuild the ISO to include the new system image.
+dispatch table to update. The image includes exactly that program list, so
+old staged binaries cannot reappear after removing a program. Rebuild the ISO
+to include the new system image.
 
 The kernel ELF contains no userspace executable payloads. GRUB loads the kernel
 and system image separately using `multiboot` and `module`. The ISO includes both,

@@ -15,8 +15,21 @@ spec.loader.exec_module(console)
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--qemu", default="qemu-system-i386")
+    parser.add_argument("--valid-only", action="store_true", help="check exact system file bytes only")
     args = parser.parse_args()
     console.ARTIFACTS.mkdir(parents=True, exist_ok=True)
+    with console.boot(args.qemu, 64, "system-valid-files") as guest:
+        executable = (ROOT / "build/user/system/hello.elf").read_bytes()
+        displayed = "".join(chr(byte) if 32 <= byte <= 126 or byte in (9, 10)
+                            else f"\\x{byte:02X}" for byte in executable)
+        displayed = displayed.replace("\n", "\r\n") + ("\r\n" if executable[-1] != 10 else "")
+        start = guest.serial.stat().st_size
+        guest.type("cat /rum/hello.elf\n")
+        guest.wait(displayed + "/> ", timeout=20)
+        assert guest.serial.read_bytes()[start:].decode() == "cat /rum/hello.elf\r\n" + displayed + "/> "
+    print("PASS: exact binary bytes through system file handles, chunk boundaries and EOF", flush=True)
+    if args.valid_only:
+        return
     original = (ROOT / "build/rum-system.img").read_bytes()
     cases = {"short": original[:31], "truncated-index": original[:64],
              "truncated-data": original[:-1], "trailing": original + b"\0" * 4,

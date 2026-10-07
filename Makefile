@@ -126,7 +126,7 @@ build/user/system/%.elf: build/user/debug/%.elf build/tools/check-user-elf
 # Userspace is a separate Multiboot module, never linked into the kernel.
 # Runtime files are stripped; symbols stay in build/user/debug/ only.
 build/rum-system.img: FORCE $(USER_ASSETS) scripts/pack-system.py
-	python3 scripts/pack-system.py build/user/system $@
+	python3 scripts/pack-system.py build/user/system $@ --files $(notdir $(USER_ASSETS))
 
 user: $(USER_ASSETS) build/rum-system.img
 	@$(foreach program,$(USER_PROGRAMS),build/tools/check-user-elf build/user/system/$(program).elf build/user/debug/$(program).elf || exit $$?;)

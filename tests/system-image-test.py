@@ -35,6 +35,15 @@ with tempfile.TemporaryDirectory(prefix="rum-system-") as temporary:
     module.pack(directory)
     (directory / "z.txt").write_bytes(bytes(65537))
     rejected(directory)
+    selected = module.pack(directory, ["a.elf"])
+    assert struct.unpack_from("<I", selected, 16)[0] == 1 and selected.endswith(b"\x7fELF")
+    for names in (("a.elf", "a.elf"), ("../a.elf",), (".",), ("missing.elf",)):
+        try:
+            module.pack(directory, names)
+        except (ValueError, OSError):
+            pass
+        else:
+            raise AssertionError("invalid explicit manifest accepted")
     (directory / "z.txt").unlink()
     (directory / "invalid name").write_bytes(b"")
     rejected(directory)
@@ -57,6 +66,17 @@ with tempfile.TemporaryDirectory(prefix="rum-system-") as temporary:
 
 image = (ROOT / "build/rum-system.img").read_bytes()
 assert image[:8] == b"RUMSYS1\0"
+count = struct.unpack_from("<I", image, 16)[0]
+kernel_bytes = (ROOT / "build/rum.elf").read_bytes()
+installed = {}
+for index in range(count):
+    name, offset, size, first, second = struct.unpack_from("<64s4I", image, 32 + index * 80)
+    name = name.split(b"\0", 1)[0].decode("ascii")
+    expected = (ROOT / "build/user/system" / name).read_bytes()
+    assert not first and not second and image[offset:offset + size] == expected
+    assert expected not in kernel_bytes, f"user ELF embedded in kernel: {name}"
+    installed[name] = expected
+assert "shell.elf" in installed and "cat.elf" in installed and "cd.elf" in installed
 kernel = (ROOT / "build/embedded-files.c").read_text()
 assert "shell.elf" not in kernel and "hello.elf" not in kernel
-print("PASS: deterministic separate system image, exact bytes, names, sizes, regular files and count limits")
+print("PASS: separate system image, exact ELF bytes, explicit manifest, deterministic layout and build limits")
