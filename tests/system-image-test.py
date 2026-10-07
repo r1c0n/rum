@@ -48,6 +48,9 @@ with tempfile.TemporaryDirectory(prefix="rum-system-") as temporary:
     (directory / "link").symlink_to(directory / "a.elf")
     rejected(directory)
     (directory / "link").unlink()
+    for index in range(16):
+        (directory / f"file{index}").write_bytes(bytes(65536))
+    rejected(directory)  # Total archive limit, independent of per-file/count limits.
     for index in range(64):
         (directory / f"file{index}").write_bytes(b"")
     rejected(directory)

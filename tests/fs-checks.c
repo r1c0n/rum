@@ -234,4 +234,32 @@ void fs_checks(void)
     ram_writes();
     fs_check(fs_stats().references == baseline.references && fs_stats().objects == baseline.objects,
              "RAM write test restores reference baseline");
+    struct fs_backend system = *fs_test_backend(); system.naming = FS_NAMES_RAM;
+    fs_check(fs_mount_system(&system) == FS_INVALID, "system mount requires a read-only backend");
+    system.read_only = true;
+    fs_check(ramfs_put("rum", binary, sizeof binary) && fs_mount_system(&system) == FS_EXISTS &&
+             ramfs_remove("rum"), "system mount cannot hide a legacy RAM file");
+    fs_check(fs_mount_system(&system) == FS_OK && fs_mount_system(&system) == FS_BUSY &&
+             !ramfs_put("rum", "x", 1), "permanent system mount reserves its root name");
+    fs_check(fs_open(NULL, "/rum/ROOT.TXT", FS_READ, &ram) == FS_OK &&
+             fs_read(ram, 0, buffer, sizeof buffer).transferred == 4 && !memcmp(buffer, "root", 4) &&
+             fs_close(ram) == FS_OK, "read through the system backend");
+    fs_check(fs_open(NULL, "/rum/ROOT.TXT", FS_WRITE, &ram) == FS_READ_ONLY &&
+             fs_replace(NULL, "/rum/ROOT.TXT", "x", 1) == FS_READ_ONLY &&
+             fs_remove(NULL, "/rum/ROOT.TXT") == FS_READ_ONLY && fs_mkdir(NULL, "/rum/NEW") == FS_READ_ONLY &&
+             fs_remove(NULL, "/rum") == FS_BUSY && fs_replace(NULL, "/rum", "x", 1) == FS_IS_DIRECTORY,
+             "system files and mounted root reject mutation");
+    path_error("/rum/../disk/ROOT.TXT", FS_MOUNT_ESCAPE, "system traversal rejected before backend lookup");
+    fs_check(fs_context_initialize(&cwd) == FS_OK && fs_context_chdir(&cwd, "//rum/./DOCS") == FS_OK &&
+             equal(cwd.path, "/rum/DOCS") && fs_context_chdir(&cwd, "..") == FS_OK &&
+             equal(cwd.path, "/rum") && fs_context_chdir(&cwd, "..") == FS_MOUNT_ESCAPE &&
+             fs_context_chdir(&cwd, "/") == FS_OK && fs_context_destroy(&cwd) == FS_OK,
+             "system cwd normalizes and cannot leave the mount through dot-dot");
+    fs_check(fs_open(NULL, "/", FS_READ, &directory) == FS_OK, "open root with virtual system directory");
+    cursor = 0; unsigned system_entries = 0;
+    while (fs_readdir(directory, &cursor, &entry) == FS_OK)
+        if (equal(entry.name, "rum")) { ++system_entries; fs_check(entry.kind == FS_DIRECTORY, "system directory kind"); }
+    fs_check(system_entries == 1 && fs_close(directory) == FS_OK &&
+             fs_stats().references == baseline.references && fs_stats().objects == baseline.objects &&
+             fs_stats().mounts == baseline.mounts + 1 && !fs_test_backend_pins(), "system mount reference cleanup");
 }

@@ -298,7 +298,11 @@ build/tests/storage.elf: build/tests/storage-kernel.o build/tests/storage-checks
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
 
-build/tests/fs.elf: build/tests/fs-kernel.o build/tests/fs-checks.o build/tests/fs-backend.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+build/tests/fs-image.o: tests/fs-image.s build/user/system/hello.elf build/user/system/fault.elf build/user/system/spin.elf
+	@mkdir -p $(@D)
+	$(AS) $< -o $@
+
+build/tests/fs.elf: build/tests/fs-kernel.o build/tests/fs-image.o build/tests/fs-checks.o build/tests/fs-backend.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
 

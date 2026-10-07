@@ -78,7 +78,7 @@ def run(qemu, label, arguments, marker, *, ram=64, dump=False, allow_readonly_re
             if marker == "rum_boot_ok":
                 _, expect, type_text = smoke.guest_keyboard(stream, serial)
                 type_text("echo disk check\n")
-                expect("\r\ndisk check\r\n> ")
+                expect("\r\ndisk check\r\n/> ")
             smoke.qmp_command(stream, "stop")
             data = None
             if dump:

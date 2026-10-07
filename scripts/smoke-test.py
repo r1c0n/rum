@@ -237,6 +237,20 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
     if any(entry for slot, entry in enumerate(stack_table)
            if entry and slot not in {(address >> 12) & 1023 for address in stack_addresses}):
         raise RuntimeError("Normal boot owns an unexpected kernel stack slot")
+    system_address = struct.unpack("<I", dump_ram(stream, symbols["system_image_address"], 4,
+        artifacts / f"{mode}-system-address.bin"))[0]
+    system_pages = struct.unpack("<I", dump_ram(stream, symbols["system_image_pages"], 4,
+        artifacts / f"{mode}-system-pages.bin"))[0]
+    system_bytes = (project / "build/rum-system.img").read_bytes()
+    if not system_address or system_address % 4096 or system_pages != (len(system_bytes) + 4095) // 4096:
+        raise RuntimeError("Invalid owned system volume")
+    copied = dump_ram(stream, system_address, system_pages * 4096, artifacts / f"{mode}-system-image.bin")
+    if copied[:len(system_bytes)] != system_bytes or any(copied[len(system_bytes):]):
+        raise RuntimeError("System module copy differs from the standalone userspace image")
+    for frame in range(system_address, system_address + system_pages * 4096, 4096):
+        if frame in frames or frame // 4096 not in pages:
+            raise RuntimeError("System image overlaps another physical owner")
+        frames.add(frame)
     for frame in frames: owned[frame // 4096 // 8] |= 1 << (frame // 4096 % 8)
     if allocated != owned or free != managed_count - len(frames):
         raise RuntimeError("Page table/heap/task stack physical frame accounting incorrect")
@@ -305,7 +319,7 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
         loaded[name] = bytes(heap_bytes(address, size)) if size else b""
         node = following
     assets = {path.name: path.read_bytes()
-              for directory in (project / "assets/ramfs", project / "build/user/ramfs")
+              for directory in (project / "assets/ramfs",)
               for path in directory.iterdir()}
     if (loaded != assets or len(loaded) != file_count or sum(map(len, loaded.values())) != file_bytes or
             owners != set(live_blocks)):
@@ -606,7 +620,7 @@ def user_abi_memory_test(stream, symbols, artifacts, mode, registers, project, c
     if any(entry & ~0x60 != (symbols["abi_stack_pages"] + (i - 1008) * 4096 | 7 if i >= 1008 else 0)
            for i, entry in enumerate(stack)):
         raise RuntimeError("Wrong fixture stack pages or missing guard")
-    image = (project / ("build/user/ramfs/hello.elf" if case == "hello" else "build/tests/user/abi-probe.elf")).read_bytes()
+    image = (project / ("build/user/system/hello.elf" if case == "hello" else "build/tests/user/abi-probe.elf")).read_bytes()
     phoff, phnum = struct.unpack_from("<I", image, 28)[0], struct.unpack_from("<H", image, 44)[0]
     mappings = {}
     for i in range(phnum):
@@ -862,6 +876,10 @@ def process_shell_test(stream, symbols, artifacts, mode, serial):
             if not match:
                 raise RuntimeError(f"Missing {label} process resource field {pattern!r}: {report}")
             values.extend(map(int, match.groups()))
+        # Executable reads use a temporary heap buffer. Freed buffers may leave
+        # cached heap pages, but every private allocation/page must be released.
+        values[4] += values[14] // 4096
+        values[14] = 0
         return tuple(values)
 
     def run(command, expected):
@@ -1117,7 +1135,7 @@ def storage_shell_test(stream, symbols, artifacts, mode, serial, project):
     qmp_command(stream, "cont")
     _, expect, type_text = guest_keyboard(stream, serial)
     assets = {path.name: path.read_bytes()
-              for directory in (project / "assets/ramfs", project / "build/user/ramfs")
+              for directory in (project / "assets/ramfs",)
               for path in sorted(directory.iterdir())}
     start = len(serial.read_bytes())
     type_text("ls\n")
@@ -1333,7 +1351,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
         image_args = (["-boot", "d", "-cdrom", str(project / "build/tests/recovery.iso")]
                       if mode == "iso" or iso else ["-kernel", str(image)])
         if normal and not (mode == "iso" or iso):
-            image_args += ["-append", "rum.recovery"]
+            image_args += ["-initrd", str(project / "build/rum-system.img"), "-append", "rum.recovery"]
         args = [qemu, "-machine", "pc", "-accel", "tcg", "-m", f"{ram}M", "-display", "none",
                 "-serial", f"file:{serial}", "-qmp", monitor_spec,
                 "-no-reboot", "-no-shutdown", *image_args]

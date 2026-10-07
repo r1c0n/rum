@@ -53,10 +53,15 @@ with tempfile.TemporaryDirectory() as temporary:
     assert "index=2,media=disk" in args[8] and "disk,,with comma.raw" in args[8]
     assert "format=raw" in args[8] and "werror=report" in args[8]
     assert launcher.boot_arguments(boot, kernel=True) == ["-nodefaults", "-vga", "std", "-kernel", str(boot)]
+    system = directory / "rum-system.img"; system.write_bytes(b"separate module")
+    assert launcher.boot_arguments(boot, kernel=True)[-2:] == ["-initrd", str(system)]
+    assert "-initrd" not in launcher.boot_arguments(boot, kernel=True, system_image=False)
+    assert "-initrd" not in launcher.boot_arguments(boot)
+    system.unlink()
     assert "readonly=on" in launcher.boot_arguments(boot, kernel=True, disk=disk, read_only=True)[6]
     assert disk.read_bytes() == before
     rejects(lambda: launcher.boot_arguments(boot, disk=boot))
-    for output in (ROOT / "build/rum.iso", ROOT / "build/rum.elf"):
+    for output in (ROOT / "build/rum.iso", ROOT / "build/rum.elf", ROOT / "build/rum-system.img"):
         if output.exists():
             rejects(lambda: launcher.validate_disk(output))
             if options.boot_output_checks and os.name != "nt":
