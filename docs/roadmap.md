@@ -127,16 +127,16 @@ to their baseline.
 
 ### 6. Userspace shell and tools
 
-- [ ] Build a userspace shell with the same separate toolchain and public headers
+- [x] Build a userspace shell with the same separate toolchain and public headers
   as every other program.
-- [ ] Start it as the initial foreground process after kernel initialization.
-- [ ] Keep a kernel recovery shell available if the userspace shell cannot load or
+- [x] Start it as the initial foreground process after kernel initialization.
+- [x] Keep a kernel recovery shell available if the userspace shell cannot load or
   exits repeatedly.
-- [ ] Move command parsing and `echo`, `cat`, `ls`, `pwd` and `cd` behavior into
+- [x] Move command parsing and `echo`, `cat`, `ls`, `pwd` and `cd` behavior into
   user programs using only syscalls.
-- [ ] Launch another ELF as a foreground child and wait for its exit status.
-- [ ] Transfer console input to the child and restore it after exit, fault or Ctrl+C.
-- [ ] Report filesystem and process errors without exposing kernel addresses or
+- [x] Launch another ELF as a foreground child and wait for its exit status.
+- [x] Transfer console input to the child and restore it after exit, fault or Ctrl+C.
+- [x] Report filesystem and process errors without exposing kernel addresses or
   internal error values.
 
 The userspace shell may keep commands as built-ins initially; separate tool ELFs
