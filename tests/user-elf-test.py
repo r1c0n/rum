@@ -21,7 +21,8 @@ def check(path, valid, debug_path=None):
     assert (result.returncode == 0) == valid, result.stdout + result.stderr
 
 check(asset, True, debug)
-for header in ("heap.h", "task.h", "diagnostics.h", "memory_layout.h"):
+for header in ("heap.h", "task.h", "diagnostics.h", "memory_layout.h", "io.h",
+               "terminal.h", "keyboard.h", "ramfs.h", "ata.h"):
     private_include = subprocess.run(
         [args.cross_prefix + "gcc", "-ffreestanding", "-Iuser/include", "-Ibuild/user/include",
          "-x", "c", "-fsyntax-only", "-"], input=f"#include <rum/{header}>\n",
@@ -31,6 +32,11 @@ symbols = subprocess.check_output([args.cross_prefix + "nm", str(debug)], text=T
 assert all(name in symbols for name in (" _start", " main", " rum_syscall3"))
 assert "kernel_main" not in symbols
 assert not subprocess.check_output([args.cross_prefix + "nm", "--undefined-only", str(debug)])
+
+for program in ("shell", "readline"):
+    user_debug = root / f"build/user/debug/{program}.elf"
+    check(root / f"build/user/ramfs/{program}.elf", True, user_debug)
+    assert not subprocess.check_output([args.cross_prefix + "nm", "--undefined-only", str(user_debug)])
 debug_sections = subprocess.check_output([args.cross_prefix + "readelf", "-S", str(debug)], text=True)
 asset_sections = subprocess.check_output([args.cross_prefix + "readelf", "-S", str(asset)], text=True)
 assert ".debug_info" in debug_sections and ".symtab" in debug_sections

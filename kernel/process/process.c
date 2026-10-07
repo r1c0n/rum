@@ -20,7 +20,11 @@ rum_result_t process_start_foreground(const char *program, const struct rum_argu
     memcpy(path, program, length + 1);
     fs_reference file = 0;
     enum fs_error error = fs_open(task_current_filesystem(), path, FS_READ, &file);
-    if (error == FS_NOT_FOUND && (length < 4 || memcmp(path + length - 4, ".elf", 4))) {
+    bool has_suffix = length >= 4 && path[length - 4] == '.' &&
+        (path[length - 3] == 'e' || path[length - 3] == 'E') &&
+        (path[length - 2] == 'l' || path[length - 2] == 'L') &&
+        (path[length - 1] == 'f' || path[length - 1] == 'F');
+    if (error == FS_NOT_FOUND && !has_suffix) {
         if (length + 5 > sizeof path) return -RUM_ENAMETOOLONG;
         memcpy(path + length, ".elf", 5);
         error = fs_open(task_current_filesystem(), path, FS_READ, &file);

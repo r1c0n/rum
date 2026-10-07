@@ -139,6 +139,7 @@ def disk_commands(console):
     console.command("pwd", "\r\n/disk/DOCS\r\n> ")
     console.command("run /disk/HELLO.ELF", "Hello from rum userspace!")
     console.command("run /disk/BAD.ELF", "not a supported executable.")
+    console.command("run /disk/MISSING.ELF", "file or directory not found.")
     console.command("pwd", "\r\n/disk/DOCS\r\n> ")
     console.command("write NEW.TXT persistent shell bytes")
     console.command("cat NEW.TXT", "\r\npersistent shell bytes\r\n> ")
@@ -189,6 +190,8 @@ def main():
             for _ in range(2): console.command("exit", "Restarting the userspace shell.")
             console.command("exit", "Kernel recovery shell.")
             console.command("echo recovery works", "recovery works")
+            console.command("diag", "Tasks: 2 live, 4 owned stack pages, 4 emergency stack pages, 0 owned directories")
+            console.command("diag", "Processes: 0 | 0 user tables, 0 user pages")
         for program, marker in (("/missing.elf", "Cannot load the userspace shell."),
                                 ("/readme.txt", "Cannot load the userspace shell."),
                                 ("/nonzero.elf", "Userspace shell stopped repeatedly."),
@@ -198,6 +201,15 @@ def main():
                 console.command("echo recovery works", "recovery works")
         with boot(args.qemu, 64, "explicit-recovery", options="rum.recovery", marker="rum_boot_ok") as console:
             console.command("echo selected recovery", "selected recovery")
+        with boot(args.qemu, 16, "requested-recovery") as console:
+            console.command("recovery", "Kernel recovery shell.")
+            console.command("echo recovery selected", "recovery selected")
+        damaged = Path(temporary) / "malformed.raw"
+        data = bytearray(original); data[13] = 3; damaged.write_bytes(data)
+        with boot(args.qemu, 64, "malformed-disk", disk=damaged) as console:
+            console.command("ls /disk", "disk is not mounted.")
+            console.command("cat /welcome.txt", "Welcome to rum.")
+        assert damaged.read_bytes() == data
     print("PASS: persistence after reboot, read-only/missing disk, shell restart/load/fault fallback and explicit recovery", flush=True)
 
 
