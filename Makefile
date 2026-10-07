@@ -59,16 +59,17 @@ TEST_DEPENDENCIES += build/tests/fs-kernel.d build/tests/fs-checks.d build/tests
 STORAGE_HOST_HEADERS := include/rum/heap.h include/rum/ramfs.h include/rum/fs.h include/rum/path.h include/rum/fs_types.h include/rum/fs_limits.h $(ABI_HEADERS) include/rum/embedded.h include/rum/paging.h include/rum/pmm.h include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
 SNAKE_HOST_SOURCES := kernel/ui/snake.c kernel/ui/snake_model.c
 SNAKE_HOST_HEADERS := include/rum/snake.h include/rum/snake_model.h include/rum/timer.h
-USER_PROGRAMS := hello nonzero fault spin shell readline
+USER_PROGRAMS := shell help about echo clear ls cat pwd cd write mkdir rm run exit recovery \
+                 snake hello nonzero fault spin readline
 USER_CPPFLAGS := -Iuser/include -Ibuild/user/include
 USER_INCLUDE_STAMP := build/user/include/.abi-stamp
 USER_CFLAGS := -std=gnu11 -ffreestanding -O2 -g -Wall -Wextra -Werror \
                -Wstrict-prototypes -Wmissing-prototypes -fno-stack-protector \
                -fno-pie -fno-pic -fno-builtin -fno-asynchronous-unwind-tables \
                -msoft-float -mno-mmx -mno-sse -mno-sse2
-USER_RUNTIME := build/user/lib/start.o build/user/lib/syscall-entry.o build/user/lib/syscall.o
+USER_RUNTIME := build/user/lib/start.o build/user/lib/syscall-entry.o build/user/lib/syscall.o build/user/lib/tools.o
 USER_DEBUG := $(addprefix build/user/debug/,$(addsuffix .elf,$(USER_PROGRAMS)))
-USER_ASSETS := $(addprefix build/user/ramfs/,$(addsuffix .elf,$(USER_PROGRAMS)))
+USER_ASSETS := $(addprefix build/user/system/,$(addsuffix .elf,$(USER_PROGRAMS)))
 USER_DEPENDENCIES := $(USER_RUNTIME:.o=.d) $(addprefix build/user/programs/,$(addsuffix .d,$(USER_PROGRAMS)))
 ABI_CASES := args limits hello
 ABI_KERNELS := $(addprefix build/tests/abi-,$(addsuffix .elf,$(ABI_CASES)))
@@ -116,7 +117,7 @@ build/tools/check-user-elf: scripts/check-user-elf.c $(ABI_HEADERS) $(LAYOUT_HEA
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Iinclude $< -o $@
 
-build/user/ramfs/%.elf: build/user/debug/%.elf build/tools/check-user-elf
+build/user/system/%.elf: build/user/debug/%.elf build/tools/check-user-elf
 	@mkdir -p $(@D)
 	$(OBJCOPY) --strip-all $< $@.tmp
 	build/tools/check-user-elf $@.tmp $<
@@ -125,14 +126,19 @@ build/user/ramfs/%.elf: build/user/debug/%.elf build/tools/check-user-elf
 # Userspace is a separate Multiboot module, never linked into the kernel.
 # Runtime files are stripped; symbols stay in build/user/debug/ only.
 build/rum-system.img: FORCE $(USER_ASSETS) scripts/pack-system.py
-	python3 scripts/pack-system.py build/user/ramfs $@
+	python3 scripts/pack-system.py build/user/system $@
 
 user: $(USER_ASSETS) build/rum-system.img
-	@$(foreach program,$(USER_PROGRAMS),build/tools/check-user-elf build/user/ramfs/$(program).elf build/user/debug/$(program).elf || exit $$?;)
+	@$(foreach program,$(USER_PROGRAMS),build/tools/check-user-elf build/user/system/$(program).elf build/user/debug/$(program).elf || exit $$?;)
 
 test-user: user
 	python3 tests/user-elf-test.py --cross-prefix $(CROSS_PREFIX)
 	python3 tests/system-image-test.py
+
+.PHONY: test-system-volume
+test: test-system-volume
+test-system-volume: iso
+	python3 tests/system-volume-qemu-test.py --qemu $(QEMU)
 
 build/arch/i386/gdt.o: arch/i386/gdt.c Makefile
 	@mkdir -p $(@D)
@@ -342,7 +348,7 @@ build/tests/abi-entry.o: tests/abi-entry.s $(ABI_HEADERS) $(LAYOUT_HEADERS) Make
 	$(CC) $(CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
 
 build/tests/abi-image-args.o build/tests/abi-image-limits.o: build/tests/user/abi-probe.elf
-build/tests/abi-image-hello.o: build/user/ramfs/hello.elf
+build/tests/abi-image-hello.o: build/user/system/hello.elf
 $(ABI_IMAGES): build/tests/abi-image-%.o: tests/abi-image.s Makefile
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) -x assembler-with-cpp -DRUM_USER_CASE=$(USER_CASE) -MMD -MP -c $< -o $@
@@ -398,7 +404,7 @@ build/tests/syscall.elf: build/tests/syscall-kernel.o build/tests/syscall-probe.
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
 
-build/tests/elf-loader-image.o: tests/elf-loader-image.s build/user/ramfs/hello.elf Makefile
+build/tests/elf-loader-image.o: tests/elf-loader-image.s build/user/system/hello.elf Makefile
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
 

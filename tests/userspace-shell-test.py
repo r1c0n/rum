@@ -4,6 +4,7 @@ import argparse
 from contextlib import contextmanager
 import importlib.util
 import json
+import re
 from pathlib import Path
 import socket
 import subprocess
@@ -44,17 +45,20 @@ class Console:
         self.type(text + "\n")
         self.wait("> ")
         result = self.serial.read_bytes()[start:].decode(errors="replace")
+        # Keep content expectations independent of the displayed path; check
+        # the actual prompt explicitly after directory-changing commands.
+        result = re.sub(r"(?:/[^\r\n> ]*)?> $", "> ", result)
         if expected is not None:
             assert expected in result, (text, expected, result)
         return result
 
 
 @contextmanager
-def boot(qemu, ram, label, disk=None, iso=False, options="", readonly=False, marker="rum userspace shell."):
+def boot(qemu, ram, label, disk=None, iso=False, options="", readonly=False, marker="rum userspace shell.", system_image=True):
     with tempfile.TemporaryDirectory(prefix="rum-shell-qmp-") as temporary:
         serial, monitor = Path(temporary) / "serial", Path(temporary) / "qmp"
         arguments = launcher.boot_arguments(ROOT / ("build/rum.iso" if iso else "build/rum.elf"),
-            kernel=not iso, disk=disk, read_only=readonly)
+            kernel=not iso, disk=disk, read_only=readonly, system_image=system_image)
         if options:
             arguments += ["-append", options]
         process = subprocess.Popen([qemu, "-m", f"{ram}M", "-display", "none", "-no-reboot", "-no-shutdown",
@@ -94,7 +98,27 @@ def commands(console):
     console.command("cat /local.txt", "\r\nRAM file bytes\r\n> ")
     console.command("write empty.txt")
     console.command("cat empty.txt", "cat empty.txt\r\n> ")
-    console.command("ls /", "shell.elf\r\n")
+    console.command("ls /", "rum/\r\n")
+    system_listing = console.command("ls /rum")
+    for tool in ("shell", "help", "about", "echo", "clear", "ls", "cat", "pwd", "cd",
+                 "write", "mkdir", "rm", "run", "exit", "recovery", "snake"):
+        assert tool + ".elf\r\n" in system_listing
+    console.command("hello", "Hello from rum userspace!")
+    console.command("/rum/echo.elf direct ELF", "direct ELF\r\n")
+    console.command("echo two  spaces  ", "\r\ntwo  spaces  \r\n> ")
+    console.command("write spaces.txt bytes  kept  ")
+    console.command("cat spaces.txt", "\r\nbytes  kept  \r\n> ")
+    console.command("write /rum/echo.elf changed", "read-only filesystem.")
+    console.command("rm /rum/cat.elf", "read-only filesystem.")
+    console.command("cd /rum")
+    console.wait("/rum> ")
+    console.command("pwd", "\r\n/rum\r\n> ")
+    console.command("cd ..", "invalid path, name or arguments.")
+    console.wait("/rum> ")
+    console.command("cd /")
+    console.wait("/> ")
+    console.command("run cd /rum", "access denied.")
+    console.wait("/> ")
     console.command("cat /", "is a directory.")
     console.command("cd local.txt", "not a directory.")
     console.command("run absent", "file or directory not found.")
@@ -106,30 +130,31 @@ def commands(console):
     console.type("run readline Z\n")
     console.wait("ZEnter text: ")
     console.type("child owns the keyboard\n")
-    console.wait("Child read: child owns the keyboard\r\nProgram exited with status 5.\r\n> ")
+    console.wait("Child read: child owns the keyboard\r\nProgram exited with status 5.\r\n/> ")
     console.command("echo parent has input", "\r\nparent has input\r\n> ")
     console.type("run readline\n")
     console.wait("Enter text: ")
     console.send("ctrl", "c")
-    console.wait("Program cancelled.\r\n> ")
+    console.wait("Program cancelled.\r\n/> ")
     console.type("run spin\n")
     time.sleep(0.2)
     console.send("ctrl", "c")
-    console.wait("Program cancelled.\r\n> ")
+    console.wait("Program cancelled.\r\n/> ")
     console.type("half a command")
     console.send("ctrl", "c")
-    console.wait("^C\r\n> ")
+    console.wait("^C\r\n/> ")
     console.command("echo restored", "\r\nrestored\r\n> ")
     console.command("clear", "\x1b[2J\x1b[H> ")
     console.type("snake\n")
     console.wait("rum_snake_started\r\n")
     console.send("q")
-    console.wait("rum_snake_quit\r\n> ")
+    console.wait("rum_snake_quit\r\n/> ")
 
 
 def disk_commands(console):
     console.command("ls //disk/./DOCS", "NOTE.TXT\r\n")
     console.command("cd /disk/DOCS")
+    console.wait("/disk/DOCS> ")
     console.command("pwd", "\r\n/disk/DOCS\r\n> ")
     console.command("cat ./NOTE.TXT", "\r\nA\\x00\\xFF\\x1B\\x0D\r\n> ")
     console.command("cat EMPTY.TXT", "cat EMPTY.TXT\r\n> ")
@@ -145,8 +170,10 @@ def disk_commands(console):
     console.command("cat NEW.TXT", "\r\npersistent shell bytes\r\n> ")
     console.command("mkdir CHILD")
     console.command("cd CHILD")
+    console.wait("/disk/DOCS/CHILD> ")
     console.command("write LEAF.TXT leaf")
     console.command("cd ..")
+    console.wait("/disk/DOCS> ")
     console.command("rm CHILD", "directory is not empty.")
     console.command("rm CHILD/LEAF.TXT")
     console.command("rm CHILD")
@@ -164,7 +191,7 @@ def main():
         images.build(disk)
         images.command("mmd", "-i", str(disk), "::/DOCS")
         for name, contents in (("DOCS/NOTE.TXT", b"A\0\xff\x1b\r\n"), ("DOCS/EMPTY.TXT", b""),
-                               ("BAD.ELF", b"bad executable"), ("HELLO.ELF", (ROOT / "build/user/ramfs/hello.elf").read_bytes())):
+                               ("BAD.ELF", b"bad executable"), ("HELLO.ELF", (ROOT / "build/user/system/hello.elf").read_bytes())):
             source.write_bytes(contents)
             images.command("mcopy", "-i", str(disk), str(source), "::/" + name)
         original = disk.read_bytes()
@@ -185,7 +212,7 @@ def main():
             console.command("write /disk/DOCS/NEW.TXT changed", "read-only filesystem.")
         assert disk.read_bytes() == before
         with boot(args.qemu, 64, "missing-disk") as console:
-            console.command("ls /disk", "disk is not mounted.")
+            console.command("ls /disk", "filesystem is not mounted.")
             console.command("cat /readme.txt")
             for _ in range(2): console.command("exit", "Restarting the userspace shell.")
             console.command("exit", "Kernel recovery shell.")
@@ -194,8 +221,8 @@ def main():
             console.command("diag", "Processes: 0 | 0 user tables, 0 user pages")
         for program, marker in (("/missing.elf", "Cannot load the userspace shell."),
                                 ("/readme.txt", "Cannot load the userspace shell."),
-                                ("/nonzero.elf", "Userspace shell stopped repeatedly."),
-                                ("/fault.elf", "Userspace shell stopped repeatedly.")):
+                                ("/rum/nonzero.elf", "Userspace shell stopped repeatedly."),
+                                ("/rum/fault.elf", "Userspace shell stopped repeatedly.")):
             with boot(args.qemu, 16, "fallback-" + Path(program).stem, options="rum.shell=" + program,
                       marker=marker) as console:
                 console.command("echo recovery works", "recovery works")
@@ -207,7 +234,7 @@ def main():
         damaged = Path(temporary) / "malformed.raw"
         data = bytearray(original); data[13] = 3; damaged.write_bytes(data)
         with boot(args.qemu, 64, "malformed-disk", disk=damaged) as console:
-            console.command("ls /disk", "disk is not mounted.")
+            console.command("ls /disk", "filesystem is not mounted.")
             console.command("cat /welcome.txt", "Welcome to rum.")
         assert damaged.read_bytes() == data
     print("PASS: persistence after reboot, read-only/missing disk, shell restart/load/fault fallback and explicit recovery", flush=True)

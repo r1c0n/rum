@@ -5,6 +5,7 @@
 
 static uint32_t system_image_address, system_image_pages;
 static const struct system_header *image;
+static bool mounted;
 
 static bool equal(const char *a, const char *b)
 {
@@ -49,7 +50,9 @@ enum fs_error system_files_prepare(const struct multiboot_info *info)
     if (!info || !(info->flags & (1u << 3)) || !info->mods_count || !info->mods_addr)
         return FS_UNAVAILABLE;
     const struct multiboot_module *module = (const void *)(uintptr_t)info->mods_addr;
-    if (!module->start || module->end <= module->start || module->reserved ||
+    /* Multiboot requires the OS to ignore the module's reserved word. Only
+       our archive's own versioned reserved fields need to be zero. */
+    if (!module->start || module->end <= module->start ||
         !valid_image((const void *)(uintptr_t)module->start, module->end - module->start)) return FS_INVALID;
     uint32_t bytes = module->end - module->start;
     uint32_t pages = (bytes + PAGE_SIZE - 1) / PAGE_SIZE;
@@ -112,11 +115,13 @@ static const struct fs_operations operations = {
 
 enum fs_error system_files_mount(void)
 {
+    if (mounted) return FS_BUSY;
     if (!image) return FS_UNAVAILABLE;
     const struct fs_backend backend = { .operations = &operations, .root = 1,
                                        .naming = FS_NAMES_RAM, .read_only = true };
     enum fs_error error = fs_mount_system(&backend);
-    if (error != FS_OK && error != FS_BUSY) {
+    if (error == FS_OK) mounted = true;
+    else {
         (void)pmm_free_contiguous(system_image_address, system_image_pages);
         image = NULL; system_image_address = system_image_pages = 0;
     }

@@ -3,7 +3,7 @@
 .global abi_asset_start, abi_asset_end
 abi_asset_start:
 #if RUM_USER_CASE == 2
-    .incbin "build/user/ramfs/hello.elf"
+    .incbin "build/user/system/hello.elf"
 #else
     .incbin "build/tests/user/abi-probe.elf"
 #endif

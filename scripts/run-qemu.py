@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def validate_disk(path):
     path = Path(path).resolve(strict=True)
-    outputs = (ROOT / "build/rum.iso", ROOT / "build/rum.elf", ROOT / "build/isodir/boot/rum.elf")
+    outputs = (ROOT / "build/rum.iso", ROOT / "build/rum.elf", ROOT / "build/rum-system.img",
+               ROOT / "build/isodir/boot/rum.elf", ROOT / "build/isodir/boot/rum-system.img")
     if any(path == output.resolve() or (output.exists() and path.samefile(output)) for output in outputs):
         raise ValueError("a generated boot image cannot be attached as a writable disk")
     if not path.is_file():
