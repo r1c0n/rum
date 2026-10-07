@@ -27,5 +27,6 @@ struct ramfs_statistics ramfs_stats(void);
 bool embedded_files_install(void); /* Build-generated boot files; install once. */
 /* Namespace owner only: reserve a mounted disk without hiding a RAM file. */
 void ramfs_reserve_disk(bool reserved);
+void ramfs_reserve_system(bool reserved);
 
 #endif

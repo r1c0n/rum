@@ -29,7 +29,7 @@ DRIVER_SOURCES := kernel/drivers/terminal.c kernel/drivers/serial.c \
 MM_SOURCES := kernel/mm/pmm.c kernel/mm/heap.c
 PROCESS_SOURCES := kernel/process/task.c kernel/process/syscall.c kernel/process/handles.c \
                    kernel/process/elf.c kernel/process/process.c
-FS_SOURCES := kernel/fs/ramfs.c kernel/fs/block.c kernel/fs/path.c kernel/fs/fs-types.c kernel/fs/fs.c kernel/fs/fat16.c kernel/fs/fat16-write.c
+FS_SOURCES := kernel/fs/ramfs.c kernel/fs/system.c kernel/fs/block.c kernel/fs/path.c kernel/fs/fs-types.c kernel/fs/fs.c kernel/fs/fat16.c kernel/fs/fat16-write.c
 UI_SOURCES := kernel/ui/shell.c kernel/ui/snake.c kernel/ui/snake_model.c
 DEBUG_SOURCES := kernel/debug/diagnostics.c kernel/debug/diagnostics-report.c
 ARCH_SOURCES := arch/i386/cpu.c arch/i386/gdt.c arch/i386/interrupt.c \
@@ -122,16 +122,17 @@ build/user/ramfs/%.elf: build/user/debug/%.elf build/tools/check-user-elf
 	build/tools/check-user-elf $@.tmp $<
 	mv -- $@.tmp $@
 
-# Generate and validate the combined boot-asset manifest during user-only builds.
+# Userspace is a separate Multiboot module, never linked into the kernel.
 # Runtime files are stripped; symbols stay in build/user/debug/ only.
-build/user/embedded-files.c: FORCE $(USER_ASSETS) scripts/embed-files.py $(wildcard assets/ramfs/*)
-	python3 scripts/embed-files.py assets/ramfs $@ --extra-directory build/user/ramfs
+build/rum-system.img: FORCE $(USER_ASSETS) scripts/pack-system.py
+	python3 scripts/pack-system.py build/user/ramfs $@
 
-user: $(USER_ASSETS) build/user/embedded-files.c
+user: $(USER_ASSETS) build/rum-system.img
 	@$(foreach program,$(USER_PROGRAMS),build/tools/check-user-elf build/user/ramfs/$(program).elf build/user/debug/$(program).elf || exit $$?;)
 
 test-user: user
 	python3 tests/user-elf-test.py --cross-prefix $(CROSS_PREFIX)
+	python3 tests/system-image-test.py
 
 build/arch/i386/gdt.o: arch/i386/gdt.c Makefile
 	@mkdir -p $(@D)
@@ -165,8 +166,8 @@ build/%.o: %.c Makefile
 # Check both asset directories each build, including removed files. Unchanged C
 # keeps its mtime. Runtime ELFs are stripped; debug symbols and maps stay out.
 FORCE:
-build/embedded-files.c: FORCE $(USER_ASSETS) scripts/embed-files.py $(wildcard assets/ramfs/*)
-	python3 scripts/embed-files.py assets/ramfs $@ --extra-directory build/user/ramfs
+build/embedded-files.c: FORCE scripts/embed-files.py $(wildcard assets/ramfs/*)
+	python3 scripts/embed-files.py assets/ramfs $@
 
 build/generated/embedded-files.o: build/embedded-files.c Makefile
 	@mkdir -p $(@D)
@@ -179,19 +180,21 @@ check: build/rum.elf
 	grub-file --is-x86-multiboot $<
 	@echo "rum: Multiboot v1 header verified."
 
-build/rum.iso: build/rum.elf boot/grub/grub.cfg | check
+build/rum.iso: build/rum.elf build/rum-system.img boot/grub/grub.cfg | check
 	@mkdir -p build/isodir/boot/grub
 	cp build/rum.elf build/isodir/boot/rum.elf
+	cp build/rum-system.img build/isodir/boot/rum-system.img
 	cp boot/grub/grub.cfg build/isodir/boot/grub/grub.cfg
 	grub-mkrescue -o $@ build/isodir
 
 iso: build/rum.iso
 
 # Legacy diagnostics exercise the kernel recovery console deliberately.
-build/tests/recovery.iso: build/rum.elf Makefile
+build/tests/recovery.iso: build/rum.elf build/rum-system.img Makefile
 	@mkdir -p build/recovery-isodir/boot/grub
 	cp build/rum.elf build/recovery-isodir/boot/rum.elf
-	printf 'set timeout=0\nmenuentry "rum recovery" {\n multiboot /boot/rum.elf rum.recovery\n boot\n}\n' > build/recovery-isodir/boot/grub/grub.cfg
+	cp build/rum-system.img build/recovery-isodir/boot/rum-system.img
+	printf 'set timeout=0\nmenuentry "rum recovery" {\n multiboot /boot/rum.elf rum.recovery\n module /boot/rum-system.img\n boot\n}\n' > build/recovery-isodir/boot/grub/grub.cfg
 	grub-mkrescue -o $@ build/recovery-isodir
 
 run:
@@ -201,7 +204,7 @@ run:
 
 run-kernel:
 	python3 scripts/run-qemu.py --validate-disk-only $(QEMU_DISK_ARGS)
-	$(MAKE) check
+	$(MAKE) check user
 	python3 scripts/run-qemu.py --qemu $(QEMU) --kernel --image build/rum.elf $(QEMU_DISK_ARGS)
 
 debug:

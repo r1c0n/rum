@@ -135,8 +135,19 @@ enum process_launch_error process_launch_foreground(const char *program,
 
     char name[RAMFS_NAME_CAPACITY];
     struct task_process process;
-    if (!executable_name(program, name) || !elf_load_ramfs(name, &packet, &process))
-        return PROCESS_LAUNCH_EXECUTABLE;
+    if (!executable_name(program, name)) {
+        char path[FS_PATH_CAPACITY];
+        size_t length = 0; bool slash = false;
+        while (program[length]) { if (program[length] == '/') slash = true; ++length; }
+        unsigned prefix = slash ? 0 : 5;
+        if (length + prefix >= sizeof path) return PROCESS_LAUNCH_INVALID_ARGUMENTS;
+        if (prefix) memcpy(path, "/rum/", prefix);
+        memcpy(path + prefix, program, length + 1);
+        rum_result_t error = process_run_foreground(path, &packet, result);
+        return !error ? PROCESS_LAUNCH_OK : error == -RUM_ENOMEM ? PROCESS_LAUNCH_RESOURCES :
+               error == -RUM_EIO ? PROCESS_LAUNCH_INTERNAL : PROCESS_LAUNCH_EXECUTABLE;
+    }
+    if (!elf_load_ramfs(name, &packet, &process)) return PROCESS_LAUNCH_EXECUTABLE;
 
     task_id child = task_create_foreground_process(&process);
     if (!child) {

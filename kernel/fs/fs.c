@@ -77,12 +77,14 @@ static enum fs_error step(struct location *location, const char *name)
     if (parent->kind != FS_DIRECTORY) return FS_NOT_DIRECTORY;
     if (equal(name, ".")) return FS_OK;
     if (equal(name, "..")) {
-        if (!location->depth && location->mount == FS_MOUNT_DISK) return FS_MOUNT_ESCAPE;
+        if (!location->depth && location->mount != FS_MOUNT_RAM) return FS_MOUNT_ESCAPE;
         if (location->depth) --location->depth;
         return FS_OK;
     }
     if (location->mount == FS_MOUNT_RAM && !location->depth && equal(name, "disk") && !disk_collision())
         return root(location, FS_MOUNT_DISK);
+    if (location->mount == FS_MOUNT_RAM && !location->depth && equal(name, "rum") &&
+        mounts[FS_MOUNT_SYSTEM].mounted) return root(location, FS_MOUNT_SYSTEM);
     if (location->depth == FS_PATH_DEPTH) return FS_TOO_DEEP;
     struct fs_backend *backend = &mounts[location->mount].backend;
     struct fs_node node = {0};
@@ -199,16 +201,17 @@ static enum fs_error close_reference(fs_reference token)
     return FS_OK;
 }
 
-enum fs_error fs_mount_disk(const struct fs_backend *backend)
+static enum fs_error mount_backend(const struct fs_backend *backend, enum fs_mount_id id)
 {
-    if (!backend || !backend->root || backend->naming != FS_NAMES_FAT83 || !backend->operations ||
+    if (!backend || !backend->root || backend->naming != (id == FS_MOUNT_DISK ? FS_NAMES_FAT83 : FS_NAMES_RAM) ||
+        (id == FS_MOUNT_SYSTEM && !backend->read_only) || !backend->operations ||
         !backend->operations->lookup || !backend->operations->stat || !backend->operations->retain ||
         !backend->operations->release || !backend->operations->read || !backend->operations->readdir) return FS_INVALID;
     enum fs_error error = enter();
     if (error != FS_OK) return error;
-    struct mount *mount = &mounts[FS_MOUNT_DISK];
+    struct mount *mount = &mounts[id];
     if (mount->mounted) error = FS_BUSY;
-    else if (disk_collision()) error = FS_EXISTS;
+    else if (ramfs_read(id == FS_MOUNT_DISK ? "disk" : "rum", NULL, NULL)) error = FS_EXISTS;
     else if (mount->generation == UINT32_MAX) error = FS_NO_SPACE;
     else {
         struct fs_node node = {0};
@@ -218,13 +221,17 @@ enum fs_error fs_mount_disk(const struct fs_backend *backend)
             else {
                 uint32_t flags = cpu_interrupt_save();
                 mount->backend = *backend; ++mount->generation; mount->mounted = true;
-                ramfs_reserve_disk(true);
+                if (id == FS_MOUNT_DISK) ramfs_reserve_disk(true);
+                else ramfs_reserve_system(true);
                 cpu_interrupt_restore(flags);
             }
         }
     }
     leave(); return error;
 }
+
+enum fs_error fs_mount_disk(const struct fs_backend *backend) { return mount_backend(backend, FS_MOUNT_DISK); }
+enum fs_error fs_mount_system(const struct fs_backend *backend) { return mount_backend(backend, FS_MOUNT_SYSTEM); }
 
 enum fs_error fs_unmount_disk(void)
 {
@@ -365,15 +372,20 @@ enum fs_error fs_readdir(fs_reference token, uint64_t *cursor, struct fs_entry *
         else if (object->kind != FS_DIRECTORY) error = FS_NOT_DIRECTORY;
         else {
             bool virtual_disk = object->mount == FS_MOUNT_RAM && object->id == backend->root && !disk_collision();
+            bool virtual_system = object->mount == FS_MOUNT_RAM && object->id == backend->root &&
+                                  mounts[FS_MOUNT_SYSTEM].mounted;
+            unsigned virtual_count = (unsigned)virtual_disk + (unsigned)virtual_system;
             uint64_t next = 0;
-            if (virtual_disk && !*cursor) {
-                memcpy(entry->name, "disk", 5); entry->kind = FS_DIRECTORY; next = 1;
+            if (*cursor < virtual_count) {
+                if (virtual_disk && !*cursor) memcpy(entry->name, "disk", 5);
+                else memcpy(entry->name, "rum", 4);
+                entry->kind = FS_DIRECTORY; next = *cursor + 1;
             } else {
                 error = backend->operations->readdir(backend->context, object->id,
-                                                     *cursor - (virtual_disk ? 1 : 0), entry, &next);
-                if (error == FS_OK && virtual_disk) {
-                    if (next == UINT64_MAX) error = FS_RANGE;
-                    else ++next;
+                                                     *cursor - virtual_count, entry, &next);
+                if (error == FS_OK && virtual_count) {
+                    if (next > UINT64_MAX - virtual_count) error = FS_RANGE;
+                    else next += virtual_count;
                 }
             }
             if (error == FS_OK) {
@@ -442,7 +454,9 @@ static enum fs_error mutate(const struct fs_context *context, const char *path,
         if (error == FS_OK && parent.nodes[parent.depth].kind != FS_DIRECTORY) error = FS_NOT_DIRECTORY;
         bool virtual_disk = error == FS_OK && parent.mount == FS_MOUNT_RAM && !parent.depth &&
                             equal(name, "disk") && !disk_collision();
-        if (virtual_disk) error = action == REMOVE ? FS_BUSY : FS_IS_DIRECTORY;
+        bool virtual_system = error == FS_OK && parent.mount == FS_MOUNT_RAM && !parent.depth &&
+                              equal(name, "rum") && mounts[FS_MOUNT_SYSTEM].mounted;
+        if (virtual_disk || virtual_system) error = action == REMOVE ? FS_BUSY : FS_IS_DIRECTORY;
         if (error == FS_OK) {
             struct fs_backend *backend = &mounts[parent.mount].backend;
             struct fs_node node = {0};

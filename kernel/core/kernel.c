@@ -14,6 +14,7 @@
 #include <rum/ramfs.h>
 #include <rum/serial.h>
 #include <rum/shell.h>
+#include <rum/system.h>
 #include <rum/terminal.h>
 #include <rum/timer.h>
 #include <rum/task.h>
@@ -63,7 +64,7 @@ static void update_uptime(uint32_t seconds)
 
 static bool recovery;
 static bool disk_readonly;
-static char shell_path[FS_PATH_CAPACITY] = "/shell.elf";
+static char shell_path[FS_PATH_CAPACITY] = "/rum/shell.elf";
 static volatile bool uptime_stop;
 
 /* PMM has already bounded/reserved the Multiboot command string. Parse it
@@ -187,6 +188,7 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
         return;
     }
     boot_options(info);
+    enum fs_error system = system_files_prepare(info);
     if (!paging_initialize()) {
         terminal_set_color(VGA_LIGHT_RED, VGA_BLACK);
         print("rum: cannot allocate page tables. Halting.\n");
@@ -202,6 +204,8 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
         print("rum: cannot initialize kernel contexts. Halting.\n");
         return;
     }
+    if (system == FS_OK) system = system_files_mount();
+    serial_writestring("rum_system: "); serial_writestring(fs_error_name(system)); serial_writestring("\n");
     struct block_result disk = ata_initialize();
     serial_writestring("rum_disk: ");
     serial_writestring(block_error_name(disk.error));
@@ -247,6 +251,7 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     print("  [ok] Paging (4 KiB pages, null guard)\n");
     print("  [ok] Kernel heap (16-byte alignment)\n");
     print("  [ok] RAM filesystem and embedded files\n");
+    if (system == FS_OK) print("  [ok] Userspace system volume /rum\n");
     if (filesystem == FS_OK) print(fat16_info().writable ?
         "  [ok] FAT16 /disk (read/write)\n" : "  [ok] FAT16 /disk (read only)\n");
     print("  [ok] PIC remapped (IRQ0/IRQ1 only)\n");

@@ -75,16 +75,17 @@ static enum fs_error apply(struct canonical *path, struct fs_tokens *tokens)
         char *name = tokens->text + tokens->offsets[i];
         if (equal(name, ".")) continue;
         if (equal(name, "..")) {
-            if (path->mount == FS_MOUNT_DISK && path->count == 1) return FS_MOUNT_ESCAPE;
+            if (path->mount != FS_MOUNT_RAM && path->count == 1) return FS_MOUNT_ESCAPE;
             if (path->count) path->length = path->previous[--path->count];
             path->text[path->length] = '\0';
             continue;
         }
         bool disk_root = path->mount == FS_MOUNT_RAM && !path->count && equal(name, "disk");
+        bool system_root = path->mount == FS_MOUNT_RAM && !path->count && equal(name, "rum");
         enum fs_error error = fs_name_check(path->mount == FS_MOUNT_DISK ? FS_NAMES_FAT83 : FS_NAMES_RAM, name);
         if (error != FS_OK) return error;
-        unsigned depth = path->count - (path->mount == FS_MOUNT_DISK ? 1 : 0);
-        if (!disk_root && depth == FS_PATH_DEPTH) return FS_TOO_DEEP;
+        unsigned depth = path->count - (path->mount != FS_MOUNT_RAM ? 1 : 0);
+        if (!disk_root && !system_root && depth == FS_PATH_DEPTH) return FS_TOO_DEEP;
         unsigned length = 0;
         while (name[length]) {
             if (path->mount == FS_MOUNT_DISK && name[length] >= 'a' && name[length] <= 'z')
@@ -98,6 +99,7 @@ static enum fs_error apply(struct canonical *path, struct fs_tokens *tokens)
         memcpy(path->text + path->length, name, length + 1);
         path->length += length;
         if (disk_root) path->mount = FS_MOUNT_DISK;
+        if (system_root) path->mount = FS_MOUNT_SYSTEM;
     }
     return FS_OK;
 }
@@ -122,6 +124,6 @@ enum fs_error fs_path_parse(const char *base, const char *input, struct fs_path 
     error = apply(&path, &result->input);
     if (error != FS_OK) return error;
     result->mount = path.mount;
-    result->depth = (uint16_t)(path.count - (path.mount == FS_MOUNT_DISK ? 1 : 0));
+    result->depth = (uint16_t)(path.count - (path.mount != FS_MOUNT_RAM ? 1 : 0));
     return FS_OK;
 }

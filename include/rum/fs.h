@@ -42,6 +42,8 @@ struct fs_statistics { uint32_t objects, references, mounts; };
    Foreground/boot only; no IRQ callers. NULL path context means '/'. */
 bool fs_initialize(void);
 enum fs_error fs_mount_disk(const struct fs_backend *backend);
+/* Permanent, read-only boot volume at /rum. */
+enum fs_error fs_mount_system(const struct fs_backend *backend);
 enum fs_error fs_unmount_disk(void);
 struct fs_statistics fs_stats(void);
 enum fs_error fs_open(const struct fs_context *, const char *path, unsigned access, fs_reference *);
