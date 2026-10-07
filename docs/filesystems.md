@@ -7,9 +7,10 @@ validation itself.
 
 RAM files occupy `/`. A supported [FAT16 disk](fat16.md) mounts at
 `/disk` during boot. `/disk` returns `FS_UNAVAILABLE` without a valid volume.
-The existing kernel shell, ELF loader, and Snake continue to use the flat
-RAM-file API. User programs can access this namespace through
-[filesystem syscalls](filesystem-syscalls.md). The kernel shell has no `cd` command.
+The normal shell and other user programs access both mounts through
+[filesystem syscalls](filesystem-syscalls.md). ELF launch uses the same common
+layer. Snake and the kernel recovery shell keep the flat RAM-file API; recovery
+has no `cd` command.
 
 ## Path rules
 

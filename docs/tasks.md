@@ -1,8 +1,9 @@
 # Kernel tasks and process records
 
-rum has a cooperative, single-CPU scheduler. The shell runs in the boot task,
-an idle task sleeps when no work is ready, and up to 16 worker records can hold
-a kernel task or a prepared user process.
+rum has a cooperative, single-CPU scheduler. The boot task supervises the
+userspace shell, an uptime worker updates the status row, and an idle task sleeps
+when no work is ready. Up to 16 worker records can hold a kernel task or a user
+process. The recovery shell runs in the boot task.
 
 There is no timer preemption. A running kernel task keeps the CPU until it
 yields, waits, exits, or takes an interrupt. Interrupt return resumes the same
@@ -12,14 +13,16 @@ context unless foreground code later invokes the scheduler.
 
 | Kind | PID | Address space | Entry behavior |
 | --- | --- | --- | --- |
-| Boot | 0 | Borrows kernel space | Runs kernel initialization and foreground loop |
+| Boot | 0 | Borrows kernel space | Initializes the kernel, supervises the shell, runs recovery |
 | Idle | 0 | Borrows kernel space | Sleeps with `sti; hlt` |
 | Kernel worker | 0 | Borrows kernel space or owns a private space | Calls a trusted C entry function |
 | User process | Positive | Owns a private space | Restores a trusted user frame and enters ring 3 |
 
 The ELF loader can prepare a private address space and trusted frame for this
-path. The shell's `run` command publishes it as the sole foreground child,
-blocks the boot task on its exit event, then reports and reaps the result.
+path. The shell's `run` command publishes a foreground child through a syscall,
+blocks the shell on its exit event, then reports and reaps the result. Nested
+launches transfer foreground ownership to the deepest child and restore its
+parent after termination. See [process syscalls](process-syscalls.md).
 
 ## Guarded kernel stacks
 
@@ -140,7 +143,8 @@ that the CPU is still using.
 An exception whose saved CS came from ring 3 follows the same switch-first rule.
 The process becomes exited with `TASK_TERMINATION_FAULT`, and its vector, error
 code, CR2 page-fault address, EIP, ESP, and complete user frame remain available
-to its parent. An exception from ring 0 still enters the kernel panic path,
+to trusted kernel callers. A userspace parent receives only the fault vector.
+An exception from ring 0 still enters the kernel panic path,
 including a kernel fault that occurs while serving a process.
 
 Exited kernel workers can be reclaimed automatically by a resumed task or
@@ -157,6 +161,9 @@ The request becomes `TASK_TERMINATION_CANCELLED` only at process startup, after
 a blocking wait resumes, or on a trusted interrupt/syscall return to ring 3.
 The parent then observes and reaps it through the same path used for normal
 exit and user faults.
+
+The supervised initial shell is marked interactive, so Ctrl+C is queued for its
+line editor rather than cancelling it. Its foreground children remain cancellable.
 
 Each process gets a fresh [32-slot handle table](filesystem-syscalls.md), with
 standard streams in 0–2. Open files are not inherited. File references are

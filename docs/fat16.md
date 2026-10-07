@@ -6,11 +6,10 @@ read and write files, resize them, and create and remove directories. Mounting
 and normal boot never format, repair, or write the image.
 
 The common kernel filesystem API provides these operations and directory iteration.
-The current kernel shell's `ls`, `cat`, `write`, `rm`, and `run` commands still
-use RAM files. User programs can read and write existing disk files, list
-directories, change directories, create directories and remove closed objects
-through [filesystem syscalls](filesystem-syscalls.md). Shell access to `/disk`
-will use those same calls.
+The normal [userspace shell](shell.md) can list, read, create and replace disk
+files, change directories, make and remove directories, and launch disk ELFs.
+It uses the same [filesystem syscalls](filesystem-syscalls.md) as other user
+programs. The kernel recovery shell retains its RAM-file commands.
 
 ## Create an image with host files
 
@@ -58,6 +57,10 @@ Writes change the supplied image. Use a disposable copy for experiments.
 `fat16_mount_read_only()` lets kernel callers mount without permitting writes.
 This is independent of QEMU's `readonly=on` device option, which some IDE
 configurations refuse before boot; see [Raw disks and block devices](block-devices.md#attach-an-existing-image).
+
+For a direct ELF boot with a forced read-only FAT mount, add
+`-append rum.disk-readonly` to QEMU. This is a kernel mount policy; QEMU still
+attaches the underlying IDE image normally. It does not change host permissions.
 
 ## Supported format
 

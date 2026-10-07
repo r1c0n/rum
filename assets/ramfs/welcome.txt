@@ -1,4 +1,4 @@
 Welcome to rum.
 An island of our own.
-Files live in RAM; changes disappear when rum restarts.
+Root files live in RAM; /disk files persist on an attached FAT16 image.
 Try: ls, cat readme.txt, write notes.txt hello from rum

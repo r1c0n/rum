@@ -5,8 +5,8 @@ open existing RAM files and files on a mounted FAT16 volume, read or overwrite
 their contents, list directories, change their working directory, create
 directories, remove closed objects, and flush a backend.
 
-The kernel shell still uses its existing RAM commands. These calls are available
-to ring-3 programs; the [userspace shell](roadmap.md) will use them too.
+The normal [userspace shell](shell.md) uses these calls on both mounts. The
+kernel recovery shell keeps its original RAM commands.
 
 ## Opening and reading
 
@@ -30,10 +30,20 @@ rejects regular files. With zero flags, a read-only open may also open a
 directory. Directory handles support `rum_readdir`, not byte reads or writes.
 Unknown bits, zero access, or a writable directory request are rejected.
 
-Open does not create or truncate a file. File creation and resizing currently
-use the kernel filesystem API. A writable handle can overwrite or append to an
+Open does not create or truncate a file. `rum_replace(path, data, bytes)` creates
+or replaces a whole file, up to 65,536 bytes. Zero bytes creates an empty file
+and ignores the data pointer. An open file identity cannot be replaced. A
+writable handle can overwrite or append to an
 existing file, subject to RAM or FAT limits. A write beyond EOF returns
 `-RUM_ERANGE`; sparse files are unsupported.
+
+`rum_replace` uses syscall 14 and a 24-byte `rum_replace_request`: version,
+size, path address, data address, byte count, and a zero reserved word. It
+checks the full readable data range and copies it into kernel storage before
+calling the backend. Success returns zero. Unknown version/size/reserved fields
+return `-RUM_EINVAL`; an oversized request returns `-RUM_E2BIG`. Disk failures
+may follow committed metadata; the [FAT16 interrupted-write guarantee](fat16.md)
+still applies.
 
 Each process starts with input, output and error at handles 0, 1 and 2.
 File and directory handles occupy 3–31. The first free slot is used; exhausting

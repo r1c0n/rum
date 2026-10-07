@@ -92,7 +92,7 @@ for commands, supported sizes and the current read-only IDE limitation.
 Normal builds also produce stripped assets in `build/user/ramfs/` and symbol-rich
 executables/maps in `build/user/debug/`. Use `.\rum.ps1 user` in PowerShell to
 build those separately. See [User ABI and executables](user-abi.md) for the
-runtime and loading contract. Launch an embedded program from the kernel shell
+runtime and loading contract. Launch an embedded program from the userspace shell
 with `run <program> [args]`.
 
 ## Debugging

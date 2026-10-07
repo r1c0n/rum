@@ -2,7 +2,7 @@
 
 rum builds freestanding i386 user executables with a separate startup, runtime,
 linker script, and public include tree. The kernel validates and maps stripped
-ELF files from its RAM filesystem, constructs their initial stacks, enters the
+ELF files from RAM or FAT16, constructs their initial stacks, enters the
 prepared process in ring 3, recovers user faults, and serves ABI version 1
 through the production syscall dispatcher. The normal shell launches one
 foreground process with `run`, waits for its result, and reclaims its complete
@@ -67,20 +67,22 @@ At the rum prompt, use a build name or the full RAM filename:
 ```text
 > run hello first second
 Hello from rum userspace!
-Process 1 exited with status 0.
+Program exited with status 0.
 
 > run nonzero
-Process 2 exited with status -37.
+Program exited with status -37.
 ```
 
 The shell treats spaces and tabs as argument separators and does not implement
-quotes or escapes. The typed program name becomes `argv[0]`. If the exact RAM
-filename is absent, `run` tries the same name with `.elf` appended.
+quotes or escapes. The typed program name becomes `argv[0]`. Bare names resolve
+in RAM root; paths containing `/` use the working directory or absolute root.
+If the exact filename is absent, the loader tries `.elf`.
 
-Only one foreground child is supported. Its parent sleeps on a process-exit
+Only one active foreground child is supported. A child can launch its own
+foreground child through [process syscalls](process-syscalls.md). Its parent sleeps on a process-exit
 event while the child owns console input. Normal exit preserves the full signed
-status. A user exception preserves its vector, error code, fault address, EIP,
-and user stack pointer. Ctrl+C records a cancellation request; a blocking child
+status. A user exception preserves a detailed record inside the kernel; public
+results expose only the exception vector. Ctrl+C records a cancellation request; a blocking child
 is woken, and a CPU-bound child observes the request on the next timer or
 keyboard return before ring 3 resumes. Every outcome switches away from the
 child before releasing its user pages, private tables, directory, guarded
@@ -134,6 +136,9 @@ callee-saved registers.
 | 10 | `rum_mkdir(path)` | NUL-terminated path | Zero |
 | 11 | `rum_remove(path)` | NUL-terminated path | Zero |
 | 12 | `rum_flush(handle)` | Filesystem handle | Zero |
+| 13 | `rum_run(path, arguments, result)` | Versioned launch packet | Zero; sanitized child result |
+| 14 | `rum_replace(path, data, bytes)` | Versioned whole-file packet | Zero |
+| 15 | `rum_console(action)` | Clear or Snake selector | Zero |
 
 Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
 means success. A negative result is the negation of a `RUM_E*` value from

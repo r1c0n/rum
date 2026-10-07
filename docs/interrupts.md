@@ -59,12 +59,13 @@ PIT channel 0 uses mode 2 with divisor 11932, producing roughly 100 ticks per
 second. IRQ0 increments a 32-bit tick counter and signals the shared foreground
 work event.
 
-The foreground loop uses ticks for the uptime row and Snake movement. It
+The uptime worker and foreground Snake loop use ticks for display and movement. They
 compares unsigned tick differences, so normal scheduling continues across the
 counter wrap after roughly 497 days.
 
-When there is no input, game update, or runnable worker, the boot task waits on
-the work event and the scheduler runs idle. Idle checks for work with IF clear,
+When there is no input or runnable task, the shell waits for keyboard input,
+its kernel supervisor waits for shell exit, and the scheduler runs idle.
+Idle checks for work with IF clear,
 then executes `sti; hlt`. The interrupt shadow after STI closes the race between
 the final check and sleeping.
 
@@ -83,19 +84,20 @@ The decoder supports a US QWERTY keyboard with:
 
 Navigation keys, function keys, keyboard LEDs, Num Lock behavior, and alternate
 layouts are unsupported. Ctrl+C requests foreground-process cancellation; other
-Ctrl and Alt combinations are ignored. Pause and Print Screen sequences are
+Ctrl and Alt combinations are ignored. At the supervised shell, Ctrl+C is
+queued as input to discard the current line. Pause and Print Screen sequences are
 consumed without producing text.
 
 Decoded characters enter a 128-slot ring buffer with 127 usable entries. If the
 buffer is full, the newest character is dropped and the diagnostic drop counter
-increases. IRQ1 never echoes or edits text; the foreground loop sends queued
-characters to the [shell](shell.md) or [Snake](snake.md).
+increases. IRQ1 never echoes or edits text; the shell's standard-input syscall
+or the kernel Snake/recovery loop consumes queued characters in task context.
 
 A decoded character also signals a keyboard-specific task event. Blocking
 standard-input reads wait on this event rather than the general work event, so
 timer ticks do not cause needless wakeups.
 
-Ctrl+C is consumed by IRQ1 when a foreground process exists. The handler only
+Ctrl+C is consumed by IRQ1 when a cancellable foreground child exists. The handler only
 sets its cancellation flag and makes a blocked process runnable. The common
 interrupt-return path performs termination at a safe boundary before user code
 runs again, which also covers CPU-bound programs interrupted by the PIT.

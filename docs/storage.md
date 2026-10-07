@@ -1,6 +1,6 @@
 # Heap and RAM files
 
-Shell files live in memory. Files embedded in the kernel
+Root files live in memory. Files embedded in the kernel
 are copied into a writable RAM filesystem during boot. Files created or changed
 at runtime disappear when QEMU restarts.
 
@@ -11,13 +11,12 @@ at runtime disappear when QEMU restarts.
 > cat welcome.txt
 > write notes.txt hello from rum
 > cat notes.txt
-> mem
 > rm notes.txt
 ```
 
 `write` creates or replaces a file. Omitting the text creates an empty file.
 Internal and trailing spaces are preserved. `cat` displays newline and tab but
-replaces other control or binary bytes with dots; the underlying file still
+escapes other control or binary bytes as `\xNN`; the underlying file still
 contains its original bytes.
 
 The filesystem has one flat root:
@@ -27,14 +26,15 @@ The filesystem has one flat root:
 - Names 1–63 characters long.
 - ASCII letters, digits, `.`, `_`, and `-` only.
 - An optional leading `/`; `/notes.txt` and `notes.txt` name the same file.
-- No directories, permissions, handles, or persistent disk backend.
+- No RAM directories or persistent RAM storage. The common layer supplies
+  handles and a separate `/disk` mount; see [filesystems](filesystems.md).
 
 `.` and `..` are rejected as filenames. The shell's 255-character input limit
 usually bounds text created interactively before the 64 KiB file limit matters.
 
 ## Understanding `mem`
 
-The `mem` command reports:
+Enter `recovery` first. The kernel shell's `mem` command reports:
 
 - Mapped heap capacity.
 - Live aligned payload capacity.
@@ -133,7 +133,7 @@ existing shell commands retain their limits and temporary storage behavior.
   add the file to `assets/ramfs/` if it should appear on every boot.
 - **`write` fails:** check the filename, 64-file limit, 64 KiB limit, and heap
   usage with `mem`.
-- **`cat` shows dots:** the file contains control or binary bytes; the shell is
+- **`cat` shows escapes:** the file contains control or binary bytes; the shell is
   sanitizing display output, not changing the stored file.
 - **Heap mapped bytes do not shrink:** pages stay mapped for reuse by design.
 - **A borrowed file pointer became invalid:** a write, replacement or removal ended its

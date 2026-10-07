@@ -48,21 +48,22 @@ The bottom row shows uptime.
 | `clear` | Clear the console |
 | `about` | Show version and kernel information |
 | `echo <text>` | Print text |
-| `ls` | List RAM files |
-| `cat <name>` | Read a file |
-| `write <name> [text]` | Create or replace a file |
-| `rm <name>` | Remove a file |
-| `mem` | Show heap and filesystem usage |
-| `diag` | Inspect tasks, paging, stacks and memory usage |
-| `run <program> [args]` | Run an embedded user ELF in the foreground |
+| `ls [path]` | List a RAM or disk directory |
+| `cat <path>` | Read a file |
+| `pwd`, `cd [path]` | Show or change the working directory |
+| `write <path> [text]` | Create or replace a file |
+| `mkdir <path>`, `rm <path>` | Create a disk directory or remove an object |
+| `run <program> [args]` | Run a RAM or disk ELF in the foreground |
 | `snake` | Play ASCII Snake |
+| `recovery` | Enter the kernel shell for `mem`, `diag` and recovery commands |
 
 Snake uses **WASD** to move, **P** to pause, **R** to restart, and **Q** to return
 to the shell. Best scores are saved in `snake.score` for the current boot.
 
-Files are stored in RAM. Rebooting restores the files embedded from
-`assets/ramfs/` and discards changes. Add files there and rebuild to include them
-in the kernel.
+Root files are stored in RAM. Rebooting restores files embedded from
+`assets/ramfs/` and discards RAM changes. An optional FAT16 image mounted at
+`/disk` preserves disk files across boots. See the [shell guide](docs/shell.md)
+for paths, disk commands, Ctrl+C and recovery.
 
 Close the QEMU window to exit. The default GTK/SDL interface releases captured
 input with `Ctrl+Alt+G`.
@@ -86,11 +87,11 @@ input with `Ctrl+Alt+G`.
 - A separate freestanding user ELF build, production loader, and public ABI.
 - Foreground user-process launch, waiting, fault reporting, cleanup, and Ctrl+C.
 
-rum is a single-CPU system. The shell and Snake still run in ring 0; programs
-started with `run` execute in ring 3. Supported FAT16 disks mount at `/disk` for
-kernel callers and user programs, with file and directory mutations on writable
-devices. Shell commands still use RAM files. See [filesystem syscalls](docs/filesystem-syscalls.md)
-to read and write disk files from a user program.
+rum is a single-CPU system. The normal shell and programs started with `run`
+execute in ring 3 using public syscalls. Snake and the recovery shell remain
+kernel applications. Supported FAT16 disks mount at `/disk` with file and
+directory mutations on writable devices. See [filesystem syscalls](docs/filesystem-syscalls.md)
+and [process syscalls](docs/process-syscalls.md) to write a user program.
 
 Create and attach a disposable disk with `make create-disk DISK_IMAGE=build/scratch.raw`
 then `make run DISK_IMAGE=build/scratch.raw`. PowerShell equivalents and the
