@@ -160,12 +160,16 @@ directly.
   bytes through both the userspace shell and host FAT tools.
 - [x] Inject block and filesystem failures and confirm the shell, RAM files,
   diagnostics and kernel recovery path remain usable.
-- [ ] Run the complete host and QEMU suite through both boot paths and supported
+- [x] Run the complete host and QEMU suite through both boot paths and supported
   RAM sizes.
 - [x] Document image creation, QEMU attachment, mounts, paths, FAT limitations,
   syscall structures, flush behavior and recovery expectations.
-- [ ] Verify packaging on Windows and Linux. Keep the ISO standalone and do not
+- [x] Verify packaging on Windows and Linux. Keep the ISO standalone and do not
   bundle a mutable user disk unless a release explicitly calls for one.
+
+The release checks are available through `make test-release-integration` and
+the [clean release workflow](release.md). They retain guest logs and artifact
+hashes without deleting a developer's existing disk images.
 
 0.4.0 is ready when the userspace shell can launch a program, create and read
 `/disk/notes.txt`, survive a child fault or Ctrl+C, and recover the same file
