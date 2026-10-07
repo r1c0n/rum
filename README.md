@@ -188,4 +188,4 @@ The project follows the boot and toolchain approach in
 `arch/i386/boot.s` sets up its stack and CPU segments before calling C.
 
 See the [documentation](docs/README.md) for subsystem details and debugging.
-Persistent files and userspace-shell plans are in the [roadmap](docs/roadmap.md).
+Multitasking and userspace development plans are in the [roadmap](docs/roadmap.md).

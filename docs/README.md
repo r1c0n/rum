@@ -70,9 +70,9 @@ directories, file creation and ELF launch.
 | [Filesystem syscalls](filesystem-syscalls.md) | Opening files from userspace, directory iteration, seek, paths and error handling |
 | [Process syscalls](process-syscalls.md) | Foreground launch, child results, console ownership and cancellation |
 
-The [roadmap](roadmap.md) is project planning rather than a description of
-released behavior. It tracks the planned persistent storage and userspace-shell
-work for 0.4.0.
+The [roadmap](roadmap.md) describes planned work: multitasking and process
+control for 0.5.0, then shell workflows and userspace tools for 0.6.0. The guides
+above describe the interfaces available today.
 
 ## Boot flow
 
