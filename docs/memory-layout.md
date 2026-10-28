@@ -2,8 +2,8 @@
 
 This page is the quick reference for choosing an address range and deciding who
 must release a memory resource. Constants live in
-`include/rum/memory_layout.h`; process limits live in
-`include/rum/process_limits.h`. Every end address below is exclusive.
+`kernel/include/rum/memory_layout.h`; process limits live in
+`kernel/include/rum/process_limits.h`. Every end address below is exclusive.
 
 ## Virtual address map
 

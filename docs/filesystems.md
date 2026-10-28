@@ -48,7 +48,7 @@ before passing them here.
 ## Limits and names
 
 The public limits live in `include/rum/abi/filesystem.h`. Kernel aliases and
-table capacities live in `include/rum/fs_limits.h`.
+table capacities live in `kernel/include/rum/fs_limits.h`.
 
 | Limit | Value |
 | --- | --- |

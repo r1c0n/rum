@@ -142,7 +142,7 @@ editing the shell. Add it to `USER_PROGRAMS` and rebuild with `make` to update
 the ISO, or `make user` to update just the standalone system image.
 The shell includes only public headers and links only the user runtime. Drivers, RAMFS
 objects and hardware addresses remain inside the kernel. The recovery command
-loop lives in `kernel/ui/shell.c`.
+loop lives in `kernel/recovery/shell.c`.
 
 Run `make test-userspace-shell` for real keyboard, filesystem and launch tests,
 then `make test` for complete regression coverage.
