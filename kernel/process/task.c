@@ -523,13 +523,13 @@ uint32_t task_reap(void)
     return reap_exited(true);
 }
 
-/* Call with IF clear. All CR3s borrow supervisor kernel code/data/stacks, so
-   the old and new stacks stay mapped during the atomic bookkeeping switch. */
 static bool switch_protected(void)
 {
     return current->switch_holds || fs_operation_active() || block_request_active();
 }
 
+/* Call with IF clear. All CR3s borrow supervisor kernel code/data/stacks, so
+   the old and new stacks stay mapped during the atomic bookkeeping switch. */
 static void schedule(void)
 {
     if ((cpu_interrupt_save() & IF) || !ready || irq_in_handler() ||
