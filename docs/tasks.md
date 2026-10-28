@@ -11,6 +11,21 @@ context unless foreground code later invokes the scheduler.
 
 ## Task types
 
+The scheduler's private records separate process resources from thread execution.
+`process_state` owns the PID, parent relationship, address space, working
+directory, handles, termination result, cancellation request, and shell-session
+state. The schedulable `task` is its initial thread: it owns the kernel stack,
+saved context, user frame, run state, wait registration, and switch holds.
+
+There is one initial thread per process. Kernel workers use the same resource
+container with PID zero; idle has no working directory. The two bounded pools
+are published together with interrupts disabled, and cleared together only
+after execution has switched away. Public task queries still combine both
+records, so diagnostics and existing callers keep their interface.
+
+See [Scheduling safety](scheduling.md) for protected operations and the rules
+for adding a scheduling point.
+
 | Kind | PID | Address space | Entry behavior |
 | --- | --- | --- | --- |
 | Boot | 0 | Borrows kernel space | Initializes the kernel, supervises the shell, runs recovery |
@@ -130,7 +145,16 @@ event. A blocking standard-input syscall waits on that narrower event so PIT
 ticks cannot wake it when no character has arrived.
 
 Do not yield or wait while holding a lock, owning temporary interrupt-disabled
-state, or exposing another task's partially updated resource.
+state, or exposing another task's partially updated resource. Use a balanced
+`task_switch_hold` / `task_switch_release` scope for nonblocking construction
+or other operations that must not suspend. Holds nest and belong to the current
+thread. IRQ, idle, uninitialized, and unbalanced calls return false.
+
+Yield and wait also refuse an active common-filesystem operation or block
+request. These operations run synchronously with interrupts enabled, but no
+backend callback may suspend while it owns namespace or device state. Rejected
+waits do not attach a waiter. The central switch asserts these restrictions,
+IF-clear entry, and agreement between the current owner, active CR3, and TSS.
 
 ## Exit and cleanup
 

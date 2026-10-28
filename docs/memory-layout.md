@@ -95,6 +95,12 @@ On failure, the caller keeps the space and tears it down. Publication acquires
 a kernel stack and clones the creator's working-directory reference. Failure
 rolls back both internally.
 
+The process resource record owns the address space, handles, and directory
+reference. Its initial thread owns the guarded kernel stack and saved CPU
+context. Construction holds off scheduling while these private records are
+prepared, then publishes both with interrupts disabled. Page diagnostics combine
+the process-owned address-space pages and thread-owned stack pages once each.
+
 Exit closes file handles in task context with IRQs enabled, then changes state
 and switches to a surviving context before page reclamation. The
 reaper may then destroy the inactive CR3, user pages and tables, guarded kernel
