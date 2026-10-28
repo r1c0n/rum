@@ -57,7 +57,7 @@ int main(int argc, char **argv)
 ```
 
 `write` may complete partially. Production programs should loop until all bytes
-are written or an error is returned; `user/programs/hello.c` shows the complete
+are written or an error is returned; `sdk/examples/hello.c` shows the complete
 pattern.
 
 ## Launching a program
@@ -146,7 +146,7 @@ callee-saved registers.
 
 Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
 means success. A negative result is the negation of a `RUM_E*` value from
-`include/rum/abi/error.h`; these values are rum-specific and do not set a global
+`sdk/include/rum/abi/error.h`; these values are rum-specific and do not set a global
 `errno`.
 
 Read and write calls may return fewer bytes than requested. A zero-length call
@@ -249,7 +249,7 @@ clear.
 - **A write returns less than requested:** loop over the unconsumed bytes. The
   console backend currently copies at most 128 bytes per call.
 - **Private kernel headers are missing:** user code may include only
-  `user/include/rum/user.h` and copied `rum/abi/` headers.
+  `sdk/include/rum/user.h` and copied `rum/abi/` headers.
 - **The ELF checker rejects a segment:** inspect program headers with
   `i686-elf-readelf -l build/user/debug/name.elf` and check ranges, page overlap,
   alignment, and W+X flags.

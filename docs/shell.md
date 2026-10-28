@@ -136,7 +136,7 @@ Snake means that application owns input; interact with it or press Ctrl+C.
 
 ## Changing the shell
 
-Edit `user/programs/shell.c` for line editing or command launch. Command behavior
+Edit `system/shell/main.c` for line editing or command launch. Command behavior
 lives in its own `user/programs/<command>.c`; adding a command does not require
 editing the shell. Add it to `USER_PROGRAMS` and rebuild with `make` to update
 the ISO, or `make user` to update just the standalone system image.

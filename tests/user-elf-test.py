@@ -24,7 +24,7 @@ check(asset, True, debug)
 for header in ("heap.h", "task.h", "diagnostics.h", "memory_layout.h", "io.h",
                "terminal.h", "keyboard.h", "ramfs.h", "ata.h"):
     private_include = subprocess.run(
-        [args.cross_prefix + "gcc", "-ffreestanding", "-Iuser/include", "-Ibuild/user/include",
+        [args.cross_prefix + "gcc", "-ffreestanding", "-Isdk/include", "-Ibuild/user/include",
          "-x", "c", "-fsyntax-only", "-"], input=f"#include <rum/{header}>\n",
         capture_output=True, text=True, cwd=root)
     assert private_include.returncode != 0, f"private kernel header exposed to user build: {header}"
@@ -33,7 +33,12 @@ assert all(name in symbols for name in (" _start", " main", " rum_syscall3"))
 assert "kernel_main" not in symbols
 assert not subprocess.check_output([args.cross_prefix + "nm", "--undefined-only", str(debug)])
 
-for program in (path.stem for path in (root / "user/programs").glob("*.c")):
+programs = ["shell"]
+programs.extend(path.parent.name for path in sorted((root / "apps").glob("*/main.c")))
+for directory in (root / "system/commands", root / "sdk/examples"):
+    programs.extend(path.stem for path in sorted(directory.glob("*.c")))
+assert len(programs) == len(set(programs)), "duplicate userspace program names"
+for program in programs:
     user_debug = root / f"build/user/debug/{program}.elf"
     check(root / f"build/user/system/{program}.elf", True, user_debug)
     assert not subprocess.check_output([args.cross_prefix + "nm", "--undefined-only", str(user_debug)])

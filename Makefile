@@ -13,12 +13,12 @@ export DISK_IMAGE DISK_READ_ONLY DISK_SIZE_MIB
 QEMU_DISK_ARGS = $${DISK_IMAGE:+--disk "$$DISK_IMAGE"} $$(test "$$DISK_READ_ONLY" = 1 && printf %s --disk-read-only)
 HOST_CC ?= gcc
 
-CPPFLAGS := -Ikernel/include -Iinclude
+CPPFLAGS := -Ikernel/include -Isdk/include
 CFLAGS := -std=gnu11 -ffreestanding -O2 -g -Wall -Wextra -Werror \
           -Wstrict-prototypes -Wmissing-prototypes -fno-stack-protector \
           -fno-pie -fno-builtin -fno-asynchronous-unwind-tables -msoft-float -mno-mmx -mno-sse -mno-sse2
 LAYOUT_HEADERS := kernel/include/rum/memory_layout.h kernel/include/rum/process_limits.h
-ABI_HEADERS := $(wildcard include/rum/abi/*.h)
+ABI_HEADERS := $(wildcard sdk/include/rum/abi/*.h)
 LINKER_SCRIPT := build/arch/i386/linker.ld
 LDFLAGS := -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie \
            -Wl,--build-id=none -Wl,-Map,build/rum.map
@@ -63,18 +63,20 @@ TEST_DEPENDENCIES += build/tests/fs-kernel.d build/tests/fs-checks.d build/tests
 STORAGE_HOST_HEADERS := kernel/include/rum/heap.h kernel/include/rum/ramfs.h kernel/include/rum/fs.h kernel/include/rum/path.h kernel/include/rum/fs_types.h kernel/include/rum/fs_limits.h $(ABI_HEADERS) kernel/include/rum/embedded.h kernel/include/rum/paging.h kernel/include/rum/pmm.h kernel/include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
 SNAKE_HOST_SOURCES := kernel/recovery/snake.c kernel/recovery/snake_model.c
 SNAKE_HOST_HEADERS := kernel/include/rum/snake.h kernel/include/rum/snake_model.h kernel/include/rum/timer.h
-USER_PROGRAMS := shell help about echo clear ls cat pwd cd write mkdir rm run exit recovery \
-                 snake hello nonzero fault spin readline
-USER_CPPFLAGS := -Iuser/include -Ibuild/user/include
+SYSTEM_COMMANDS := help about echo clear ls cat pwd cd write mkdir rm run exit recovery
+SDK_EXAMPLES := hello nonzero fault spin readline
+APP_PROGRAMS := snake
+USER_PROGRAMS := shell $(SYSTEM_COMMANDS) $(APP_PROGRAMS) $(SDK_EXAMPLES)
+USER_CPPFLAGS := -Isdk/include -Ibuild/user/include
 USER_INCLUDE_STAMP := build/user/include/.abi-stamp
 USER_CFLAGS := -std=gnu11 -ffreestanding -O2 -g -Wall -Wextra -Werror \
                -Wstrict-prototypes -Wmissing-prototypes -fno-stack-protector \
                -fno-pie -fno-pic -fno-builtin -fno-asynchronous-unwind-tables \
                -msoft-float -mno-mmx -mno-sse -mno-sse2
-USER_RUNTIME := build/user/lib/start.o build/user/lib/syscall-entry.o build/user/lib/syscall.o build/user/lib/tools.o
+USER_RUNTIME := build/sdk/lib/start.o build/sdk/lib/syscall-entry.o build/sdk/lib/syscall.o build/sdk/lib/tools.o
 USER_DEBUG := $(addprefix build/user/debug/,$(addsuffix .elf,$(USER_PROGRAMS)))
 USER_ASSETS := $(addprefix build/user/system/,$(addsuffix .elf,$(USER_PROGRAMS)))
-USER_DEPENDENCIES := $(USER_RUNTIME:.o=.d) $(addprefix build/user/programs/,$(addsuffix .d,$(USER_PROGRAMS)))
+USER_DEPENDENCIES := $(USER_RUNTIME:.o=.d) $(addprefix build/user/objects/,$(addsuffix .d,$(USER_PROGRAMS)))
 ABI_CASES := args limits hello
 ABI_KERNELS := $(addprefix build/tests/abi-,$(addsuffix .elf,$(ABI_CASES)))
 ABI_OBJECTS := $(ABI_KERNELS:.elf=.o)
@@ -85,7 +87,7 @@ TEST_DEPENDENCIES += build/tests/process-syscall-kernel.d build/tests/process-sy
 
 .PHONY: all check iso user test-user run run-kernel debug panic test test-host test-package doctor toolchain clean FORCE
 .SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) $(PROCESS_FAULT_OBJECTS) build/tests/paging-spaces.o build/tests/user-memory.o
-.SECONDARY: $(USER_DEBUG) $(USER_RUNTIME) $(addprefix build/user/programs/,$(addsuffix .o,$(USER_PROGRAMS)))
+.SECONDARY: $(USER_DEBUG) $(USER_RUNTIME) $(addprefix build/user/objects/,$(addsuffix .o,$(USER_PROGRAMS)))
 .SECONDARY: $(ABI_OBJECTS) $(ABI_IMAGES) build/tests/elf-loader-image.o
 all: user iso
 
@@ -95,31 +97,47 @@ $(USER_INCLUDE_STAMP): $(ABI_HEADERS) Makefile
 	cp -- $(ABI_HEADERS) $(@D)/rum/abi/
 	touch $@
 
-build/user/linker.ld: user/linker.ld $(USER_INCLUDE_STAMP) Makefile
+build/sdk/linker/user.ld: sdk/linker/user.ld $(USER_INCLUDE_STAMP) Makefile
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) -E -P -undef -x c -D__ASSEMBLER__ $< -o $@
 
-build/user/%.o: user/%.c $(USER_INCLUDE_STAMP) Makefile
+$(addprefix build/user/objects/,$(addsuffix .o,$(SYSTEM_COMMANDS))): build/user/objects/%.o: system/commands/%.c $(USER_INCLUDE_STAMP) Makefile
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
 
-build/user/lib/start.o: user/lib/start.s $(USER_INCLUDE_STAMP) Makefile
+$(addprefix build/user/objects/,$(addsuffix .o,$(SDK_EXAMPLES))): build/user/objects/%.o: sdk/examples/%.c $(USER_INCLUDE_STAMP) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+
+build/user/objects/shell.o: system/shell/main.c $(USER_INCLUDE_STAMP) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+
+$(addprefix build/user/objects/,$(addsuffix .o,$(APP_PROGRAMS))): build/user/objects/%.o: apps/%/main.c $(USER_INCLUDE_STAMP) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+
+build/sdk/lib/%.o: sdk/lib/%.c $(USER_INCLUDE_STAMP) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+
+build/sdk/lib/start.o: sdk/lib/start.s $(USER_INCLUDE_STAMP) Makefile
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
 
-build/user/lib/syscall-entry.o: user/lib/syscall.s $(USER_INCLUDE_STAMP) Makefile
+build/sdk/lib/syscall-entry.o: sdk/lib/syscall.s $(USER_INCLUDE_STAMP) Makefile
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
 
-build/user/debug/%.elf: build/user/programs/%.o $(USER_RUNTIME) build/user/linker.ld
+build/user/debug/%.elf: build/user/objects/%.o $(USER_RUNTIME) build/sdk/linker/user.ld
 	@mkdir -p $(@D)
-	$(CC) -T build/user/linker.ld -nostdlib -static -no-pie \
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie \
 	    -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 \
 	    -Wl,-Map,$(@:.elf=.map) $(filter %.o,$^) -lgcc -o $@
 
-build/tools/check-user-elf: scripts/check-user-elf.c $(ABI_HEADERS) $(LAYOUT_HEADERS) kernel/include/rum/ramfs.h
+build/tools/check-user-elf: sdk/tools/check-user-elf.c $(ABI_HEADERS) $(LAYOUT_HEADERS) kernel/include/rum/ramfs.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Iinclude $< -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $< -o $@
 
 build/user/system/%.elf: build/user/debug/%.elf build/tools/check-user-elf
 	@mkdir -p $(@D)
@@ -243,8 +261,8 @@ build/tests/user/file-syscall.o: tests/file-syscall-user.c $(USER_INCLUDE_STAMP)
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
 
-build/tests/user/file-syscall.debug.elf: build/tests/user/file-syscall.o $(USER_RUNTIME) build/user/linker.ld
-	$(CC) -T build/user/linker.ld -nostdlib -static -no-pie -Wl,--build-id=none \
+build/tests/user/file-syscall.debug.elf: build/tests/user/file-syscall.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none \
 	    -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
 
 build/tests/user/file-syscall.elf: build/tests/user/file-syscall.debug.elf build/tools/check-user-elf
@@ -260,8 +278,8 @@ build/tests/file-syscall.elf: build/tests/file-syscall-kernel.o build/tests/file
 build/tests/user/process-syscall.o: tests/process-syscall-user.c $(USER_INCLUDE_STAMP) Makefile
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
-build/tests/user/process-syscall.debug.elf: build/tests/user/process-syscall.o $(USER_RUNTIME) build/user/linker.ld
-	$(CC) -T build/user/linker.ld -nostdlib -static -no-pie -Wl,--build-id=none \
+build/tests/user/process-syscall.debug.elf: build/tests/user/process-syscall.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none \
 	    -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
 build/tests/user/process-syscall.elf: build/tests/user/process-syscall.debug.elf build/tools/check-user-elf
 	$(OBJCOPY) --strip-all $< $@.tmp
@@ -346,8 +364,8 @@ build/tests/user/probe-entry.o: tests/user-probe-entry.s $(USER_INCLUDE_STAMP) M
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
 
-build/tests/user/abi-probe.debug.elf: build/tests/user/probe.o build/tests/user/probe-entry.o $(USER_RUNTIME) build/user/linker.ld
-	$(CC) -T build/user/linker.ld -nostdlib -static -no-pie -Wl,--build-id=none \
+build/tests/user/abi-probe.debug.elf: build/tests/user/probe.o build/tests/user/probe-entry.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none \
 	    -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
 
 build/tests/user/abi-probe.elf: build/tests/user/abi-probe.debug.elf build/tools/check-user-elf
@@ -472,55 +490,55 @@ build/tests/fault-%.elf: build/tests/fault-%.o $(FAULT_COMMON) $(LINKER_SCRIPT)
 
 build/tests/console-test: tests/console-test.c drivers/display/terminal.c kernel/include/rum/terminal.h tests/include/rum/io.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/include -Ikernel/include -Iinclude tests/console-test.c drivers/display/terminal.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/include -Ikernel/include -Isdk/include tests/console-test.c drivers/display/terminal.c -o $@
 
 build/tests/memory-test: tests/memory-test.c kernel/core/memory.c kernel/include/rum/memory.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Ikernel/include -Iinclude tests/memory-test.c kernel/core/memory.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Ikernel/include -Isdk/include tests/memory-test.c kernel/core/memory.c -o $@
 
 build/tests/keyboard-test: tests/keyboard-test.c drivers/input/keyboard_decode.c kernel/include/rum/keyboard_decode.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Iinclude tests/keyboard-test.c drivers/input/keyboard_decode.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include tests/keyboard-test.c drivers/input/keyboard_decode.c -o $@
 
 build/tests/shell-test: tests/shell-test.c kernel/recovery/shell.c kernel/debug/diagnostics-report.c drivers/display/terminal.c kernel/include/rum/shell.h kernel/include/rum/process.h kernel/include/rum/diagnostics.h kernel/include/rum/task.h kernel/include/rum/terminal.h kernel/include/rum/serial.h tests/include/rum/io.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS) $(SNAKE_HOST_SOURCES) $(SNAKE_HOST_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Iinclude tests/shell-test.c kernel/recovery/shell.c kernel/debug/diagnostics-report.c drivers/display/terminal.c $(SNAKE_HOST_SOURCES) $(STORAGE_HOST_SOURCES) -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include tests/shell-test.c kernel/recovery/shell.c kernel/debug/diagnostics-report.c drivers/display/terminal.c $(SNAKE_HOST_SOURCES) $(STORAGE_HOST_SOURCES) -o $@
 
 build/tests/pmm-test: tests/pmm-test.c kernel/mm/pmm.c kernel/include/rum/pmm.h kernel/include/rum/multiboot.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Iinclude tests/pmm-test.c kernel/mm/pmm.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include tests/pmm-test.c kernel/mm/pmm.c -o $@
 
 build/tests/storage-test: tests/storage-test.c tests/storage-checks.c tests/storage-checks.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Iinclude tests/storage-test.c tests/storage-checks.c $(STORAGE_HOST_SOURCES) -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include tests/storage-test.c tests/storage-checks.c $(STORAGE_HOST_SOURCES) -o $@
 
 build/tests/snake-test: tests/snake-test.c kernel/recovery/snake_model.c kernel/include/rum/snake_model.h kernel/include/rum/memory.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Iinclude tests/snake-test.c kernel/recovery/snake_model.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include tests/snake-test.c kernel/recovery/snake_model.c -o $@
 
 build/tests/layout-test: tests/layout-test.c $(LAYOUT_HEADERS) $(ABI_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Iinclude $< -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $< -o $@
 
 build/tests/frame-test: tests/frame-test.c kernel/include/rum/interrupts.h kernel/include/rum/gdt.h kernel/include/rum/cpu_layout.h kernel/include/rum/cpu_policy.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Iinclude $< -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $< -o $@
 
 build/tests/abi-test: tests/abi-test.c $(ABI_HEADERS) $(LAYOUT_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Iinclude $< -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $< -o $@
 
 build/tests/block-test: tests/block-test.c kernel/io/block.c kernel/include/rum/block.h tests/include/rum/cpu.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/include -Ikernel/include -Iinclude tests/block-test.c kernel/io/block.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/include -Ikernel/include -Isdk/include tests/block-test.c kernel/io/block.c -o $@
 
 build/tests/path-test: tests/path-test.c kernel/fs/path.c kernel/fs/fs-types.c kernel/include/rum/path.h kernel/include/rum/fs_types.h kernel/include/rum/fs_limits.h $(ABI_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Iinclude tests/path-test.c kernel/fs/path.c kernel/fs/fs-types.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include tests/path-test.c kernel/fs/path.c kernel/fs/fs-types.c -o $@
 
 build/tests/fs-test: tests/fs-test.c tests/fs-checks.c tests/fs-checks.h tests/fs-backend.c tests/fs-backend.h kernel/fs/fs.c $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Iinclude tests/fs-test.c tests/fs-checks.c tests/fs-backend.c kernel/fs/fs.c $(STORAGE_HOST_SOURCES) -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include tests/fs-test.c tests/fs-checks.c tests/fs-backend.c kernel/fs/fs.c $(STORAGE_HOST_SOURCES) -o $@
 
 test-host: build/tests/path-test build/tests/fs-test
 
@@ -528,10 +546,10 @@ FAT16_HOST_SOURCES := kernel/fs/fat16.c kernel/fs/fat16-write.c kernel/fs/fs.c k
 FAT16_HEADERS := kernel/include/rum/fat16.h kernel/fs/fat16-internal.h
 build/tests/fat16-write-test: tests/fat16-write-test.c tests/fat16-write-checks.c tests/fat16-write-checks.h $(FAT16_HOST_SOURCES) $(FAT16_HEADERS) $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Iinclude tests/fat16-write-test.c tests/fat16-write-checks.c $(FAT16_HOST_SOURCES) $(STORAGE_HOST_SOURCES) -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include tests/fat16-write-test.c tests/fat16-write-checks.c $(FAT16_HOST_SOURCES) $(STORAGE_HOST_SOURCES) -o $@
 build/tests/fat16-test: tests/fat16-test.c tests/fat16-checks.c tests/fat16-checks.h $(FAT16_HOST_SOURCES) $(FAT16_HEADERS) $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Iinclude tests/fat16-test.c tests/fat16-checks.c $(FAT16_HOST_SOURCES) $(STORAGE_HOST_SOURCES) -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include tests/fat16-test.c tests/fat16-checks.c $(FAT16_HOST_SOURCES) $(STORAGE_HOST_SOURCES) -o $@
 
 .PHONY: test-fat16-host
 test-fat16-host: build/tests/fat16-test
@@ -570,7 +588,7 @@ test-fs: build/tests/path-test build/tests/fs-test build/tests/fs.elf
 
 build/tests/ata-test: tests/ata-test.c drivers/storage/ata.c kernel/io/block.c kernel/include/rum/ata.h kernel/include/rum/block.h tests/ata-include/rum/io.h tests/ata-include/rum/cpu.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/ata-include -Ikernel/include -Iinclude tests/ata-test.c drivers/storage/ata.c kernel/io/block.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/ata-include -Ikernel/include -Isdk/include tests/ata-test.c drivers/storage/ata.c kernel/io/block.c -o $@
 
 test-host: build/tests/ata-test
 
