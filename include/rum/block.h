@@ -47,5 +47,7 @@ struct block_result block_write(struct block_device *device, uint64_t lba,
                                 uint64_t count, const void *buffer, size_t bytes);
 struct block_result block_flush(struct block_device *device);
 const char *block_error_name(enum block_error error);
+/* IRQ-safe observation across every device, including nested requests. */
+bool block_request_active(void);
 
 #endif

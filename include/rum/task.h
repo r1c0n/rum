@@ -93,6 +93,12 @@ bool task_query(task_id id, struct task_information *information);
 /* Bounded, allocation-free and IRQ-safe. Copies one consistent registry view;
    false before initialization (with a zeroed result) or for a NULL result. */
 bool task_snapshot_read(struct task_snapshot *snapshot);
+/* Nestable, thread-owned nonblocking scopes. A successful hold must be released
+   by the same thread. No yield, wait, exit, or user return is legal inside one.
+   Reject IRQ/idle/uninitialized callers; preserve the caller's interrupt flag. */
+bool task_switch_hold(void);
+bool task_switch_release(void);
+/* Also refuse held scopes and active synchronous filesystem/block operations. */
 bool task_yield(void); /* Refuses IRQ context and callers with IF clear. */
 _Noreturn void task_exit(void); /* Only worker tasks; equivalent to status zero. */
 _Noreturn void task_exit_with_status(rum_result_t status); /* IF may be clear. */

@@ -46,6 +46,8 @@ enum fs_error fs_mount_disk(const struct fs_backend *backend);
 enum fs_error fs_mount_system(const struct fs_backend *backend);
 enum fs_error fs_unmount_disk(void);
 struct fs_statistics fs_stats(void);
+/* IRQ-safe observation of a synchronous namespace/backend operation. */
+bool fs_operation_active(void);
 enum fs_error fs_open(const struct fs_context *, const char *path, unsigned access, fs_reference *);
 enum fs_error fs_duplicate(fs_reference, fs_reference *);
 enum fs_error fs_close(fs_reference);
