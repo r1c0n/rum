@@ -30,17 +30,25 @@ The build produces:
 | `build/user/include/rum/abi/` | Generated public headers only |
 
 Private kernel headers are deliberately absent from the user include tree.
+The canonical public headers live in `sdk/include/rum/`; startup and runtime
+sources live in `sdk/lib/`, and the linker source is `sdk/linker/user.ld`.
+The processed linker script is generated at `build/sdk/linker/user.ld`.
 User code links with `-nostdlib`, rum's startup and syscall wrappers, and target
 `libgcc`; it does not link a host C library or any kernel object.
 
 ## Adding a program
 
-1. Add `user/programs/name.c` with a normal
+1. Add `apps/name/main.c` with a normal
    `int main(int argc, char **argv)` entry.
 2. Include `<rum/user.h>` for the supported runtime calls.
-3. Add `name` to `USER_PROGRAMS` in the Makefile.
+3. Add `name` to `APP_PROGRAMS` in the Makefile.
 4. Run `make user` and fix any compiler or ELF-validator error.
 5. Debug with the ELF under `build/user/debug/`, not the stripped asset.
+
+System commands use `system/commands/name.c` and `SYSTEM_COMMANDS`. SDK examples
+use `sdk/examples/name.c` and `SDK_EXAMPLES`. The shell has its own entry at
+`system/shell/main.c`. These lists form the explicit system-image manifest;
+placing a source file in a directory does not install an executable by itself.
 
 A minimal program looks like this:
 

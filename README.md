@@ -175,10 +175,13 @@ qemu-system-i386 -m 64M -cdrom rum.iso
 | --- | --- |
 | `arch/i386/` | Startup assembly, CPU tables, interrupt stubs, paging, and linker script |
 | `boot/grub/` | GRUB configuration |
-| [`kernel/`](kernel/README.md) | Core, drivers, memory, processes, filesystems, UI, and diagnostics |
-| `include/rum/` | Kernel interfaces |
+| [`kernel/`](kernel/README.md) | Core, memory, processes, I/O, filesystems, recovery, diagnostics, and private headers |
+| `hal/pc/` | PC interrupt routing, PIC, and PIT |
+| `drivers/` | Display, serial, input, and storage drivers |
 | `assets/ramfs/` | Embedded boot files |
-| `user/` | Userspace shell, standalone command programs, public runtime and linker script |
+| [`sdk/`](sdk/README.md) | Public headers, application runtime, linker script, examples, and ELF validator |
+| [`system/`](system/README.md) | Userspace shell and standalone system commands |
+| `apps/` | Application entry points, including Snake |
 | `scripts/` | Toolchain setup, environment checks, embedding, and QEMU tests |
 | `tests/` | Host tests and isolated test kernels |
 | `docs/` | Setup, usage, architecture, and contributor guides |
@@ -188,4 +191,5 @@ The project follows the boot and toolchain approach in
 `arch/i386/boot.s` sets up its stack and CPU segments before calling C.
 
 See the [documentation](docs/README.md) for subsystem details and debugging.
+The [source layout guide](docs/source-layout.md) explains where new code belongs.
 Multitasking and userspace development plans are in the [roadmap](docs/roadmap.md).
