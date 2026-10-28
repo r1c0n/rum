@@ -1,4 +1,5 @@
 #include <rum/context.h>
+#include <rum/block.h>
 #include <rum/cpu.h>
 #include <rum/fs.h>
 #include <rum/gdt.h>
@@ -43,6 +44,7 @@ struct task {
     task_id id;
     enum task_state state;
     uint32_t stack, stack_slot, stack_base, stack_top, stack_pages;
+    uint32_t switch_holds;
     void (*entry)(void *);
     void *argument;
     struct exception_user_frame user_frame;
@@ -67,6 +69,7 @@ static _Noreturn void idle_loop(void *argument);
 /* Caller publishes only with interrupts disabled, after construction completes. */
 static void publish(struct task *slot, const struct task *prepared)
 {
+    if (cpu_interrupt_save() & IF) cpu_halt();
     processes[slot - tasks] = *prepared->process;
     *slot = *prepared;
     slot->process = &processes[slot - tasks];
@@ -180,7 +183,7 @@ task_id task_create(void (*entry)(void *), void *argument, struct paging_space *
                           owned_space != paging_active_space()));
     struct task *slot = valid ? available_slot(owned_space) : NULL;
     cpu_interrupt_restore(saved);
-    if (!slot) return 0;
+    if (!slot || !task_switch_hold()) return 0;
     /* No other foreground task can run during construction. IRQs only wake
        published tasks; zeroing the stack does not hold the scheduler lock. */
     uint32_t stack_slot = (uint32_t)(slot - tasks) - 1;
@@ -192,9 +195,13 @@ task_id task_create(void (*entry)(void *), void *argument, struct paging_space *
         .directory_pages = 1, .user_table_pages = space.private_table_pages,
         .user_pages = space.user_pages,
     };
-    if (fs_context_clone(&current->process->filesystem, &owner.filesystem) != FS_OK) return 0;
+    if (fs_context_clone(&current->process->filesystem, &owner.filesystem) != FS_OK) {
+        (void)task_switch_release();
+        return 0;
+    }
     if (!new_stack(&constructed, stack_slot)) {
         (void)fs_context_destroy(&owner.filesystem);
+        (void)task_switch_release();
         return 0;
     }
     saved = cpu_interrupt_save();
@@ -204,6 +211,7 @@ task_id task_create(void (*entry)(void *), void *argument, struct paging_space *
     task_id id = slot->id;
     ++created;
     cpu_interrupt_restore(saved);
+    (void)task_switch_release();
     return id;
 }
 
@@ -219,7 +227,7 @@ static task_id create_process(const struct task_process *process, bool make_fore
     struct task *slot = valid ? available_slot(process->space) : NULL;
     task_id parent = valid ? current->id : 0;
     cpu_interrupt_restore(saved);
-    if (!slot) return 0;
+    if (!slot || !task_switch_hold()) return 0;
 
     uint32_t stack_slot = (uint32_t)(slot - tasks) - 1;
     struct process_state owner = { .process_id = next_process_id, .parent = parent,
@@ -228,9 +236,13 @@ static task_id create_process(const struct task_process *process, bool make_fore
                        .user_pages = space.user_pages } };
     struct task constructed = { .id = next_id, .state = TASK_RUNNABLE,
         .process = &owner, .user_frame = process->user_frame };
-    if (fs_context_clone(&current->process->filesystem, &owner.filesystem) != FS_OK) return 0;
+    if (fs_context_clone(&current->process->filesystem, &owner.filesystem) != FS_OK) {
+        (void)task_switch_release();
+        return 0;
+    }
     if (!new_stack(&constructed, stack_slot)) {
         (void)fs_context_destroy(&owner.filesystem);
+        (void)task_switch_release();
         return 0;
     }
 
@@ -246,6 +258,7 @@ static task_id create_process(const struct task_process *process, bool make_fore
     if (make_foreground) foreground = id;
     ++created;
     cpu_interrupt_restore(saved);
+    (void)task_switch_release();
     return id;
 }
 
@@ -512,8 +525,17 @@ uint32_t task_reap(void)
 
 /* Call with IF clear. All CR3s borrow supervisor kernel code/data/stacks, so
    the old and new stacks stay mapped during the atomic bookkeeping switch. */
+static bool switch_protected(void)
+{
+    return current->switch_holds || fs_operation_active() || block_request_active();
+}
+
 static void schedule(void)
 {
+    if ((cpu_interrupt_save() & IF) || !ready || irq_in_handler() ||
+        !current || !current->process || switch_protected() ||
+        current->process->space != paging_active_space() ||
+        rum_tss.esp0 != current->stack_top) cpu_halt();
     struct task *previous = current, *next = NULL;
     uint32_t index = (uint32_t)(previous - tasks);
     for (uint32_t offset = 1; offset <= TASK_SLOTS; ++offset) {
@@ -538,11 +560,33 @@ static void schedule(void)
     (void)reap_exited(false);
 }
 
+bool task_switch_hold(void)
+{
+    if (!ready || irq_in_handler()) return false;
+    uint32_t saved = cpu_interrupt_save();
+    bool held = current != &tasks[IDLE] && current->switch_holds != UINT32_MAX;
+    if (held) ++current->switch_holds;
+    cpu_interrupt_restore(saved);
+    return held;
+}
+
+bool task_switch_release(void)
+{
+    if (!ready || irq_in_handler()) return false;
+    uint32_t saved = cpu_interrupt_save();
+    bool released = current != &tasks[IDLE] && current->switch_holds != 0;
+    if (released) --current->switch_holds;
+    cpu_interrupt_restore(saved);
+    return released;
+}
+
 bool task_yield(void)
 {
     if (!ready || irq_in_handler()) return false;
     uint32_t saved = cpu_interrupt_save();
-    if (!(saved & IF) || current == &tasks[IDLE]) { cpu_interrupt_restore(saved); return false; }
+    if (!(saved & IF) || current == &tasks[IDLE] || switch_protected()) {
+        cpu_interrupt_restore(saved); return false;
+    }
     current->state = TASK_RUNNABLE;
     schedule();
     cpu_interrupt_restore(saved);
@@ -554,7 +598,8 @@ static _Noreturn void terminate_current(enum task_termination termination,
                                         const struct exception_frame *frame,
                                         uint32_t fault_address)
 {
-    if (!ready || irq_in_handler() || current == &tasks[BOOT] || current == &tasks[IDLE]) cpu_halt();
+    if (!ready || irq_in_handler() || current == &tasks[BOOT] || current == &tasks[IDLE] ||
+        switch_protected()) cpu_halt();
     (void)cpu_interrupt_save();
     current->waiting = NULL;
     current->process->termination = termination;
@@ -659,8 +704,10 @@ void task_cancel_current_if_requested(void)
 
 void task_cancel_on_user_return(const struct exception_frame *frame)
 {
-    if (frame && exception_frame_from_user(frame))
+    if (frame && exception_frame_from_user(frame)) {
+        if (irq_in_handler() || (ready && switch_protected())) cpu_halt();
         task_cancel_current_if_requested();
+    }
 }
 
 bool task_wait_process(task_id id, struct task_information *result)
@@ -705,7 +752,9 @@ bool task_wait(struct task_event *event, uint32_t observed)
 {
     if (!ready || !event || irq_in_handler()) return false;
     uint32_t saved = cpu_interrupt_save();
-    if (!(saved & IF) || current == &tasks[IDLE]) { cpu_interrupt_restore(saved); return false; }
+    if (!(saved & IF) || current == &tasks[IDLE] || switch_protected()) {
+        cpu_interrupt_restore(saved); return false;
+    }
     if (event->sequence == observed) {
         current->waiting = event;
         current->state = TASK_BLOCKED;
