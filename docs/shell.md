@@ -136,13 +136,13 @@ Snake means that application owns input; interact with it or press Ctrl+C.
 
 ## Changing the shell
 
-Edit `user/programs/shell.c` for line editing or command launch. Command behavior
-lives in its own `user/programs/<command>.c`; adding a command does not require
-editing the shell. Add it to `USER_PROGRAMS` and rebuild with `make` to update
+Edit `system/shell/main.c` for line editing or command launch. Command behavior
+lives in its own `system/commands/<command>.c`; adding a command does not require
+editing the shell. Add it to `SYSTEM_COMMANDS` and rebuild with `make` to update
 the ISO, or `make user` to update just the standalone system image.
 The shell includes only public headers and links only the user runtime. Drivers, RAMFS
 objects and hardware addresses remain inside the kernel. The recovery command
-loop lives in `kernel/ui/shell.c`.
+loop lives in `kernel/recovery/shell.c`.
 
 Run `make test-userspace-shell` for real keyboard, filesystem and launch tests,
 then `make test` for complete regression coverage.

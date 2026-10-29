@@ -128,7 +128,7 @@ removing it. RAM supports files in its flat root, but cannot create directories.
 `int 0x80` retains the [register convention](user-abi.md#syscall-convention).
 The C wrappers construct open and seek packets. Directory iteration accepts a
 caller-initialized entry packet. All packet words are `uint32_t`, with exact
-layouts declared in `include/rum/abi/filesystem.h`:
+layouts declared in `sdk/include/rum/abi/filesystem.h`:
 
 | Packet | Bytes | Words in order |
 | --- | --- | --- |
