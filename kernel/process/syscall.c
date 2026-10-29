@@ -39,10 +39,10 @@ static rum_result_t copy_path(struct paging_space *space, uint32_t address, char
 
 static rum_result_t stream_read(struct paging_space *space, uint32_t address, uint32_t chunk)
 {
-    if (!task_current_owns_console()) return -RUM_EACCES;
     char buffer[CONSOLE_CHUNK];
     for (;;) {
         task_cancel_current_if_requested();
+        if (!task_current_owns_console()) return -RUM_EACCES;
         struct task_event *event = keyboard_input_event();
         uint32_t observed = task_event_sequence(event), count = 0;
         while (count < chunk && keyboard_read(&buffer[count])) ++count;
@@ -70,11 +70,13 @@ static rum_result_t transfer(struct paging_space *space, struct process_handles 
     char buffer[FILE_CHUNK];
     if (write && !paging_copy_from_user(space, buffer, address, chunk)) return -RUM_EFAULT;
     if (handle->kind == HANDLE_OUTPUT) {
+        if (!task_switch_hold()) return -RUM_EBUSY;
         terminal_write(buffer, chunk);
         for (unsigned i = 0; i < chunk; ++i) {
             if (buffer[i] == '\n') serial_putchar('\r');
             serial_putchar(buffer[i]);
         }
+        if (!task_switch_release()) cpu_halt();
         return (rum_result_t)chunk;
     }
     if (bytes > UINT64_MAX - handle->offset) return -RUM_EOVERFLOW;
@@ -335,7 +337,10 @@ static rum_result_t console_action(uint32_t action, uint32_t reserved1, uint32_t
     if (!task_current_owns_console()) return -RUM_EACCES;
     if (!process_filesystem_context()) return -RUM_EBUSY;
     if (action == RUM_CONSOLE_CLEAR) {
-        terminal_clear(); serial_writestring("\x1b[2J\x1b[H"); return 0;
+        if (!task_switch_hold()) return -RUM_EBUSY;
+        terminal_clear(); serial_writestring("\x1b[2J\x1b[H");
+        if (!task_switch_release()) cpu_halt();
+        return 0;
     }
     if (!snake_start(timer_ticks())) return -RUM_ENOMEM;
     while (snake_active()) {

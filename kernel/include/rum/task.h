@@ -6,6 +6,7 @@
 #include <rum/interrupts.h>
 #include <rum/paging.h>
 #include <rum/process_limits.h>
+#include <rum/session.h>
 
 #define RUM_TASK_CAPACITY (RUM_PROCESS_LIMIT + 2u)
 /* Five 100 Hz PIT ticks: nominally 50 ms; synchronous kernel work may delay it. */
@@ -60,6 +61,7 @@ struct task_snapshot {
     uint32_t user_table_pages, user_pages;
     uint32_t created, exited, reaped, switches;
     uint32_t event_waiters, deadline_waiters;
+    struct console_statistics console;
     struct task_information tasks[RUM_TASK_CAPACITY];
 };
 
@@ -73,10 +75,12 @@ task_id task_create_process(const struct task_process *process);
 /* Foreground context; precise preflight error for ID exhaustion, limit and
    foreground ownership. Creation still rechecks before publication. */
 rum_result_t task_process_creation_status(bool foreground);
-/* Atomically publishes and registers the sole foreground process. */
+/* Atomically publishes membership and transfers the referenced console owner. */
 task_id task_create_foreground_process(const struct task_process *process);
-/* Kernel supervisor only: Ctrl+C becomes input for this shell while it owns
-   the console. Nested foreground children remain cancellable. */
+/* Kernel supervisor: publish the root shell and its protected role together. */
+task_id task_create_shell_process(const struct task_process *process);
+/* Compatibility marker for trusted fixtures before first execution. Production
+   supervisors use task_create_shell_process to publish the role atomically. */
 bool task_mark_foreground_shell(task_id);
 bool task_current_is_shell(void);
 bool task_mark_shell_command(task_id, const char *text);

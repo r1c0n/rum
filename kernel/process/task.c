@@ -10,6 +10,8 @@
 #include <rum/memory.h>
 #include <rum/process_limits.h>
 #include <rum/task.h>
+#include <rum/session.h>
+#include <rum/keyboard.h>
 #include <rum/timer.h>
 
 #define IF 0x200u
@@ -37,9 +39,7 @@ struct process_state {
     bool cancellation_requested;
     bool orphaned;
     struct task_event children_event;
-    bool interactive_shell;
-    bool shell_command, shell_exit_requested;
-    rum_result_t shell_exit_status;
+    struct console_member console;
     char command_text[RUM_COMMAND_TEXT_CAPACITY];
 };
 
@@ -66,7 +66,6 @@ static task_id next_id = 3;
 static rum_pid_t next_process_id = 1;
 static bool ready;
 static uint32_t created, exited, reaped, switches;
-static task_id foreground;
 static struct task_event work_event;
 /* Debug symbols also let QEMU checks audit the actual stack owners. */
 volatile uint32_t task_idle_stack_base, task_emergency_stack_base, task_current_stack_top;
@@ -239,13 +238,13 @@ task_id task_create(void (*entry)(void *), void *argument, struct paging_space *
     return id;
 }
 
-static task_id create_process(const struct task_process *process, bool make_foreground)
+static task_id create_process(const struct task_process *process, bool make_foreground, bool shell)
 {
     if (!ready || !process || irq_in_handler()) return 0;
     uint32_t saved = cpu_interrupt_save();
     struct paging_space_statistics space = {0};
     bool valid = (saved & IF) && next_id && next_process_id <= RUM_ABI_PID_MAX &&
-        (!make_foreground || !foreground || (current->process->kind == TASK_PROCESS && foreground == current->id)) &&
+        console_can_launch(current->process->kind == TASK_PROCESS ? &current->process->console : NULL, make_foreground) &&
         paging_space_stats(process->space, &space) && !space.kernel &&
         process->space != paging_active_space() && valid_user_frame(process->space, &process->user_frame);
     struct task *slot = valid ? available_slot(process->space) : NULL;
@@ -272,14 +271,25 @@ static task_id create_process(const struct task_process *process, bool make_fore
 
     /* The record becomes visible only after every owned resource and the saved
        kernel context are complete. Failed calls leave the caller's space alone. */
-    process_handles_initialize(&owner.handles);
     saved = cpu_interrupt_save();
+    struct console_member *parent_console = current->process->kind == TASK_PROCESS ? &current->process->console : NULL;
+    /* Ctrl+C can arrive during stack/cwd construction. Recheck under the
+       publication lock so cancellation never leaves a half-attached session. */
+    if (!console_can_launch(parent_console, make_foreground) || task_current_cancelled()) {
+        cpu_interrupt_restore(saved);
+        (void)paging_kernel_stack_release(stack_slot);
+        (void)fs_context_destroy(&owner.filesystem);
+        (void)task_switch_release();
+        return 0;
+    }
+    process_handles_initialize(&owner.handles);
     ++next_id;
     ++next_process_id;
     prepare_stack(&constructed);
     publish(slot, &constructed);
     task_id id = slot->id;
-    if (make_foreground) foreground = id;
+    if (!console_attach(&slot->process->console, id, parent_console, make_foreground)) cpu_halt();
+    if (shell && !console_mark_shell(&slot->process->console)) cpu_halt();
     ++created;
     cpu_interrupt_restore(saved);
     (void)task_switch_release();
@@ -292,7 +302,7 @@ rum_result_t task_process_creation_status(bool make_foreground)
     uint32_t saved = cpu_interrupt_save();
     rum_result_t result = !(saved & IF) || current == &tasks[IDLE] ? -RUM_EBUSY :
         !next_id || next_process_id > RUM_ABI_PID_MAX ? -RUM_EOVERFLOW :
-        make_foreground && foreground && foreground != current->id ? -RUM_EBUSY :
+        !console_can_launch(current->process->kind == TASK_PROCESS ? &current->process->console : NULL, make_foreground) ? -RUM_EBUSY :
         !available_slot(NULL) ? -RUM_ENOMEM : 0;
     cpu_interrupt_restore(saved);
     return result;
@@ -300,12 +310,18 @@ rum_result_t task_process_creation_status(bool make_foreground)
 
 task_id task_create_process(const struct task_process *process)
 {
-    return create_process(process, false);
+    return create_process(process, false, false);
 }
 
 task_id task_create_foreground_process(const struct task_process *process)
 {
-    return create_process(process, true);
+    return create_process(process, true, false);
+}
+
+task_id task_create_shell_process(const struct task_process *process)
+{
+    if (!ready || irq_in_handler() || current->process->kind != TASK_KERNEL) return 0;
+    return create_process(process, true, true);
 }
 
 bool task_mark_foreground_shell(task_id id)
@@ -314,9 +330,9 @@ bool task_mark_foreground_shell(task_id id)
     uint32_t saved = cpu_interrupt_save();
     bool marked = false;
     for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].id == id &&
-        tasks[i].process->parent == current->id && tasks[i].process->kind == TASK_PROCESS && foreground == id &&
+        tasks[i].process->parent == current->id && tasks[i].process->kind == TASK_PROCESS &&
         tasks[i].state == TASK_RUNNABLE) {
-        tasks[i].process->interactive_shell = true; marked = true; break;
+        marked = console_mark_shell(&tasks[i].process->console); break;
     }
     cpu_interrupt_restore(saved);
     return marked;
@@ -324,7 +340,7 @@ bool task_mark_foreground_shell(task_id id)
 
 bool task_current_is_shell(void)
 {
-    return task_current_is_process() && current->process->interactive_shell;
+    return task_current_is_process() && console_is_shell(&current->process->console);
 }
 
 bool task_mark_shell_command(task_id id, const char *text)
@@ -336,9 +352,9 @@ bool task_mark_shell_command(task_id id, const char *text)
     uint32_t saved = cpu_interrupt_save();
     bool marked = false;
     for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].id == id &&
-        tasks[i].process->parent == current->id && tasks[i].process->kind == TASK_PROCESS && foreground == id &&
+        tasks[i].process->parent == current->id && tasks[i].process->kind == TASK_PROCESS &&
         tasks[i].state == TASK_RUNNABLE) {
-        tasks[i].process->shell_command = true;
+        if (!console_grant_command(&current->process->console, &tasks[i].process->console)) break;
         memcpy(tasks[i].process->command_text, text, bytes + 1);
         marked = true; break;
     }
@@ -348,32 +364,32 @@ bool task_mark_shell_command(task_id id, const char *text)
 
 const char *task_current_command_text(void)
 {
-    return task_current_is_process() && current->process->shell_command ? current->process->command_text : NULL;
+    return task_current_is_process() && console_command_shell(&current->process->console) ? current->process->command_text : NULL;
 }
 
 rum_result_t task_session_control(unsigned action, const char *path)
 {
     if (action < RUM_SESSION_CHDIR || action > RUM_SESSION_RECOVERY) return -RUM_EINVAL;
     if (!process_filesystem_context()) return -RUM_EBUSY;
-    if (!task_current_command_text() || foreground != current->id) return -RUM_EACCES;
+    struct console_member *shell = console_command_shell(&current->process->console);
+    if (!shell) return -RUM_EACCES;
     struct task *parent = NULL;
-    for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].id == current->process->parent) parent = &tasks[i];
-    if (!parent || !parent->process->interactive_shell || parent->state != TASK_BLOCKED ||
+    for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].state != TASK_UNUSED &&
+        &tasks[i].process->console == shell && tasks[i].id == current->process->parent) parent = &tasks[i];
+    if (!parent || !console_is_shell(&parent->process->console) || parent->state != TASK_BLOCKED ||
         parent->waiting != &parent->process->children_event) return -RUM_EACCES;
     /* The parent cannot run or be reaped until this direct child ends. Disk
        traversal runs with interrupts enabled, outside any registry update. */
     if (action == RUM_SESSION_CHDIR) return process_fs_error(fs_context_chdir(&parent->process->filesystem, path));
-    uint32_t saved = cpu_interrupt_save();
-    parent->process->shell_exit_requested = true;
-    parent->process->shell_exit_status = action == RUM_SESSION_RECOVERY ? RUM_SHELL_RECOVERY_STATUS : 0;
-    cpu_interrupt_restore(saved);
-    return 0;
+    return console_request_exit(&current->process->console,
+        action == RUM_SESSION_RECOVERY ? RUM_SHELL_RECOVERY_STATUS : 0) ? 0 : -RUM_EACCES;
 }
 
 void task_exit_shell_if_requested(void)
 {
-    if (task_current_is_shell() && current->process->shell_exit_requested)
-        task_exit_with_status(current->process->shell_exit_status);
+    int32_t status;
+    if (task_current_is_shell() && console_exit_requested(&current->process->console, &status))
+        task_exit_with_status(status);
 }
 
 task_id task_current_id(void)
@@ -479,6 +495,7 @@ bool task_snapshot_read(struct task_snapshot *snapshot)
     *snapshot = (struct task_snapshot){0};
     if (ready) {
         snapshot->current = current->id;
+        snapshot->console = console_stats();
         snapshot->emergency_stack_pages = STACK_PAGES;
         snapshot->created = created; snapshot->exited = exited;
         snapshot->reaped = reaped; snapshot->switches = switches;
@@ -505,6 +522,7 @@ static bool reap_slot(struct task *task)
 {
     if (!task || task->state != TASK_EXITED || task == current ||
         task->waiting || task->deadline_active || task->deadline ||
+        task->process->console.references || task->process->console.live ||
         (task->process->owns_space && task->process->space == paging_active_space())) return false;
     /* Exit must release file handles before this interrupt-protected reaper.
        Refuse to discard a record with outstanding ownership. */
@@ -514,6 +532,7 @@ static bool reap_slot(struct task *task)
     if (fs_context_destroy(&task->process->filesystem) != FS_OK) return false;
     if (task->process->owns_space && !paging_space_destroy(task->process->space)) return false;
     if (!paging_kernel_stack_release(task->stack_slot)) cpu_halt();
+    if (!console_detach(&task->process->console)) cpu_halt();
     *task->process = (struct process_state){0};
     *task = (struct task){0};
     ++reaped;
@@ -526,7 +545,7 @@ static uint32_t reap_exited(bool include_processes)
     uint32_t count = 0;
     for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
         struct task *task = &tasks[i];
-        if (task->state == TASK_UNUSED || task->id == foreground ||
+        if (task->state == TASK_UNUSED ||
             (task->process->kind == TASK_PROCESS && !task->process->orphaned &&
              (!include_processes || task->process->parent != current->id))) continue;
         /* Kernel-space borrowers share the active directory; only owned
@@ -549,7 +568,7 @@ bool task_reap_process(task_id id)
     for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
         struct task *task = &tasks[i];
         if (task->id == id && task->process->kind == TASK_PROCESS &&
-            task->process->parent == current->id && foreground != id) {
+            task->process->parent == current->id) {
             released = reap_slot(task);
             break;
         }
@@ -681,17 +700,21 @@ static _Noreturn void terminate_current(enum task_termination termination,
             pending[tail++] = tasks[i].id; /* Each fixed slot is queued once. */
         }
     }
+    if (console_is_root(&current->process->console))
+        for (unsigned i = 2; i < TASK_SLOTS; ++i)
+            if (tasks[i].state != TASK_UNUSED && &tasks[i] != current &&
+                console_same_session(&tasks[i].process->console, &current->process->console)) descendants[i] = true;
     for (unsigned i = 2; i < TASK_SLOTS; ++i) if (descendants[i]) {
         struct task *child = &tasks[i];
-        if (foreground == child->id)
-            foreground = current->process->kind == TASK_PROCESS ? current->id : 0;
         child->process->parent = tasks[BOOT].id;
         child->process->orphaned = true;
         child->process->cancellation_requested = true;
+        console_cancel_member(&child->process->console);
         if (child->state == TASK_BLOCKED) {
             wake_task(child, TASK_WAIT_CANCELLED);
         }
     }
+    if (console_member_exit(&current->process->console)) keyboard_discard_input();
     current->state = TASK_EXITED;
     ++exited;
     if (current->process->kind == TASK_PROCESS)
@@ -727,14 +750,13 @@ bool task_foreground_end(task_id id)
     if (!ready || !id || irq_in_handler()) return false;
     uint32_t saved = cpu_interrupt_save();
     bool cleared = false;
-    if (foreground == id) {
-        for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
-            if (tasks[i].id == id && tasks[i].process->kind == TASK_PROCESS &&
-                tasks[i].process->parent == current->id && tasks[i].state == TASK_EXITED) {
-                foreground = current->process->kind == TASK_PROCESS ? current->id : 0;
-                cleared = true;
-                break;
-            }
+    for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
+        if (tasks[i].id == id && tasks[i].process->kind == TASK_PROCESS &&
+            tasks[i].process->parent == current->id && tasks[i].state == TASK_EXITED &&
+            tasks[i].process->console.foreground_launch) {
+            tasks[i].process->console.foreground_launch = false;
+            cleared = true;
+            break;
         }
     }
     cpu_interrupt_restore(saved);
@@ -745,13 +767,14 @@ bool task_cancel_foreground(void)
 {
     uint32_t saved = cpu_interrupt_save();
     bool requested = false;
+    task_id foreground = console_cancellation_target();
     if (ready && foreground) {
         for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
             struct task *task = &tasks[i];
             if (task->id != foreground || task->process->kind != TASK_PROCESS ||
                 task->state == TASK_EXITED || task->state == TASK_UNUSED) continue;
-            if (task->process->interactive_shell) break;
             task->process->cancellation_requested = true;
+            console_cancel_member(&task->process->console);
             if (task->state == TASK_BLOCKED) {
                 wake_task(task, TASK_WAIT_CANCELLED);
             }
@@ -774,7 +797,7 @@ bool task_current_cancelled(void)
 
 bool task_current_owns_console(void)
 {
-    return task_current_is_process() && foreground == current->id && !current->process->orphaned;
+    return task_current_is_process() && !current->process->orphaned && console_owns_input(&current->process->console);
 }
 
 rum_result_t task_request_termination(rum_pid_t id, bool session)
@@ -785,17 +808,18 @@ rum_result_t task_request_termination(rum_pid_t id, bool session)
     struct task *target = NULL, *shell = NULL;
     for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].state != TASK_UNUSED) {
         if (tasks[i].process->kind == TASK_PROCESS && tasks[i].process->process_id == id) target = &tasks[i];
-        if (tasks[i].id == current->process->parent && tasks[i].process->interactive_shell) shell = &tasks[i];
+        if (tasks[i].id == current->process->parent && console_is_shell(&tasks[i].process->console)) shell = &tasks[i];
     }
     rum_result_t result = 0;
-    bool authorized = session ? shell && current->process->shell_command &&
-        foreground == current->id && target && target->process->parent == shell->id :
+    bool authorized = session ? shell && console_command_shell(&current->process->console) == &shell->process->console &&
+        target && console_same_session(&target->process->console, &shell->process->console) && target->process->parent == shell->id :
         target && target->process->parent == current->id;
     if (!target) result = -RUM_ESRCH;
-    else if (!authorized || target == current || target->process->interactive_shell || target->process->orphaned)
+    else if (!authorized || target == current || target->process->console.shell || target->process->orphaned)
         result = -RUM_EACCES;
     else if (target->state != TASK_EXITED) {
         target->process->cancellation_requested = true;
+        console_cancel_member(&target->process->console);
         if (target->state == TASK_BLOCKED) {
             wake_task(target, TASK_WAIT_CANCELLED);
         }
@@ -883,7 +907,10 @@ rum_result_t task_wait_child(rum_pid_t id, bool nohang, struct task_information 
 bool task_collect_child(task_id id)
 {
     if (!ready || irq_in_handler()) return false;
-    if (foreground == id && !task_foreground_end(id)) return false;
+    struct task_information info;
+    if (!task_query(id, &info) || info.parent != current->id || info.state != TASK_EXITED) return false;
+    for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].id == id &&
+        tasks[i].process->console.foreground_launch && !task_foreground_end(id)) return false;
     return task_reap_process(id);
 }
 

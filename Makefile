@@ -27,7 +27,7 @@ DRIVER_SOURCES := drivers/display/terminal.c drivers/serial/serial.c \
                   drivers/input/keyboard.c \
                   drivers/input/keyboard_decode.c drivers/storage/ata.c
 MM_SOURCES := kernel/mm/pmm.c kernel/mm/heap.c
-PROCESS_SOURCES := kernel/process/task.c kernel/process/syscall.c kernel/process/handles.c \
+PROCESS_SOURCES := kernel/process/task.c kernel/process/session.c kernel/process/syscall.c kernel/process/handles.c \
                    kernel/process/elf.c kernel/process/process.c
 FS_SOURCES := kernel/fs/ramfs.c kernel/fs/system.c kernel/fs/path.c kernel/fs/fs-types.c \
               kernel/fs/fs.c kernel/fs/fat16.c kernel/fs/fat16-write.c
@@ -273,6 +273,12 @@ test: test-sleep
 test-sleep: build/tests/waits.elf build/tests/waits.iso build/tests/sleep.elf build/tests/sleep.iso build/tests/timer-test
 	./build/tests/timer-test
 	python3 tests/sleep-qemu-test.py --qemu $(QEMU)
+
+build/tests/session-test: tests/session-test.c kernel/process/session.c kernel/include/rum/session.h $(LAYOUT_HEADERS) $(ABI_HEADERS) tests/include/rum/cpu.h Makefile
+	@mkdir -p $(@D)
+	$(HOST_CC) -Itests/include $(CPPFLAGS) -std=gnu11 -O2 -Wall -Wextra -Werror tests/session-test.c kernel/process/session.c -o $@
+
+test-host: build/tests/session-test
 
 build/tests/user/sleep.o: tests/sleep-user.c $(USER_INCLUDE_STAMP) Makefile
 	@mkdir -p $(@D)
@@ -681,6 +687,7 @@ build/tests/ata-test: tests/ata-test.c drivers/storage/ata.c kernel/io/block.c k
 test-host: build/tests/ata-test
 
 test-host: build/tests/block-test build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
+	./build/tests/session-test
 	./build/tests/path-test
 	./build/tests/fs-test
 	./build/tests/ata-test
