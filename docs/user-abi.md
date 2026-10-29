@@ -154,6 +154,8 @@ callee-saved registers.
 | 18 | `rum_spawn(path, args)` | Versioned nonforeground launch packet | Positive child PID |
 | 19 | `rum_wait(pid, flags, result)` | Specific child or any child, optional `RUM_WAIT_NOHANG` | 1 collected; 0 still pending |
 | 20 | `rum_terminate(pid, flags)` | Owned child or explicitly delegated shell command authority | Zero when accepted |
+| 21 | `rum_yield()` | All arguments zero | Zero after another scheduling turn |
+| 22 | `rum_sleep(milliseconds)` | Versioned relative-delay packet; zero yields | Zero when the delay expires |
 
 Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
 means success. A negative result is the negation of a `RUM_E*` value from

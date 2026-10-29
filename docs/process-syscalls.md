@@ -235,6 +235,52 @@ then apply. This interface exposes no parent pointer, arbitrary PID or kernel
 address. `run cd /disk` is denied because `run` launches an ordinary nested child;
 type `cd /disk` directly.
 
+## Yielding and sleeping
+
+`rum_yield()` (21) gives up the caller's current turn and returns zero when it
+runs again. It can return immediately if no other task is runnable. All three
+syscall argument registers must be zero.
+
+`rum_sleep(milliseconds)` (22) blocks only the caller until its relative delay
+expires. Zero milliseconds performs the same voluntary yield without arming a
+deadline. Positive delays support 1 through `RUM_SLEEP_MAX_MS` (86,400,000 ms,
+24 hours); larger values, including `UINT32_MAX`, return `-RUM_ERANGE` without
+waiting. The request never allocates a timer object or a wait node.
+
+```c
+for (unsigned step = 0; step < 10; ++step) {
+    /* Do a small amount of application work. */
+    if (rum_sleep(100) < 0) return 1;
+}
+```
+
+The current PIT runs at approximately 100 Hz. A positive delay rounds up to
+whole ticks and includes one extra tick to cover the unknown starting phase.
+For example, 1 ms waits for two ticks, normally about 10–20 ms; 100 ms waits for
+eleven ticks, normally about 100–110 ms. Timer delivery, synchronous kernel I/O
+and other runnable tasks can delay resumption further. These are coarse sleeps
+with no real-time scheduling guarantee. Use a blocking wait for a condition
+rather than polling it in a yield loop.
+
+The 24-byte `rum_sleep_request` in `<rum/abi/time.h>` contains six 32-bit words:
+`version`, `size`, `milliseconds`, `flags` and `reserved[2]`. Use
+`RUM_SLEEP_ABI_VERSION` (1), the exact size and zero flags/reserved words. ECX
+and EDX must be zero. The kernel copies and checks the whole readable packet
+before registering a deadline; it accepts a packet across mapped pages or in
+read-only user memory. Invalid packets return `-RUM_EINVAL` and invalid ranges
+return `-RUM_EFAULT`. There is no output pointer.
+
+On cancellation, a sleeper becomes runnable with its deadline detached, then
+terminates at the existing safe return boundary. The caller's stack, address
+space and open handles remain owned until that termination and later collection.
+The parent receives `RUM_PROCESS_CANCELLED`. Kernel wait helpers return to their
+owning continuation so temporary resources can be released before cancellation
+takes effect. There is no user signal handler that retries the sleep.
+
+Sleep and yield append calls to ABI version 1 without changing the existing
+process or filesystem packet layouts. The standalone shell `sleep` command is
+part of the later process-tools work; the SDK calls are available now.
+
 ## Console actions
 
 `rum_console(action)` uses syscall 15. `RUM_CONSOLE_CLEAR` clears the text area
@@ -248,6 +294,14 @@ Console writes count bytes accepted from the program; serial output renders LF
 as CRLF, as kernel text output does. File writes preserve bytes exactly.
 
 ## Tests
+
+`make test-sleep` checks the actual PIT deadline scan, kernel event waits and
+public sleep/yield calls through ELF and GRUB ISO boot at 16 and 64 MiB. It covers
+zero and maximum durations, conversion overflow, clock wrap and a deadline of
+zero, event/timeout races, broadcast waits, unrelated sleepers, slot reuse,
+cancellation before registration and after expiry, and repeated sleep/exit
+cycles. QEMU injects real PS/2 Ctrl+C into a long sleep. Resource and wait counts
+must return to baseline; logs are under `build/test-artifacts/sleep/`.
 
 `make test-lifecycle` runs the public SDK calls through real ring-3 programs
 and separately checks identity exhaustion. Both fixtures boot through ELF and

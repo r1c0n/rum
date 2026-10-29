@@ -90,15 +90,15 @@ result buffer must not discard a child's exit record.
 
 ### 4. Sleeping and cancellable event waits
 
-- [ ] Expose yield and bounded timed sleep through the public runtime.
-- [ ] Use checked duration conversion and wrap-safe clock comparisons; define
+- [x] Expose yield and bounded timed sleep through the public runtime.
+- [x] Use checked duration conversion and wrap-safe clock comparisons; define
   zero-duration sleep and the maximum supported interval.
-- [ ] Let input, child completion, and timer deadlines block only the caller.
-- [ ] Preserve the event-sequence protocol so a signal between checking a
+- [x] Let input, child completion, and timer deadlines block only the caller.
+- [x] Preserve the event-sequence protocol so a signal between checking a
   predicate and attaching a waiter cannot be lost.
-- [ ] Wake a cancelled task without freeing its active stack or address space,
+- [x] Wake a cancelled task without freeing its active stack or address space,
   and finish termination at an existing safe boundary.
-- [ ] Remove wait registrations and deadline references on every exit path.
+- [x] Remove wait registrations and deadline references on every exit path.
 
 Test wakeups before and after registration, several waiters on one event,
 cancelled sleepers, deadline overflow, and repeated sleep/exit cycles. Idle

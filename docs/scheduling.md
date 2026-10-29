@@ -22,6 +22,7 @@ occupy separate bounded pools with a one-to-one relationship for now.
 | Switch-hold nesting count | Initial thread | Balanced within one nonblocking kernel operation |
 | Remaining slice and pending reschedule request | Initial thread | Reset when selected; consumed by PIT ticks |
 | Child-completion event and orphan-cleanup state | Process resource record | Publication through reaping |
+| Event pointer, deadline, active flag and wake reason | Initial thread | Registered atomically; detached before wakeup or exit |
 
 Kernel workers use a process resource container with PID zero and may borrow
 the kernel address space or own a private one. Idle borrows kernel space and
@@ -62,7 +63,7 @@ Yield/wait remain refused until the final hold is released.
 
 ## Time slices and interrupt return
 
-The PIT handler calls `task_timer_tick()`. It decrements the current thread's
+The PIT handler calls `task_timer_tick(now)`. It decrements the current thread's
 saturating five-tick budget and marks a request when that budget reaches zero.
 It does not select a task. Further ticks leave the request pending. The budget
 uses no absolute timestamp, so the 32-bit PIT clock wrapping cannot alter it.
@@ -95,12 +96,45 @@ stack switch. Idle is selected only when there is no other runnable work.
 Kernel workers must still yield, wait or exit explicitly. No switch is inserted
 into a switch-hold release, memory allocator, filesystem callback or driver.
 
-Timer events remain limited to the UI work event used by uptime, recovery and
-the kernel Snake loop. Keyboard reads, child completion and other event waiters
+Each tick also scans the fixed task table for due deadlines. It clears each
+due registration and marks that task runnable without allocating, reclaiming or
+switching contexts. This scan continues even after idle's own slice has expired.
+
+Periodic UI events serve recovery and the kernel Snake loop. The uptime worker
+uses its own event with a deadline at the next displayed second, and its stop
+event wakes it immediately during session teardown. Keyboard reads, child
+completion and other event waiters
 use separate events. Expiring a slice does not signal or wake those waiters.
 Synchronous filesystem work and bounded ATA polling can delay scheduling until
 the operation finishes and execution reaches a safe boundary. There is no
 real-time latency guarantee.
+
+## Timed waits
+
+`task_wait_for` stores its event pointer and optional deadline in the calling
+thread's existing record. With IF clear it checks cancellation, compares the
+event sequence, captures the clock and publishes the blocked state. A signal
+after the caller's earlier sequence snapshot causes an immediate event return;
+no IRQ can interrupt the final comparison and registration.
+
+Intervals are restricted to less than half the unsigned 32-bit clock range.
+Deadline addition wraps intentionally; unsigned `now - deadline` identifies
+expiry across wrap. The active flag distinguishes an unused deadline from a
+valid deadline whose numeric value is zero. Public sleep durations are bounded
+to 24 hours and converted with 64-bit arithmetic before they reach this layer.
+
+One wake helper handles event signals, timer expiry, foreground cancellation,
+explicit termination and orphan cleanup. It removes the event pointer and
+deadline before making a blocked task runnable. An event and timeout racing in
+the same tick preserve the first wake; cancellation pending when the task
+resumes overrides that reason. Exit clears registrations again, and the reaper
+refuses an exited record with a registration still attached. Slots can therefore
+be reused without inheriting an earlier owner's timer.
+
+The wait helper returns to its kernel caller rather than terminating it.
+This lets a syscall free temporary buffers before the common return path applies
+cancellation. The IRQ callback only changes bounded scheduler state; idle and
+normal task context perform the actual switch and resource reclamation.
 
 ## Shared state and protected updates
 
@@ -194,3 +228,10 @@ expiring during a synchronous test syscall, nested timer interrupts, unrelated
 waiters and resource counts returning to baseline. A host test seeds the actual
 PIT counter at wraparound and verifies that every tick still reaches scheduler
 accounting. Serial results are saved in `build/test-artifacts/preemption/`.
+
+`make test-sleep` additionally covers timed/untimed event waits, missed-wakeup
+races, event/timeout ordering, wraparound, deadline zero, long interval bounds,
+reused slots, protected-context rejection, public packet validation and real
+PS/2 cancellation. It checks idle wakeups after the slice budget has saturated
+and waits that hold temporary kernel allocations until cancellation returns.
+See [process syscalls](process-syscalls.md#tests) for the fixtures and artifacts.
