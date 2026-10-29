@@ -23,23 +23,30 @@ cooperative at explicitly safe points.
 
 ### 1. Scheduling and ownership prerequisites
 
-- [ ] Audit interrupt entry/return, syscall entry/return, context switching, and
+- [x] Separate process-owned resources from the initial thread's execution,
+  stack, scheduling state, and wait registration while retaining one thread
+  per process and the current public ABI.
+- [x] Audit interrupt entry/return, syscall entry/return, context switching, and
   cancellation before allowing a timer interrupt to select another process.
-- [ ] Document which task, process, filesystem, handle, console, and memory
+- [x] Document which task, process, filesystem, handle, console, and memory
   structures are shared, and what protects each update.
-- [ ] Define safe scheduling points. Never switch in an IRQ handler, during a
+- [x] Define safe scheduling points. Never switch in an IRQ handler, during a
   short interrupt-disabled update, while holding a lock, or while exposing
   partially constructed resources.
-- [ ] Audit blocking callbacks and bounded ATA polling. Keep filesystem and
+- [x] Audit blocking callbacks and bounded ATA polling. Keep filesystem and
   driver operations serialized, and release ownership before a task sleeps.
-- [ ] Define runnable, waiting, and exited states, scheduler limits, and the
+- [x] Define runnable, waiting, and exited states, scheduler limits, and the
   ownership of stacks, address spaces, working directories, and exit records.
-- [ ] Preserve the existing user CPU policy, guarded stacks, and kernel fault
+- [x] Preserve the existing user CPU policy, guarded stacks, and kernel fault
   behavior while introducing the new scheduling paths.
 
 Test event wakeups racing with waits, cancellation during a syscall, and
 failure partway through process construction. Add assertions for forbidden
 scheduling contexts and compare ownership counts before and after cleanup.
+
+The ownership model, protected operations, and synchronization audit are
+recorded in [Scheduling safety](scheduling.md). Timer-driven switching remains
+part of step 2.
 
 ### 2. Timer-driven user-process preemption
 

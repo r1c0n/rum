@@ -1,14 +1,24 @@
 #include <rum/block.h>
 #include <rum/cpu.h>
 
+static uint32_t active_requests;
+
+bool block_request_active(void)
+{
+    uint32_t flags = cpu_interrupt_save();
+    bool active = active_requests != 0;
+    cpu_interrupt_restore(flags);
+    return active;
+}
+
 static enum block_error acquire(struct block_device *device)
 {
     if (!device || !device->operations || !device->sector_size)
         return BLOCK_INVALID;
     uint32_t flags = cpu_interrupt_save();
     enum block_error error = !device->online ? BLOCK_NO_DEVICE :
-                             device->busy ? BLOCK_BUSY : BLOCK_OK;
-    if (error == BLOCK_OK) device->busy = true;
+                             device->busy || active_requests == UINT32_MAX ? BLOCK_BUSY : BLOCK_OK;
+    if (error == BLOCK_OK) { device->busy = true; ++active_requests; }
     cpu_interrupt_restore(flags);
     return error;
 }
@@ -17,6 +27,7 @@ static void release(struct block_device *device)
 {
     uint32_t flags = cpu_interrupt_save();
     device->busy = false;
+    --active_requests;
     cpu_interrupt_restore(flags);
 }
 

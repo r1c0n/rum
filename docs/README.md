@@ -67,6 +67,7 @@ the public headers and application runtime.
 | [Boot, exceptions, and CPU state](exceptions.md) | GDT, TSS, IDT, interrupt frames, user CPU policy, and double faults |
 | [Device interrupts](interrupts.md) | PIC routing, PIT ticks, keyboard input, and IRQ restrictions |
 | [Kernel tasks and process records](tasks.md) | Scheduling, guarded stacks, events, process publication, and cleanup |
+| [Scheduling safety](scheduling.md) | Process/thread ownership, protected operations, switch boundaries, and I/O restrictions |
 | [Filesystems and paths](filesystems.md) | Backend operations, mounts, naming, access, retained objects, and working directories |
 | [Memory management](memory.md) | Multiboot memory discovery, physical pages, paging, and checked user access |
 | [Memory map and ownership](memory-layout.md) | Virtual ranges, limits, and who must release each resource |
