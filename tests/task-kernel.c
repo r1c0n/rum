@@ -1,4 +1,5 @@
 #include <rum/cpu.h>
+#include <rum/abi/error.h>
 #include <rum/diagnostics.h>
 #include <rum/fs.h>
 #include <rum/gdt.h>
@@ -99,10 +100,12 @@ static void refuse_switch(void)
 {
     struct task_snapshot before, after;
     check(task_snapshot_read(&before), "snapshot before protected callback");
-    check(!task_yield() && !task_wait(&timed, task_event_sequence(&timed)),
+    check(!task_yield() && !task_wait(&timed, task_event_sequence(&timed)) &&
+          task_wait_for(&timed, timed.sequence, 2) == TASK_WAIT_INVALID && task_sleep(1) == -RUM_EBUSY,
           "protected callback cannot yield or attach a waiter");
     check(task_snapshot_read(&after) && after.current == before.current &&
           after.switches == before.switches && after.states[TASK_BLOCKED] == before.states[TASK_BLOCKED] &&
+          after.event_waiters == before.event_waiters && after.deadline_waiters == before.deadline_waiters &&
           !protected_runs, "protected rejection preserves scheduling state");
     uint32_t flags = cpu_interrupt_save();
     cpu_interrupt_restore(flags);
@@ -214,6 +217,7 @@ static void tick(void)
     check(task_snapshot_read(&snapshot) && snapshot.current == task_current_id(), "IRQ-safe snapshot");
     uint32_t before = pmm_stats().free_pages;
     check(!task_yield() && !task_wait(&timed, timed.sequence) &&
+          task_wait_for(&timed, timed.sequence, 2) == TASK_WAIT_INVALID && task_sleep(1) == -RUM_EBUSY &&
           !task_switch_hold() && !task_switch_release() &&
           !task_create(task_test_entry, NULL, NULL) && task_reap() == 0,
           "IRQ cannot allocate, block, switch or reap tasks");

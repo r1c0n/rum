@@ -23,6 +23,7 @@ enum task_termination {
     TASK_TERMINATION_CANCELLED,
 };
 struct task_event { volatile uint32_t sequence; };
+enum task_wait_result { TASK_WAIT_EVENT, TASK_WAIT_TIMEOUT, TASK_WAIT_CANCELLED, TASK_WAIT_INVALID };
 struct task_resources {
     uint32_t kernel_stack_pages, directory_pages, user_table_pages, user_pages;
 };
@@ -58,6 +59,7 @@ struct task_snapshot {
     uint32_t stack_pages, emergency_stack_pages, directory_pages;
     uint32_t user_table_pages, user_pages;
     uint32_t created, exited, reaped, switches;
+    uint32_t event_waiters, deadline_waiters;
     struct task_information tasks[RUM_TASK_CAPACITY];
 };
 
@@ -105,6 +107,7 @@ bool task_switch_hold(void);
 bool task_switch_release(void);
 /* Also refuse held scopes and active synchronous filesystem/block operations. */
 bool task_yield(void); /* Refuses IRQ context and callers with IF clear. */
+rum_result_t task_sleep(uint32_t milliseconds); /* Cancellable; zero yields. */
 _Noreturn void task_exit(void); /* Only worker tasks; equivalent to status zero. */
 _Noreturn void task_exit_with_status(rum_result_t status); /* IF may be clear. */
 /* Only a CPL-3 exception belonging to the running process may use this path. */
@@ -119,8 +122,9 @@ bool task_current_cancelled(void);
 bool task_current_owns_console(void);
 rum_result_t task_request_termination(rum_pid_t id, bool session);
 void task_cancel_current_if_requested(void);
-/* PIT handler: record work only, with no switch, allocation or event wakeup. */
-void task_timer_tick(void);
+/* PIT handler: mark due sleepers runnable and account a slice. Bounded scan,
+   no switch/allocation/reaping and no wakeup of unrelated event waiters. */
+void task_timer_tick(uint32_t now);
 /* Common assembly return only, IF clear and after IRQ dispatch/EOI. Kernel
    returns do nothing; an outer user frame may cancel or service its slice. */
 void task_on_user_return(const struct exception_frame *frame);
@@ -137,6 +141,10 @@ uint32_t task_reap(void); /* Foreground; only exited, inactive resources. */
    Signal wakes all waiters; resumed callers must recheck their predicate. */
 uint32_t task_event_sequence(const struct task_event *event);
 bool task_wait(struct task_event *event, uint32_t observed);
+/* Relative ticks in [0, 2^31). NULL event waits only for the deadline. First
+   wake wins; cancellation takes priority if already pending on entry/resume.
+   EVENT means recheck the predicate; INVALID changes no registration/state. */
+enum task_wait_result task_wait_for(struct task_event *event, uint32_t observed, uint32_t ticks);
 void task_event_signal(struct task_event *event); /* IRQ-safe; no switch/alloc/free. */
 struct task_event *task_work_event(void); /* Timer/keyboard foreground events. */
 #endif

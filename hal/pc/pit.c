@@ -9,10 +9,21 @@ static volatile uint32_t ticks;
 static void timer_interrupt(void)
 {
     ++ticks;
-    task_timer_tick();
-    /* Only UI consumers (uptime, recovery, Snake) wait on this event. Console
+    task_timer_tick(ticks);
+    /* Only UI consumers (recovery and Snake) wait on this event. Console
        reads and child/FS waits use their own events and are not tick-woken. */
     task_event_signal(task_work_event());
+}
+
+bool timer_duration_ticks(uint32_t milliseconds, uint32_t *result)
+{
+    if (!result || milliseconds > RUM_SLEEP_MAX_MS) return false;
+    /* The maximum supported product exceeds 32 bits. An extra tick covers
+       the unknown fraction of the current PIT period before the first IRQ. */
+    uint64_t duration = milliseconds ? ((uint64_t)milliseconds * TIMER_HZ + 999u) / 1000u + 1u : 0;
+    if (duration >= TIMER_HALF_RANGE) return false;
+    *result = (uint32_t)duration;
+    return true;
 }
 
 void timer_initialize(void)

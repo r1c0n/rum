@@ -30,7 +30,9 @@
 #define RUM_SYS_SPAWN 18 /* ebx: rum_spawn_request; returns positive child PID */
 #define RUM_SYS_WAIT 19 /* ebx: rum_wait_request; 1 completed, 0 NOHANG pending */
 #define RUM_SYS_TERMINATE 20 /* ebx: rum_terminate_request; request cancellation */
-#define RUM_SYS_COUNT  21
+#define RUM_SYS_YIELD 21 /* No arguments; voluntarily give up the current turn. */
+#define RUM_SYS_SLEEP 22 /* ebx: rum_sleep_request; zero after the delay. */
+#define RUM_SYS_COUNT  23
 #define RUM_ABI_PID_MAX 0x7FFFFFFF /* Positive IDs fit the signed result type. */
 
 #define RUM_STDIN  0

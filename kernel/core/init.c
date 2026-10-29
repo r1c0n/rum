@@ -66,6 +66,7 @@ static bool recovery;
 static bool disk_readonly;
 static char shell_path[FS_PATH_CAPACITY] = "/rum/shell.elf";
 static volatile bool uptime_stop;
+static struct task_event uptime_event;
 
 /* PMM has already bounded/reserved the Multiboot command string. Parse it
    before paging replaces the bootloader's address-space assumptions. */
@@ -93,10 +94,10 @@ static void uptime_worker(void *unused)
     (void)unused;
     uint32_t displayed = UINT32_MAX;
     while (!uptime_stop) {
-        uint32_t observed = task_event_sequence(task_work_event());
-        uint32_t seconds = timer_ticks() / TIMER_HZ;
+        uint32_t observed = task_event_sequence(&uptime_event);
+        uint32_t now = timer_ticks(), seconds = now / TIMER_HZ;
         if (seconds != displayed) { displayed = seconds; update_uptime(seconds); }
-        if (!uptime_stop) (void)task_wait(task_work_event(), observed);
+        if (!uptime_stop) (void)task_wait_for(&uptime_event, observed, TIMER_HZ - now % TIMER_HZ);
     }
 }
 
@@ -127,7 +128,7 @@ static void userspace_session(void)
     }
     if (uptime) {
         uptime_stop = true;
-        task_event_signal(task_work_event());
+        task_event_signal(&uptime_event);
         struct task_information result;
         while (task_query(uptime, &result) && result.state != TASK_EXITED) (void)task_yield();
         (void)task_reap();

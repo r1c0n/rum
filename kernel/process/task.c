@@ -10,6 +10,7 @@
 #include <rum/memory.h>
 #include <rum/process_limits.h>
 #include <rum/task.h>
+#include <rum/timer.h>
 
 #define IF 0x200u
 #define STACK_PAGES (RUM_KERNEL_STACK_SIZE / RUM_PAGE_SIZE)
@@ -53,6 +54,9 @@ struct task {
     void *argument;
     struct exception_user_frame user_frame;
     struct task_event *waiting;
+    uint32_t deadline;
+    bool deadline_active;
+    enum task_wait_result wake_reason;
     struct process_state *process;
 };
 static struct process_state processes[TASK_SLOTS];
@@ -69,6 +73,21 @@ volatile uint32_t task_idle_stack_base, task_emergency_stack_base, task_current_
 extern const char __boot_stack_bottom[], __boot_stack_top[];
 static _Noreturn void start_task(void);
 static _Noreturn void idle_loop(void *argument);
+
+static void clear_wait(struct task *task)
+{
+    task->waiting = NULL;
+    task->deadline_active = false;
+    task->deadline = 0;
+}
+
+/* IF clear; no allocation, destruction or context switch. */
+static void wake_task(struct task *task, enum task_wait_result reason)
+{
+    clear_wait(task);
+    task->wake_reason = reason;
+    task->state = TASK_RUNNABLE;
+}
 
 /* Caller publishes only with interrupts disabled, after construction completes. */
 static void publish(struct task *slot, const struct task *prepared)
@@ -468,6 +487,8 @@ bool task_snapshot_read(struct task_snapshot *snapshot)
             struct task_information item = information(&tasks[i]);
             snapshot->tasks[snapshot->count++] = item;
             ++snapshot->states[item.state];
+            if (tasks[i].waiting) ++snapshot->event_waiters;
+            if (tasks[i].deadline_active) ++snapshot->deadline_waiters;
             if (item.kind == TASK_PROCESS) ++snapshot->processes;
             snapshot->stack_pages += item.resources.kernel_stack_pages;
             snapshot->directory_pages += item.resources.directory_pages;
@@ -483,6 +504,7 @@ bool task_snapshot_read(struct task_snapshot *snapshot)
 static bool reap_slot(struct task *task)
 {
     if (!task || task->state != TASK_EXITED || task == current ||
+        task->waiting || task->deadline_active || task->deadline ||
         (task->process->owns_space && task->process->space == paging_active_space())) return false;
     /* Exit must release file handles before this interrupt-protected reaper.
        Refuse to discard a record with outstanding ownership. */
@@ -624,7 +646,7 @@ static _Noreturn void terminate_current(enum task_termination termination,
     if (!ready || irq_in_handler() || current == &tasks[BOOT] || current == &tasks[IDLE] ||
         switch_protected()) cpu_halt();
     (void)cpu_interrupt_save();
-    current->waiting = NULL;
+    clear_wait(current);
     current->process->termination = termination;
     current->process->exit_status = status;
     if (frame) {
@@ -667,8 +689,7 @@ static _Noreturn void terminate_current(enum task_termination termination,
         child->process->orphaned = true;
         child->process->cancellation_requested = true;
         if (child->state == TASK_BLOCKED) {
-            child->waiting = NULL;
-            child->state = TASK_RUNNABLE;
+            wake_task(child, TASK_WAIT_CANCELLED);
         }
     }
     current->state = TASK_EXITED;
@@ -732,8 +753,7 @@ bool task_cancel_foreground(void)
             if (task->process->interactive_shell) break;
             task->process->cancellation_requested = true;
             if (task->state == TASK_BLOCKED) {
-                task->waiting = NULL;
-                task->state = TASK_RUNNABLE;
+                wake_task(task, TASK_WAIT_CANCELLED);
             }
             requested = true;
             break;
@@ -777,8 +797,7 @@ rum_result_t task_request_termination(rum_pid_t id, bool session)
     else if (target->state != TASK_EXITED) {
         target->process->cancellation_requested = true;
         if (target->state == TASK_BLOCKED) {
-            target->waiting = NULL;
-            target->state = TASK_RUNNABLE;
+            wake_task(target, TASK_WAIT_CANCELLED);
         }
     }
     cpu_interrupt_restore(saved);
@@ -791,11 +810,15 @@ void task_cancel_current_if_requested(void)
         terminate_current(TASK_TERMINATION_CANCELLED, 0, NULL, 0);
 }
 
-void task_timer_tick(void)
+void task_timer_tick(uint32_t now)
 {
+    if (!ready) return;
+    for (unsigned i = 0; i < TASK_SLOTS; ++i)
+        if (tasks[i].state == TASK_BLOCKED && tasks[i].deadline_active &&
+            timer_deadline_reached(now, tasks[i].deadline)) wake_task(&tasks[i], TASK_WAIT_TIMEOUT);
     /* A saturating per-dispatch budget does not depend on the absolute PIT
        count, so wrapping that clock cannot extend or shorten a time slice. */
-    if (!ready || !current || !current->slice_ticks) return;
+    if (!current || !current->slice_ticks) return;
     if (!--current->slice_ticks) current->reschedule = true;
 }
 
@@ -877,28 +900,63 @@ void task_event_signal(struct task_event *event)
     if (ready) {
         for (uint32_t i = 0; i < TASK_SLOTS; ++i) {
             if (tasks[i].state == TASK_BLOCKED && tasks[i].waiting == event) {
-                tasks[i].waiting = NULL;
-                tasks[i].state = TASK_RUNNABLE;
+                wake_task(&tasks[i], TASK_WAIT_EVENT);
             }
         }
     }
     cpu_interrupt_restore(saved);
 }
 
-bool task_wait(struct task_event *event, uint32_t observed)
+static enum task_wait_result wait_common(struct task_event *event, uint32_t observed,
+                                         bool timed, uint32_t duration)
 {
-    if (!ready || !event || irq_in_handler()) return false;
+    if (!ready || (!event && !timed) || irq_in_handler()) return TASK_WAIT_INVALID;
     uint32_t saved = cpu_interrupt_save();
-    if (!(saved & IF) || current == &tasks[IDLE] || switch_protected()) {
-        cpu_interrupt_restore(saved); return false;
+    if (!(saved & IF) || current == &tasks[IDLE] || switch_protected() ||
+        (timed && duration >= TIMER_HALF_RANGE)) {
+        cpu_interrupt_restore(saved); return TASK_WAIT_INVALID;
     }
-    if (event->sequence == observed) {
+    enum task_wait_result reason;
+    if (task_current_cancelled()) reason = TASK_WAIT_CANCELLED;
+    else if (event && event->sequence != observed) reason = TASK_WAIT_EVENT;
+    else if (timed && !duration) reason = TASK_WAIT_TIMEOUT;
+    else {
+        /* Tick capture, sequence check and registration form one update. An
+           IRQ cannot pass a deadline or signal the event between them. */
         current->waiting = event;
+        current->deadline_active = timed;
+        current->deadline = timed ? timer_ticks() + duration : 0;
         current->state = TASK_BLOCKED;
         schedule();
+        if (current->waiting || current->deadline_active || current->deadline) cpu_halt();
+        reason = task_current_cancelled() ? TASK_WAIT_CANCELLED : current->wake_reason;
     }
     cpu_interrupt_restore(saved);
-    return true;
+    return reason;
+}
+
+bool task_wait(struct task_event *event, uint32_t observed)
+{
+    /* Existing cancellable callers recheck their predicate/cancellation flag.
+       Do not terminate here: their kernel frames may own temporary resources. */
+    return wait_common(event, observed, false, 0) != TASK_WAIT_INVALID;
+}
+
+enum task_wait_result task_wait_for(struct task_event *event, uint32_t observed, uint32_t duration)
+{
+    return wait_common(event, observed, true, duration);
+}
+
+rum_result_t task_sleep(uint32_t milliseconds)
+{
+    uint32_t duration;
+    if (!timer_duration_ticks(milliseconds, &duration)) return -RUM_ERANGE;
+    if (!duration) {
+        if (!task_yield()) return -RUM_EBUSY;
+        return task_current_cancelled() ? -RUM_EINTR : 0;
+    }
+    enum task_wait_result reason = task_wait_for(NULL, 0, duration);
+    return reason == TASK_WAIT_TIMEOUT ? 0 : reason == TASK_WAIT_CANCELLED ? -RUM_EINTR : -RUM_EBUSY;
 }
 
 struct task_event *task_work_event(void)

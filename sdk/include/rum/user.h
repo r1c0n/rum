@@ -6,6 +6,7 @@
 #include <rum/abi/syscall.h>
 #include <rum/abi/filesystem.h>
 #include <rum/abi/console.h>
+#include <rum/abi/time.h>
 
 rum_result_t rum_open(const char *path, uint32_t access, uint32_t flags);
 rum_result_t rum_close(rum_handle_t);
@@ -20,6 +21,8 @@ rum_result_t rum_run(const char *, const struct rum_arguments *, struct rum_proc
 rum_result_t rum_spawn(const char *, const struct rum_arguments *);
 rum_result_t rum_wait(rum_pid_t, uint32_t flags, struct rum_process_result *);
 rum_result_t rum_terminate(rum_pid_t, uint32_t flags);
+rum_result_t rum_yield(void);
+rum_result_t rum_sleep(uint32_t milliseconds);
 rum_result_t rum_replace(const char *, const void *, rum_size_t);
 rum_result_t rum_console(uint32_t);
 rum_result_t rum_run_command(const char *, const struct rum_arguments *, const char *, struct rum_process_result *);
