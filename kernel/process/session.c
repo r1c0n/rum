@@ -165,6 +165,12 @@ bool console_member_exit(struct console_member *member)
         --member->references; session->root = 0;
         if (active == session) { active = 0; --session->references; }
     } else if (session && !session->closing) {
+        bool returning = session->owner == member;
+        struct console_member *link = session->owner;
+        for (unsigned i = 0; link && i < RUM_PROCESS_LIMIT; ++i) {
+            if (link == member) returning = true;
+            link = link->restore;
+        }
         /* Remove references to the exiting process without discovering a
            previous console owner through mutable parent/child relationships. */
         for (unsigned i = 0; i < RUM_PROCESS_LIMIT; ++i) {
@@ -174,7 +180,7 @@ bool console_member_exit(struct console_member *member)
                 if (other->restore) ++other->restore->references;
             }
         }
-        if (session->owner && (session->owner == member || session->owner->cancelled))
+        if (returning && session->owner && (session->owner == member || session->owner->cancelled))
             owner(session, previous(session->owner));
     }
     release_return(member);

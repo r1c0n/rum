@@ -70,7 +70,7 @@ void diagnostics_render(const struct kernel_diagnostics *snapshot, diagnostics_w
     write("Lifecycle: "); decimal(write, snapshot->tasks.created); write(" created, ");
     decimal(write, snapshot->tasks.exited); write(" exited, "); decimal(write, snapshot->tasks.reaped);
     write(" reaped, "); decimal(write, snapshot->tasks.switches); write(" switches\n");
-    write("Sessions: "); decimal(write, snapshot->tasks.console.sessions); write(" live, ");
+    write("Sessions: "); decimal(write, snapshot->tasks.console.sessions - snapshot->tasks.console.closing); write(" live, ");
     decimal(write, snapshot->tasks.console.closing); write(" closing, ");
     decimal(write, snapshot->tasks.console.members); write(" members | ");
     decimal(write, snapshot->tasks.console.session_references); write(" session refs, ");

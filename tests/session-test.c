@@ -25,6 +25,11 @@ static void nested(void)
     assert(!console_detach(&root) && !console_detach(&nested));
     console_cancel_member(&nested);
     assert(!console_owns_input(&nested) && console_cancellation_target() == 4);
+    /* An unrelated exit must not transfer input away from an owner that is
+       still completing cancellation in its own kernel continuation. */
+    struct console_member unrelated = {0};
+    assert(console_attach(&unrelated, 6, &background, false));
+    assert(!console_member_exit(&unrelated) && console_detach(&unrelated) && console_cancellation_target() == 4);
     assert(!console_member_exit(&nested) && !nested.references && console_owns_input(&child) &&
            console_cancellation_target() == 3 && console_detach(&nested));
     assert(console_command_shell(&child) == &root && console_request_exit(&child, 75));
