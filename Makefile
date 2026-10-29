@@ -63,7 +63,7 @@ TEST_DEPENDENCIES += build/tests/fs-kernel.d build/tests/fs-checks.d build/tests
 STORAGE_HOST_HEADERS := kernel/include/rum/heap.h kernel/include/rum/ramfs.h kernel/include/rum/fs.h kernel/include/rum/path.h kernel/include/rum/fs_types.h kernel/include/rum/fs_limits.h $(ABI_HEADERS) kernel/include/rum/embedded.h kernel/include/rum/paging.h kernel/include/rum/pmm.h kernel/include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
 SNAKE_HOST_SOURCES := kernel/recovery/snake.c kernel/recovery/snake_model.c
 SNAKE_HOST_HEADERS := kernel/include/rum/snake.h kernel/include/rum/snake_model.h kernel/include/rum/timer.h
-SYSTEM_COMMANDS := help about echo clear ls cat pwd cd write mkdir rm run exit recovery
+SYSTEM_COMMANDS := help about echo clear ls cat pwd cd write mkdir rm run exit recovery ps kill sleep
 SDK_EXAMPLES := hello nonzero fault spin readline
 APP_PROGRAMS := snake
 USER_PROGRAMS := shell $(SYSTEM_COMMANDS) $(APP_PROGRAMS) $(SDK_EXAMPLES)
@@ -282,6 +282,10 @@ build/tests/session-test: tests/session-test.c kernel/process/session.c kernel/i
 test-host: build/tests/session-test
 
 .PHONY: test-console-sessions
+.PHONY: test-process-tools
+test: test-process-tools
+test-process-tools: all
+	python3 tests/process-tools-test.py --qemu $(QEMU)
 test: test-console-sessions
 test-console-sessions: all build/tests/console.elf build/tests/console.iso build/tests/console-supervisor.iso
 	python3 tests/console-qemu-test.py --qemu $(QEMU)
