@@ -97,6 +97,7 @@ input with `Ctrl+Alt+G`.
 - A shared path layer and writable FAT16 mount at `/disk`, with checked cluster ownership.
 - A separate freestanding user ELF build, production loader, and public ABI.
 - Foreground user-process launch, waiting, fault reporting, cleanup, and Ctrl+C.
+- Independent child spawn, blocking/nonblocking waits, and authorized termination.
 
 rum is a single-CPU system. The normal shell and programs started with `run`
 execute in ring 3 using public syscalls. Snake and the recovery shell remain

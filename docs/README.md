@@ -34,6 +34,8 @@ process while preserving its fault record for the parent. The production
 input and output, directory listing, and working-directory operations.
 The shell can launch one foreground user process, wait for its
 result, report its signed status or fault, and cancel it with Ctrl+C.
+Programs can also spawn nonforeground children, wait for one or any owned child,
+poll for completion and request authorized cancellation through the SDK.
 
 Stripped user ELF programs live in a separate read-only boot volume at `/rum`. The
 kernel loader validates them again, builds private mappings and an initial user

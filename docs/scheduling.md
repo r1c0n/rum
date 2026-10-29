@@ -21,6 +21,7 @@ occupy separate bounded pools with a one-to-one relationship for now.
 | Runnable/blocked/exited state and event registration | Initial thread | Scheduler publication through reaping |
 | Switch-hold nesting count | Initial thread | Balanced within one nonblocking kernel operation |
 | Remaining slice and pending reschedule request | Initial thread | Reset when selected; consumed by PIT ticks |
+| Child-completion event and orphan-cleanup state | Process resource record | Publication through reaping |
 
 Kernel workers use a process resource container with PID zero and may borrow
 the kernel address space or own a private one. Idle borrows kernel space and
@@ -145,6 +146,20 @@ Exit closes handles before publishing the exited state. A surviving context
 later releases the directory pin, inactive address space, and guarded stack,
 then clears both pool slots. Neither the active CR3 nor the executing stack
 can be reclaimed. Kernel faults retain the existing panic behavior.
+
+Each process owns its child-completion event. Waits capture that event's
+sequence before scanning owned children. Waiting does not consume a result;
+the syscall copies it to validated user memory before collection. PID-based
+waits reject unrelated and stale identities, and a nonblocking check never
+attaches a waiter. Cancellation wakes a blocked wait so its caller can release
+temporary resources before exiting at the existing return boundary.
+
+Parent exit discovers its bounded descendant tree with IF clear, adopts it
+into boot's cleanup ownership and requests cancellation of live descendants.
+It releases no active child stack or address space. The ordinary reaper also
+collects exited orphans; normal completions remain owned by their parent.
+Foreground ancestry is restored through the existing `RUN` cleanup path. The
+full public policy is documented in [process syscalls](process-syscalls.md).
 
 Event users capture the sequence before checking their predicate, then attach
 the waiter with IF clear only if that sequence is unchanged. An early signal
