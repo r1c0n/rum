@@ -84,6 +84,9 @@ make clean           # Remove build/
 QEMU starts with 64 MiB of RAM. Serial output appears in the launching terminal.
 Close the QEMU window or press `Ctrl+C` in that terminal to stop it.
 
+To use VMware Workstation or VirtualBox instead, see [Virtual machines](virtual-machines.md)
+for compatible BIOS/IDE settings and the optional preformatted data images.
+
 To attach a raw disk, pass `-DiskImage <path>` to the PowerShell run/debug actions
 or `DISK_IMAGE=<path>` to Make. Image creation is a separate `create-disk` command
 that refuses existing paths. See [Raw disks and block devices](block-devices.md)

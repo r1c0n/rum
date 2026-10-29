@@ -4,7 +4,8 @@ A small hobby operating system written in C and x86 assembly, named after
 the Scottish island of Rùm.
 
 rum boots through GRUB into a VGA text console with a shell, RAM files, protected
-user programs, and ASCII Snake. It runs on a 32-bit x86 BIOS machine in QEMU.
+user programs, and ASCII Snake. It boots with 32-bit x86 BIOS firmware in QEMU,
+VMware Workstation, and VirtualBox.
 
 ## Screenshots
 
@@ -35,6 +36,10 @@ Then check the environment and boot rum:
 The launcher builds in WSL and opens Windows QEMU. To build and run from Ubuntu
 instead, use `make doctor` and `make run`. See [setup](docs/setup.md) for manual
 installation, toolchain options, and troubleshooting.
+
+VMware Workstation and VirtualBox users can follow the
+[virtual-machine setup guide](docs/virtual-machines.md), including prepared
+VMDK/VDI data disks and a VMware preset.
 
 ## Using rum
 

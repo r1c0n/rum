@@ -18,6 +18,9 @@ If you only want to try the release ISO, no compiler is required:
 qemu-system-i386 -m 64M -cdrom rum.iso
 ```
 
+For VMware Workstation or VirtualBox, follow [Virtual machines](virtual-machines.md).
+It covers BIOS/IDE settings and prepared persistent-disk images.
+
 ## What works today
 
 The normal boot provides a VGA text console, a PS/2 keyboard, a userspace shell,
@@ -47,6 +50,7 @@ directories, file creation and ELF launch.
 | Guide | Use it for |
 | --- | --- |
 | [Setup](setup.md) | Installing dependencies, building, running, and attaching GDB |
+| [Virtual machines](virtual-machines.md) | VMware/VirtualBox settings, prepared VMDK/VDI images, and persistent files |
 | [Shell](shell.md) | Commands, editing rules, RAM-file examples, and input limitations |
 | [System volume](system-volume.md) | `/rum`, standalone commands, build artifacts and boot-image validation |
 | [ASCII Snake](snake.md) | Controls, scoring, and score-file behavior |
