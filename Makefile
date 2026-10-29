@@ -86,6 +86,7 @@ TEST_DEPENDENCIES += build/tests/file-syscall-kernel.d build/tests/file-syscall-
 TEST_DEPENDENCIES += build/tests/process-syscall-kernel.d build/tests/process-syscall-image.d build/tests/user/process-syscall.d
 TEST_DEPENDENCIES += build/tests/preemption-kernel.d build/tests/preemption-probe.d
 TEST_DEPENDENCIES += build/tests/lifecycle-kernel.d build/tests/lifecycle-ids-kernel.d build/tests/user/lifecycle.d
+TEST_DEPENDENCIES += build/tests/waits-kernel.d build/tests/sleep-kernel.d build/tests/user/sleep.d
 
 .PHONY: all check iso user test-user run run-kernel debug panic test test-host test-package doctor toolchain clean FORCE
 .SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) $(PROCESS_FAULT_OBJECTS) build/tests/paging-spaces.o build/tests/user-memory.o
@@ -266,6 +267,37 @@ test-preemption: build/tests/preemption.elf build/tests/preemption.iso build/tes
 test: test-lifecycle
 test-lifecycle: build/tests/lifecycle.elf build/tests/lifecycle.iso build/tests/lifecycle-ids.elf build/tests/lifecycle-ids.iso
 	python3 tests/lifecycle-qemu-test.py --qemu $(QEMU)
+
+.PHONY: test-sleep
+test: test-sleep
+test-sleep: build/tests/waits.elf build/tests/waits.iso build/tests/sleep.elf build/tests/sleep.iso build/tests/timer-test
+	./build/tests/timer-test
+	python3 tests/sleep-qemu-test.py --qemu $(QEMU)
+
+build/tests/user/sleep.o: tests/sleep-user.c $(USER_INCLUDE_STAMP) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/tests/user/sleep.debug.elf: build/tests/user/sleep.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none \
+	    -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+build/tests/user/sleep.elf: build/tests/user/sleep.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@.tmp
+	build/tools/check-user-elf $@.tmp $<
+	mv -- $@.tmp $@
+build/tests/sleep-image.o: tests/sleep-image.s build/tests/user/sleep.elf
+	@mkdir -p $(@D)
+	$(AS) $< -o $@
+build/tests/waits.elf: build/tests/waits-kernel.o $(filter-out build/tests/fault-trigger.o build/kernel/process/task.o build/hal/pc/pit.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
+build/tests/sleep.elf: build/tests/sleep-kernel.o build/tests/sleep-image.o $(filter-out build/tests/fault-trigger.o build/hal/pc/pit.o build/arch/i386/interrupt.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
+build/tests/waits.iso build/tests/sleep.iso: build/tests/%.iso: build/tests/%.elf Makefile
+	@mkdir -p build/$*-isodir/boot/grub
+	cp $< build/$*-isodir/boot/rum.elf
+	printf 'set timeout=0\nmenuentry "rum timed wait tests" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/$*-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/$*-isodir
 
 build/tests/user/lifecycle.o: tests/lifecycle-user.c $(USER_INCLUDE_STAMP) Makefile
 	@mkdir -p $(@D)

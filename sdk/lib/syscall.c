@@ -52,6 +52,13 @@ rum_result_t rum_terminate(rum_pid_t id, uint32_t flags)
         .process_id = id, .flags = flags };
     return rum_syscall3(RUM_SYS_TERMINATE, (rum_address_t)(uintptr_t)&request, 0, 0);
 }
+rum_result_t rum_yield(void) { return rum_syscall3(RUM_SYS_YIELD, 0, 0, 0); }
+rum_result_t rum_sleep(uint32_t milliseconds)
+{
+    struct rum_sleep_request request = { .version = RUM_SLEEP_ABI_VERSION, .size = sizeof request,
+        .milliseconds = milliseconds };
+    return rum_syscall3(RUM_SYS_SLEEP, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
 rum_result_t rum_replace(const char *path, const void *data, rum_size_t bytes)
 {
     struct rum_replace_request request = { RUM_FS_ABI_VERSION, sizeof request,

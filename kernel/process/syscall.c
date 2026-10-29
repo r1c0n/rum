@@ -273,6 +273,16 @@ static rum_result_t terminate_child(struct paging_space *space, uint32_t address
     return task_request_termination(request.process_id, request.flags & RUM_TERMINATE_SESSION);
 }
 
+static rum_result_t sleep_process(struct paging_space *space, uint32_t address)
+{
+    struct rum_sleep_request request;
+    if (!accessible(space, address, sizeof request, false) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    if (request.version != RUM_SLEEP_ABI_VERSION || request.size != sizeof request ||
+        request.flags || request.reserved[0] || request.reserved[1]) return -RUM_EINVAL;
+    return task_sleep(request.milliseconds);
+}
+
 static rum_result_t command_text(struct paging_space *space, uint32_t address, uint32_t capacity, uint32_t reserved)
 {
     if (reserved) return -RUM_EINVAL;
@@ -369,6 +379,12 @@ void syscall_dispatch(struct exception_frame *frame)
     case RUM_SYS_GETCWD: result = working_directory(space, frame->ebx, frame->ecx); break;
     case RUM_SYS_FLUSH: result = process_handle_flush(process_handle_get(handles, frame->ebx)); break;
     case RUM_SYS_RUN: result = run_child(space, frame->ebx); break;
+    case RUM_SYS_YIELD:
+        result = frame->ebx || frame->ecx || frame->edx ? -RUM_EINVAL : task_yield() ? 0 : -RUM_EBUSY;
+        break;
+    case RUM_SYS_SLEEP:
+        result = frame->ecx || frame->edx ? -RUM_EINVAL : sleep_process(space, frame->ebx);
+        break;
     case RUM_SYS_SPAWN: case RUM_SYS_WAIT: case RUM_SYS_TERMINATE:
         result = frame->ecx || frame->edx ? -RUM_EINVAL :
             frame->eax == RUM_SYS_SPAWN ? spawn_child(space, frame->ebx) :

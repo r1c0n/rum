@@ -162,6 +162,28 @@ backend callback may suspend while it owns namespace or device state. Rejected
 waits do not attach a waiter. The central switch asserts these restrictions,
 IF-clear entry, and agreement between the current owner, active CR3, and TSS.
 
+For an event with a timeout, use
+`task_wait_for(&event, observed, timeout_ticks)`. Its result distinguishes
+`TASK_WAIT_EVENT`, `TASK_WAIT_TIMEOUT`, `TASK_WAIT_CANCELLED` and
+`TASK_WAIT_INVALID`. A null event waits only for the timeout. The relative tick
+interval must be less than `TIMER_HALF_RANGE` (2^31); zero checks the event once
+and otherwise times out immediately. An already changed sequence wins over a
+zero timeout. Invalid contexts or intervals attach no waiter.
+
+Event-sequence comparison, tick capture and registration happen with IF clear.
+The first event or deadline to wake a blocked task removes both registrations
+before making it runnable. A cancellation pending on entry or resumption takes
+priority over the wake reason. Keep the event alive until its waiters resume;
+none of these helpers frees an event or terminates its caller. Kernel code must
+release any temporary ownership before applying cancellation at a safe boundary.
+Existing `task_wait` callers still recheck their predicate and cancellation flag
+after a successful wake.
+
+`task_sleep(milliseconds)` uses the same deadline machinery and checked duration
+conversion as the public SDK call. It returns zero on timeout, `-RUM_EINTR` when
+cancelled, or a range/context error. Zero milliseconds yields. The public limits
+and tick rounding are described in [process syscalls](process-syscalls.md#yielding-and-sleeping).
+
 ## Exit and cleanup
 
 Returning from a kernel entry is equivalent to `task_exit()`. Call
@@ -244,6 +266,9 @@ fault record, and resource ownership.
 allocating. It is safe from IRQ context and includes state totals, process and
 memory counts, and lifecycle counters. The shell's `diag` command renders this
 information; see [Kernel diagnostics](diagnostics.md).
+The snapshot also counts `event_waiters` and `deadline_waiters`; a timed event
+wait contributes to both. Wakeup and exit detach both registrations before
+collection, and an exited record cannot be reaped with a wait still attached.
 
 ## Common mistakes
 

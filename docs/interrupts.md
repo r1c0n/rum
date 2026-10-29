@@ -58,12 +58,16 @@ Spurious IRQ7 and IRQ15 require special handling:
 
 PIT channel 0 uses mode 2 with divisor 11932, producing roughly 100 ticks per
 second. IRQ0 increments a 32-bit tick counter, accounts for the current thread's
-five-tick slice, and signals the shared UI work event. The timer handler never
+five-tick slice, marks due deadline waiters runnable, and signals the shared UI
+work event. The timer handler never
 switches a task; selection happens after EOI at an outer return to user mode.
 Nested interrupts and interrupts during kernel work only leave a request
 pending. See [Scheduling safety](scheduling.md#time-slices-and-interrupt-return).
 
 The uptime worker and foreground Snake loop use ticks for display and movement.
+Uptime waits for the next second with its own timed event; Snake and recovery
+retain periodic UI notifications. The deadline scan wakes only due sleepers,
+and leaves unrelated input and child-completion waiters blocked.
 Movement uses unsigned tick differences; the scheduler's saturating tick budget
 is independent of the absolute clock. Counter wrap after roughly 497 days does
 not change time slices. The displayed uptime starts over when that counter wraps.

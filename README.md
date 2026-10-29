@@ -98,6 +98,7 @@ input with `Ctrl+Alt+G`.
 - A separate freestanding user ELF build, production loader, and public ABI.
 - Foreground user-process launch, waiting, fault reporting, cleanup, and Ctrl+C.
 - Independent child spawn, blocking/nonblocking waits, and authorized termination.
+- Public yield and bounded sleep, with cancellable event/deadline waits.
 
 rum is a single-CPU system. The normal shell and programs started with `run`
 execute in ring 3 using public syscalls. Snake and the recovery shell remain
