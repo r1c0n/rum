@@ -52,6 +52,7 @@ struct task_information {
 struct task_process {
     struct paging_space *space;
     struct exception_user_frame user_frame;
+    char name[RUM_PROCESS_NAME_CAPACITY];
 };
 
 struct task_snapshot {
@@ -104,6 +105,12 @@ bool task_query(task_id id, struct task_information *information);
 /* Bounded, allocation-free and IRQ-safe. Copies one consistent registry view;
    false before initialization (with a zeroed result) or for a NULL result. */
 bool task_snapshot_read(struct task_snapshot *snapshot);
+uint32_t task_process_list(struct rum_process_entry *, uint32_t capacity, uint32_t *total);
+/* Initial-shell input waits also observe child completion. IRQ notification
+   wakes only a shell currently owning the console, never unrelated waiters. */
+struct task_event *task_shell_input_event(void);
+void task_notify_shell_input(void);
+bool task_shell_has_completion(void);
 /* Nestable, thread-owned nonblocking scopes. A successful hold must be released
    by the same thread. No yield, wait, exit, or user return is legal inside one.
    Reject IRQ/idle/uninitialized callers; preserve the caller's interrupt flag. */

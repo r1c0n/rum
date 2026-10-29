@@ -39,6 +39,8 @@ struct process_state {
     bool cancellation_requested;
     bool orphaned;
     struct task_event children_event;
+    struct task_event console_event;
+    char name[RUM_PROCESS_NAME_CAPACITY];
     struct console_member console;
     char command_text[RUM_COMMAND_TEXT_CAPACITY];
 };
@@ -180,6 +182,16 @@ static struct task *available_slot(struct paging_space *space)
     return slot;
 }
 
+/* Keep one registry slot for a foreground control tool when asynchronous
+   children fill the pool. Kernel producers retain their existing policy. */
+static bool background_capacity(void)
+{
+    if (current->process->kind != TASK_PROCESS) return true;
+    unsigned free = 0;
+    for (unsigned i = 2; i < TASK_SLOTS; ++i) free += tasks[i].state == TASK_UNUSED;
+    return free > 1;
+}
+
 static bool valid_user_frame(const struct paging_space *space,
                              const struct exception_user_frame *frame)
 {
@@ -244,6 +256,7 @@ static task_id create_process(const struct task_process *process, bool make_fore
     uint32_t saved = cpu_interrupt_save();
     struct paging_space_statistics space = {0};
     bool valid = (saved & IF) && next_id && next_process_id <= RUM_ABI_PID_MAX &&
+        (make_foreground || background_capacity()) &&
         console_can_launch(current->process->kind == TASK_PROCESS ? &current->process->console : NULL, make_foreground) &&
         paging_space_stats(process->space, &space) && !space.kernel &&
         process->space != paging_active_space() && valid_user_frame(process->space, &process->user_frame);
@@ -259,6 +272,9 @@ static task_id create_process(const struct task_process *process, bool make_fore
                        .user_pages = space.user_pages } };
     struct task constructed = { .id = next_id, .state = TASK_RUNNABLE,
         .process = &owner, .user_frame = process->user_frame };
+    const char *name = process->name[0] ? process->name : "program";
+    for (unsigned i = 0; i < sizeof owner.name - 1 && name[i]; ++i)
+        owner.name[i] = (unsigned char)name[i] >= 32 && (unsigned char)name[i] <= 126 ? name[i] : '?';
     if (fs_context_clone(&current->process->filesystem, &owner.filesystem) != FS_OK) {
         (void)task_switch_release();
         return 0;
@@ -303,7 +319,7 @@ rum_result_t task_process_creation_status(bool make_foreground)
     rum_result_t result = !(saved & IF) || current == &tasks[IDLE] ? -RUM_EBUSY :
         !next_id || next_process_id > RUM_ABI_PID_MAX ? -RUM_EOVERFLOW :
         !console_can_launch(current->process->kind == TASK_PROCESS ? &current->process->console : NULL, make_foreground) ? -RUM_EBUSY :
-        !available_slot(NULL) ? -RUM_ENOMEM : 0;
+        !available_slot(NULL) || (!make_foreground && !background_capacity()) ? -RUM_ENOMEM : 0;
     cpu_interrupt_restore(saved);
     return result;
 }
@@ -486,6 +502,52 @@ bool task_query(task_id id, struct task_information *result)
     }
     cpu_interrupt_restore(saved);
     return found;
+}
+
+uint32_t task_process_list(struct rum_process_entry *entries, uint32_t capacity, uint32_t *total)
+{
+    if (!total || capacity > RUM_PROCESS_LIST_LIMIT || (capacity && !entries)) return 0;
+    uint32_t saved = cpu_interrupt_save(), count = 0;
+    *total = 0;
+    if (ready) for (unsigned i = 2; i < TASK_SLOTS; ++i) {
+        const struct task *task = &tasks[i];
+        if (task->state == TASK_UNUSED || task->process->kind != TASK_PROCESS) continue;
+        ++*total;
+        if (count == capacity) continue;
+        struct rum_process_entry *entry = &entries[count++];
+        *entry = (struct rum_process_entry){ .process_id = task->process->process_id,
+            .state = task->state == TASK_RUNNABLE ? RUM_PROCESS_RUNNABLE : task->state == TASK_RUNNING ? RUM_PROCESS_RUNNING :
+                task->state == TASK_BLOCKED ? RUM_PROCESS_WAITING : RUM_PROCESS_ENDED,
+            .flags = task->process->cancellation_requested ? RUM_PROCESS_CANCELLING : 0 };
+        for (unsigned j = 0; j < TASK_SLOTS; ++j)
+            if (tasks[j].state != TASK_UNUSED && tasks[j].id == task->process->parent)
+                entry->parent_id = tasks[j].process->process_id;
+        memcpy(entry->name, task->process->name, sizeof entry->name);
+    }
+    cpu_interrupt_restore(saved); return count;
+}
+
+struct task_event *task_shell_input_event(void)
+{
+    return task_current_is_shell() ? &current->process->console_event : NULL;
+}
+void task_notify_shell_input(void)
+{
+    if (!ready) return;
+    uint32_t saved = cpu_interrupt_save();
+    for (unsigned i = 2; i < TASK_SLOTS; ++i)
+        if (tasks[i].state != TASK_UNUSED && console_is_shell(&tasks[i].process->console) &&
+            console_owns_input(&tasks[i].process->console)) task_event_signal(&tasks[i].process->console_event);
+    cpu_interrupt_restore(saved);
+}
+bool task_shell_has_completion(void)
+{
+    if (!task_current_is_shell()) return false;
+    uint32_t saved = cpu_interrupt_save(); bool complete = false;
+    for (unsigned i = 2; i < TASK_SLOTS; ++i)
+        if (tasks[i].state == TASK_EXITED && tasks[i].process->kind == TASK_PROCESS &&
+            tasks[i].process->parent == current->id && !tasks[i].process->orphaned) complete = true;
+    cpu_interrupt_restore(saved); return complete;
 }
 
 bool task_snapshot_read(struct task_snapshot *snapshot)
@@ -721,6 +783,7 @@ static _Noreturn void terminate_current(enum task_termination termination,
         for (unsigned i = 0; i < TASK_SLOTS; ++i)
             if (tasks[i].state != TASK_UNUSED && tasks[i].id == current->process->parent) {
                 task_event_signal(&tasks[i].process->children_event);
+                if (console_is_shell(&tasks[i].process->console)) task_event_signal(&tasks[i].process->console_event);
                 break;
             }
     schedule();

@@ -15,6 +15,7 @@
 #define RUM_KERNEL_STACK_SLOTS     (RUM_PROCESS_LIMIT + 2) /* Idle and emergency. */
 
 #ifndef __ASSEMBLER__
+_Static_assert(RUM_PROCESS_LIMIT == RUM_PROCESS_LIST_LIMIT, "public snapshot covers the full registry");
 _Static_assert(RUM_PROCESS_LIMIT > 0 && RUM_PROCESS_ARGUMENT_LIMIT > 0 &&
                RUM_PROCESS_ARGUMENT_BYTES > 0 && RUM_PROCESS_FILE_LIMIT >= 3,
                "nonempty process limits");

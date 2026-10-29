@@ -8,6 +8,14 @@
 #define RUM_PROCESS_ABI_VERSION 1
 #define RUM_COMMAND_ABI_VERSION 2
 #define RUM_LIFECYCLE_ABI_VERSION 1
+#define RUM_PROCESS_LIST_VERSION 1
+#define RUM_PROCESS_LIST_LIMIT 16
+#define RUM_PROCESS_NAME_CAPACITY 64
+#define RUM_PROCESS_RUNNABLE 1
+#define RUM_PROCESS_RUNNING 2
+#define RUM_PROCESS_WAITING 3
+#define RUM_PROCESS_ENDED 4
+#define RUM_PROCESS_CANCELLING 1
 #define RUM_WAIT_ANY 0 /* Any direct child, never another process's child. */
 #define RUM_WAIT_NOHANG 1
 #define RUM_TERMINATE_SESSION 1 /* Delegated foreground shell-command authority. */
@@ -23,6 +31,24 @@
 
 #ifndef __ASSEMBLER__
 #include <stddef.h>
+
+/* A snapshot of user processes only. Parent PID zero denotes kernel adoption.
+   Names are sanitized executable basenames, never addresses or full paths. */
+struct rum_process_entry {
+    rum_pid_t process_id, parent_id;
+    uint32_t state, flags;
+    char name[RUM_PROCESS_NAME_CAPACITY];
+};
+/* capacity 0..LIMIT; count/total are output and must initially be zero.
+   entries covers capacity records and must not overlap this packet. A zero
+   capacity requires a zero entries address and returns only the total. */
+struct rum_process_list_request {
+    uint32_t version, size;
+    rum_address_t entries;
+    uint32_t capacity, count, total, reserved[2];
+};
+_Static_assert(sizeof(struct rum_process_entry) == 80 && sizeof(struct rum_process_list_request) == 32,
+               "process query packet layout");
 
 /* Launch packet: copied as bounded bytes, never followed as host/kernel
    pointers. argc is 1..32; offsets describe tightly packed strings in order,

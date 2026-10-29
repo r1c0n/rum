@@ -43,8 +43,10 @@ static rum_result_t stream_read(struct paging_space *space, uint32_t address, ui
     for (;;) {
         task_cancel_current_if_requested();
         if (!task_current_owns_console()) return -RUM_EACCES;
-        struct task_event *event = keyboard_input_event();
+        struct task_event *event = task_shell_input_event();
+        if (!event) event = keyboard_input_event();
         uint32_t observed = task_event_sequence(event), count = 0;
+        if (task_shell_has_completion()) return -RUM_EINTR;
         while (count < chunk && keyboard_read(&buffer[count])) ++count;
         if (count) {
             if (!paging_copy_to_user(space, address, buffer, count)) return -RUM_EFAULT;
@@ -285,6 +287,25 @@ static rum_result_t sleep_process(struct paging_space *space, uint32_t address)
     return task_sleep(request.milliseconds);
 }
 
+static rum_result_t process_list(struct paging_space *space, uint32_t address)
+{
+    struct rum_process_list_request request;
+    if (!accessible(space, address, sizeof request, true) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    if (request.version != RUM_PROCESS_LIST_VERSION || request.size != sizeof request ||
+        request.capacity > RUM_PROCESS_LIST_LIMIT || request.count || request.total ||
+        request.reserved[0] || request.reserved[1] || (!request.capacity && request.entries)) return -RUM_EINVAL;
+    uint32_t bytes = request.capacity * sizeof(struct rum_process_entry);
+    if (!accessible(space, request.entries, bytes, true)) return -RUM_EFAULT;
+    if (bytes && (uint64_t)request.entries < (uint64_t)address + sizeof request &&
+        (uint64_t)address < (uint64_t)request.entries + bytes) return -RUM_EINVAL;
+    struct rum_process_entry entries[RUM_PROCESS_LIST_LIMIT];
+    request.count = task_process_list(entries, request.capacity, &request.total);
+    if ((request.count && !paging_copy_to_user(space, request.entries, entries, request.count * sizeof entries[0])) ||
+        !paging_copy_to_user(space, address, &request, sizeof request)) return -RUM_EFAULT;
+    return (rum_result_t)request.count;
+}
+
 static rum_result_t command_text(struct paging_space *space, uint32_t address, uint32_t capacity, uint32_t reserved)
 {
     if (reserved) return -RUM_EINVAL;
@@ -389,6 +410,9 @@ void syscall_dispatch(struct exception_frame *frame)
         break;
     case RUM_SYS_SLEEP:
         result = frame->ecx || frame->edx ? -RUM_EINVAL : sleep_process(space, frame->ebx);
+        break;
+    case RUM_SYS_PROCESS_LIST:
+        result = frame->ecx || frame->edx ? -RUM_EINVAL : process_list(space, frame->ebx);
         break;
     case RUM_SYS_SPAWN: case RUM_SYS_WAIT: case RUM_SYS_TERMINATE:
         result = frame->ecx || frame->edx ? -RUM_EINVAL :
