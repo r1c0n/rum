@@ -75,9 +75,10 @@ inside `RUN`, while the child receives standard input. A child may call `RUN`
 again; only the deepest foreground child receives input and Ctrl+C. The shared
 16-slot worker/process limit bounds nesting.
 
-Exit, user fault and cancellation close the child's handles. The parent restores
-foreground ownership, releases the remaining directory reference and private
-pages, and returns with its own offsets and working directory intact. Input
+Exit, user fault and cancellation close the child's handles and restore the
+previous live foreground owner before publishing completion. The parent collects
+the remaining directory reference and private pages, and returns with its own
+offsets and working directory intact. Input
 still queued when a child exits becomes available to its parent; keyboard
 input is not buffered separately per process.
 
@@ -121,8 +122,11 @@ There is no output pointer: EAX contains the PID or a negative public error.
 Nonforeground children receive `-RUM_EACCES` when reading standard input or
 changing console state through `rum_console`. They can use files and write to
 standard output/error. Output calls copy bounded chunks in cooperative kernel
-context; chunks from different processes can interleave. A nonforeground child
-cannot take over an already owned console through `RUN` (`-RUM_EBUSY`).
+context. Each accepted chunk, up to 128 bytes, reaches VGA and COM1 without a
+task switch; separate chunks from different processes can interleave. A
+nonforeground child cannot acquire the console through `RUN` (`-RUM_EBUSY`).
+Ownership, session cleanup and shell command permissions are described in
+[Console sessions](console-sessions.md).
 
 ## Waiting and collecting results
 
@@ -193,8 +197,10 @@ of live members and discards abandoned completions. This is a cleanup owner,
 not a public process a program can wait through. Each child terminates at a safe
 boundary; inactive stacks and address spaces are then reaped automatically.
 Cleanup can finish after the parent's result is returned. Applications cannot
-leave a daemon running by exiting its parent. Foreground restoration preserves
-the existing `RUN` chain and recovery supervisor.
+leave a daemon running by exiting its parent. A shell exit additionally closes
+its referenced console session and adopts any remaining session members for
+cleanup, even after their parent links changed. Foreground return references
+and the recovery supervisor remain valid throughout that cleanup.
 
 PIDs are positive and monotonically allocated through `RUM_ABI_PID_MAX`.
 Reaping frees a slot but never recycles its PID. Exhausting the PID or internal
@@ -294,6 +300,13 @@ Console writes count bytes accepted from the program; serial output renders LF
 as CRLF, as kernel text output does. File writes preserve bytes exactly.
 
 ## Tests
+
+`make test-console-sessions` drives real PS/2 input through nested foreground
+launches, competing readers, child faults, failed loads, cancellation during
+construction and filesystem work, and output from simultaneous writers. It also
+boots the normal supervisor through three shell generations with live children
+and verifies recovery with zero remaining session references. Both boot paths
+and 16/64 MiB are covered; see [Console sessions](console-sessions.md#testing).
 
 `make test-sleep` checks the actual PIT deadline scan, kernel event waits and
 public sleep/yield calls through ELF and GRUB ISO boot at 16 and 64 MiB. It covers

@@ -9,6 +9,7 @@ struct task_event;
 /* Initialize with CPU interrupts disabled; IRQ1 is unmasked by the caller. */
 bool keyboard_initialize(void);
 bool keyboard_read(char *character);
+void keyboard_discard_input(void); /* IRQ-safe queue discard; keeps decoder/modifier state. */
 uint32_t keyboard_dropped(void);
 /* Signaled only when IRQ1 queues readable input. Safe for task_wait(). */
 struct task_event *keyboard_input_event(void);

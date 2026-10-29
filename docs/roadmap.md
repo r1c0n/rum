@@ -106,22 +106,25 @@ should sleep when there is no runnable work; blocked tasks should not busy-poll.
 
 ### 5. Foreground console ownership and shell supervision
 
-- [ ] Replace assumptions about one nested foreground chain with an explicit,
+- [x] Replace assumptions about one nested foreground chain with an explicit,
   referenced shell session and foreground owner.
-- [ ] Give keyboard input and Ctrl+C only to the foreground process or the
+- [x] Give keyboard input and Ctrl+C only to the foreground process or the
   interactive shell; nonforeground processes must not consume shell input.
-- [ ] Define the result of a background console read and how console output
+- [x] Define the result of a background console read and how console output
   from several processes is serialized.
-- [ ] Transfer ownership on foreground launch and restore it after normal
+- [x] Transfer ownership on foreground launch and restore it after normal
   exit, fault, cancellation, or a failed launch.
-- [ ] Restrict directory-change, exit, and recovery requests to an authorized
+- [x] Restrict directory-change, exit, and recovery requests to an authorized
   shell command; ordinary concurrent children cannot modify the shell.
-- [ ] Define cleanup of session-owned children on shell restart and preserve
+- [x] Define cleanup of session-owned children on shell restart and preserve
   the existing restart limit and kernel recovery path.
 
 Test competing input readers, nested launches, a child fault during input,
 Ctrl+C during disk work, and shell restart with live children. Recovery must
 remain reachable without leaving a dead process as the console owner.
+
+See [Console sessions](console-sessions.md) for ownership, output, restart and
+cleanup rules, along with the focused test command.
 
 ### 6. Process tools and minimal concurrent launch
 

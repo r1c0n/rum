@@ -27,7 +27,7 @@ DRIVER_SOURCES := drivers/display/terminal.c drivers/serial/serial.c \
                   drivers/input/keyboard.c \
                   drivers/input/keyboard_decode.c drivers/storage/ata.c
 MM_SOURCES := kernel/mm/pmm.c kernel/mm/heap.c
-PROCESS_SOURCES := kernel/process/task.c kernel/process/syscall.c kernel/process/handles.c \
+PROCESS_SOURCES := kernel/process/task.c kernel/process/session.c kernel/process/syscall.c kernel/process/handles.c \
                    kernel/process/elf.c kernel/process/process.c
 FS_SOURCES := kernel/fs/ramfs.c kernel/fs/system.c kernel/fs/path.c kernel/fs/fs-types.c \
               kernel/fs/fs.c kernel/fs/fat16.c kernel/fs/fat16-write.c
@@ -87,6 +87,7 @@ TEST_DEPENDENCIES += build/tests/process-syscall-kernel.d build/tests/process-sy
 TEST_DEPENDENCIES += build/tests/preemption-kernel.d build/tests/preemption-probe.d
 TEST_DEPENDENCIES += build/tests/lifecycle-kernel.d build/tests/lifecycle-ids-kernel.d build/tests/user/lifecycle.d
 TEST_DEPENDENCIES += build/tests/waits-kernel.d build/tests/sleep-kernel.d build/tests/user/sleep.d
+TEST_DEPENDENCIES += build/tests/console-kernel.d build/tests/user/console.d
 
 .PHONY: all check iso user test-user run run-kernel debug panic test test-host test-package doctor toolchain clean FORCE
 .SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) $(PROCESS_FAULT_OBJECTS) build/tests/paging-spaces.o build/tests/user-memory.o
@@ -273,6 +274,47 @@ test: test-sleep
 test-sleep: build/tests/waits.elf build/tests/waits.iso build/tests/sleep.elf build/tests/sleep.iso build/tests/timer-test
 	./build/tests/timer-test
 	python3 tests/sleep-qemu-test.py --qemu $(QEMU)
+
+build/tests/session-test: tests/session-test.c kernel/process/session.c kernel/include/rum/session.h $(LAYOUT_HEADERS) $(ABI_HEADERS) tests/include/rum/cpu.h Makefile
+	@mkdir -p $(@D)
+	$(HOST_CC) -Itests/include $(CPPFLAGS) -std=gnu11 -O2 -Wall -Wextra -Werror tests/session-test.c kernel/process/session.c -o $@
+
+test-host: build/tests/session-test
+
+.PHONY: test-console-sessions
+test: test-console-sessions
+test-console-sessions: all build/tests/console.elf build/tests/console.iso build/tests/console-supervisor.iso
+	python3 tests/console-qemu-test.py --qemu $(QEMU)
+
+build/tests/user/console.o: tests/console-user.c $(USER_INCLUDE_STAMP) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/tests/user/console.debug.elf: build/tests/user/console.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none \
+	    -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+build/tests/user/console.elf: build/tests/user/console.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@.tmp
+	build/tools/check-user-elf $@.tmp $<
+	mv -- $@.tmp $@
+build/tests/console-image.o: tests/console-image.s build/tests/user/console.elf
+	@mkdir -p $(@D)
+	$(AS) $< -o $@
+build/tests/console.elf: build/tests/console-kernel.o build/tests/console-image.o build/tests/fs-backend.o $(filter-out build/tests/fault-trigger.o build/kernel/process/task.o build/arch/i386/interrupt.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
+build/tests/console.iso: build/tests/console.elf Makefile
+	@mkdir -p build/console-isodir/boot/grub
+	cp $< build/console-isodir/boot/rum.elf
+	printf 'set timeout=0\nmenuentry "rum console tests" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/console-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/console-isodir
+build/tests/console-system.img: build/tests/user/console.elf scripts/pack-system.py
+	python3 scripts/pack-system.py build/tests/user $@ --files console.elf
+build/tests/console-supervisor.iso: build/rum.elf build/tests/console-system.img Makefile
+	@mkdir -p build/console-supervisor-isodir/boot/grub
+	cp build/rum.elf build/console-supervisor-isodir/boot/rum.elf
+	cp build/tests/console-system.img build/console-supervisor-isodir/boot/rum-system.img
+	printf 'set timeout=0\nmenuentry "rum console supervisor tests" {\n multiboot /boot/rum.elf rum.shell=/rum/console.elf\n module /boot/rum-system.img\n boot\n}\n' > build/console-supervisor-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/console-supervisor-isodir
 
 build/tests/user/sleep.o: tests/sleep-user.c $(USER_INCLUDE_STAMP) Makefile
 	@mkdir -p $(@D)
@@ -681,6 +723,7 @@ build/tests/ata-test: tests/ata-test.c drivers/storage/ata.c kernel/io/block.c k
 test-host: build/tests/ata-test
 
 test-host: build/tests/block-test build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
+	./build/tests/session-test
 	./build/tests/path-test
 	./build/tests/fs-test
 	./build/tests/ata-test

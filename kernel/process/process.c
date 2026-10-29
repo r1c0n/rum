@@ -11,10 +11,11 @@
 #include <rum/ramfs.h>
 
 static rum_result_t start_process(const char *program, const struct rum_arguments *arguments,
-                                  bool foreground, task_id *child)
+                                  bool foreground, bool shell, task_id *child)
 {
     if (!child || !program || !elf_arguments_valid(arguments)) return -RUM_EINVAL;
     *child = 0;
+    if (shell && task_current_is_process()) return -RUM_EACCES;
     rum_result_t status = task_process_creation_status(foreground);
     if (status) return status;
     if (!process_filesystem_context()) return -RUM_EBUSY;
@@ -57,19 +58,25 @@ static rum_result_t start_process(const char *program, const struct rum_argument
         (void)paging_space_destroy(process.space);
         return -RUM_EINTR;
     }
-    *child = foreground ? task_create_foreground_process(&process) : task_create_process(&process);
+    *child = shell ? task_create_shell_process(&process) :
+        foreground ? task_create_foreground_process(&process) : task_create_process(&process);
     if (!*child) { (void)paging_space_destroy(process.space); return -RUM_ENOMEM; }
     return 0;
 }
 
 rum_result_t process_start_foreground(const char *path, const struct rum_arguments *arguments, task_id *child)
 {
-    return start_process(path, arguments, true, child);
+    return start_process(path, arguments, true, false, child);
+}
+
+rum_result_t process_start_shell(const char *path, const struct rum_arguments *arguments, task_id *child)
+{
+    return start_process(path, arguments, true, true, child);
 }
 
 rum_result_t process_spawn(const char *path, const struct rum_arguments *arguments, task_id *child)
 {
-    return start_process(path, arguments, false, child);
+    return start_process(path, arguments, false, false, child);
 }
 
 static rum_result_t run_foreground(const char *path, const struct rum_arguments *arguments,

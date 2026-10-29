@@ -60,6 +60,12 @@ number of bytes transferred and advances that handle's offset by that amount.
 A file read at or beyond EOF returns zero. A zero-length operation ignores its
 buffer after validating the handle, direction and object kind.
 
+Standard input belongs to the foreground owner; positive-length reads by a
+nonforeground process return `-RUM_EACCES` without consuming queued keys.
+Output/error streams accept writes from all processes. Each console chunk
+reaches VGA and COM1 without a task switch, but separate writes may interleave.
+See [Console sessions](console-sessions.md) for ownership and cancellation rules.
+
 The kernel validates the entire nonempty user buffer, including pages beyond
 the chunk it will transfer. Invalid, unmapped, supervisor-only, overflowing or
 read-only output ranges return `-RUM_EFAULT` before any backend call or offset

@@ -13,6 +13,12 @@ Kernel ESP: 0x00210400 | CR0: 0x8001001f
 
 Addresses and counts vary with the build, RAM size, and current task.
 
+The `Sessions` line counts active and closing console sessions, retained member
+records and their session/process references. Closing sessions can remain while
+cancelled children finish cleanup. All session counts should reach zero after
+userspace has stopped and recovery has reclaimed its children. See
+[Console sessions](console-sessions.md#kernel-ownership).
+
 ## Reading `diag`
 
 | Output | Meaning |

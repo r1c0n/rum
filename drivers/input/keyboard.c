@@ -125,6 +125,13 @@ uint32_t keyboard_dropped(void)
     return dropped;
 }
 
+void keyboard_discard_input(void)
+{
+    uint32_t saved = cpu_interrupt_save();
+    tail = head;
+    cpu_interrupt_restore(saved);
+}
+
 struct task_event *keyboard_input_event(void)
 {
     return &input_event;

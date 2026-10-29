@@ -9,7 +9,7 @@ the bootable artifacts are still `rum.elf`, `rum.iso`, and `rum-system.img`.
 | `boot/grub/` | GRUB menus and boot configuration |
 | `arch/i386/` | CPU setup, GDT/TSS, exception and syscall entry, context assembly, paging, and kernel linker script |
 | `kernel/core/` | Initialization in `init.c` and freestanding memory primitives |
-| `kernel/process/` | Task scheduling, process lifecycle, handles, ELF loading, and syscall dispatch |
+| `kernel/process/` | Task scheduling, process lifecycle, referenced console sessions, handles, ELF loading, and syscall dispatch |
 | `kernel/mm/` | Physical allocation and kernel heap |
 | `kernel/io/` | Common block-device operations and request serialization |
 | `kernel/fs/` | Paths, mounts, retained objects, RAM/system volumes, and FAT16 |

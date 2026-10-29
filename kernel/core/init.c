@@ -114,9 +114,8 @@ static void userspace_session(void)
     unsigned failures = 0;
     while (failures < 3) {
         task_id child;
-        rum_result_t error = process_start_foreground(shell_path, &arguments, &child);
+        rum_result_t error = process_start_shell(shell_path, &arguments, &child);
         if (error) { print("Cannot load the userspace shell.\n"); break; }
-        if (!task_mark_foreground_shell(child)) cpu_halt();
         uint32_t started = timer_ticks();
         struct task_information result;
         if (!task_wait_process(child, &result) || !task_foreground_end(child) || !task_reap_process(child)) cpu_halt();
