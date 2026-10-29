@@ -93,6 +93,9 @@ The shell reports nonzero exit status, a user fault, or cancellation and
 then restores the prompt. Fault messages do not display kernel addresses.
 
 Press Ctrl+C to cancel a running child, including one that never makes syscalls.
+If that child has launched another foreground program, Ctrl+C cancels the active
+program and returns input to its immediate parent. Other concurrent processes
+continue running. Disk work already in progress may finish before cancellation.
 At the shell prompt, Ctrl+C discards the current line. `run readline` demonstrates
 a child reading input; `run fault` and `run spin` demonstrate fault recovery and
 cancellation.
@@ -126,6 +129,12 @@ a shell that exits or faults; three exits with each session lasting less than
 30 seconds enter recovery. `exit` requests a restart; `recovery` enters recovery
 immediately. A restart resets the working directory to `/`, while file edits
 survive for the current boot.
+
+Restart closes the old console session and cancels its remaining children.
+They release their handles and private memory through normal task cleanup;
+they cannot read from or control the new shell. Queued keys from the old shell
+are discarded. See [Console sessions](console-sessions.md) for input, output and
+restart behavior when programs create concurrent children.
 
 For testing another initial executable, pass `-append rum.shell=/rum/name.elf` to
 a direct ELF boot. These options do not modify or reformat a disk image.

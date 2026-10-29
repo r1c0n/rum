@@ -82,6 +82,7 @@ the public headers and application runtime.
 | [User ABI and ELF programs](user-abi.md) | Building user code and following the public syscall, stack, and ELF contracts |
 | [Filesystem syscalls](filesystem-syscalls.md) | Opening files from userspace, directory iteration, seek, paths and error handling |
 | [Process syscalls](process-syscalls.md) | Foreground launch, child results, console ownership and cancellation |
+| [Console sessions](console-sessions.md) | Keyboard ownership, nested Ctrl+C, output ordering and shell restart cleanup |
 
 The [roadmap](roadmap.md) describes planned work: multitasking and process
 control for 0.5.0, then shell workflows and userspace tools for 0.6.0. The guides

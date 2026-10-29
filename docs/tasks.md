@@ -204,8 +204,9 @@ idle. Exited process records remain visible so their parent can observe their
 status. `task_wait_child` uses a public PID (zero for any child) and returns one
 completed record without consuming it, zero for a pending nonblocking check,
 or a public error. Each parent has a separate child-completion event. The caller
-copies the result before `task_collect_child` ends any foreground registration
-and reaps that child. `task_wait_process` remains a task-ID compatibility wrapper.
+copies the result before `task_collect_child` acknowledges the completed launch
+and reaps that child. Foreground ownership is restored during exit, before
+completion is signalled. `task_wait_process` remains a task-ID compatibility wrapper.
 Reaping destroys
 the inactive address space, unmaps and frees the guarded stack, clears the
 record, and makes its slot available again. `task_reap()` remains available for
@@ -227,8 +228,13 @@ a blocking wait resumes, or on a trusted interrupt/syscall return to ring 3.
 The parent then observes and reaps it through the same path used for normal
 exit and user faults.
 
-The supervised initial shell is marked interactive, so Ctrl+C is queued for its
-line editor rather than cancelling it. Its foreground children remain cancellable.
+`task_create_shell_process` publishes the initial shell and its interactive role
+atomically, so Ctrl+C cannot cancel it between publication and role assignment.
+Use `process_start_shell` to load that supervised root from a file. Ordinary
+process factories cannot grant this role. Ctrl+C is queued for the shell's
+line editor; its foreground children remain cancellable. The private
+[console session layer](console-sessions.md#kernel-ownership) retains owners
+and restores the immediate live parent, independently of task parent-ID changes.
 
 Each process gets a fresh [32-slot handle table](filesystem-syscalls.md), with
 standard streams in 0–2. Open files are not inherited. File references are

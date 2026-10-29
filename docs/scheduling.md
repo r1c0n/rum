@@ -16,7 +16,8 @@ occupy separate bounded pools with a one-to-one relationship for now.
 | PID, parent, address space, private tables and user pages | Process resource record | Publication through reaping |
 | Working directory and filesystem references | Process resource record | Cloned before publication, released by reaping |
 | Handle table and backend pins | Process resource record | Initialized before publication, closed before exited state |
-| Termination result, cancellation and shell session state | Process resource record | Publication through reaping |
+| Termination result, cancellation and console membership | Process resource record | Publication through reaping |
+| Root shell, foreground owner and return references | Referenced console session/member records | Publication through exit; final detach at reaping |
 | Kernel stack, saved kernel context and user CPU frame | Initial thread | Prepared privately, released after switching away |
 | Runnable/blocked/exited state and event registration | Initial thread | Scheduler publication through reaping |
 | Switch-hold nesting count | Initial thread | Balanced within one nonblocking kernel operation |
@@ -139,7 +140,7 @@ normal task context perform the actual switch and resource reclamation.
 ## Shared state and protected updates
 
 The task registry, process/thread publication, run states, event registrations,
-foreground identity, lifecycle counters, and context-switch bookkeeping use
+console session references and ownership, lifecycle counters, and context-switch bookkeeping use
 short interrupt-disabled updates. IRQ-side snapshots copy bounded records and
 do not follow filesystem objects or allocate memory.
 
@@ -192,8 +193,11 @@ Parent exit discovers its bounded descendant tree with IF clear, adopts it
 into boot's cleanup ownership and requests cancellation of live descendants.
 It releases no active child stack or address space. The ordinary reaper also
 collects exited orphans; normal completions remain owned by their parent.
-Foreground ancestry is restored through the existing `RUN` cleanup path. The
-full public policy is documented in [process syscalls](process-syscalls.md).
+An exiting foreground owner restores its referenced predecessor before signalling
+completion. Closing a root session also cancels and adopts any remaining session
+members, revokes command authority and drops active console ownership. Old
+members cannot acquire authority in a successor session. The full policy is
+documented in [console sessions](console-sessions.md).
 
 Event users capture the sequence before checking their predicate, then attach
 the waiter with IF clear only if that sequence is unchanged. An early signal
