@@ -84,6 +84,7 @@ input with `Ctrl+Alt+G`.
 - Writable GDT/TSS, IDT, shared interrupt entry, and CPU exception diagnostics.
 - PIC interrupts, a 100 Hz PIT timer, and PS/2 keyboard input.
 - Cooperative kernel tasks with guarded virtual stacks, event waits, and deferred cleanup.
+- Timer-driven user-process preemption with round-robin scheduling and nominal 50 ms slices.
 - A dedicated double-fault task and emergency stack for controlled overflow reports.
 - A physical allocator for 4 KiB pages below 1 GiB.
 - Supervisor paging with protected kernel pages and private user address spaces.

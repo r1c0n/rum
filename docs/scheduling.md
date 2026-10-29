@@ -1,9 +1,10 @@
 # Scheduling safety
 
-rum currently schedules cooperatively on one CPU. Interrupts can signal events
-and request cancellation, but a PIT tick does not switch a user process. These
-rules protect existing execution paths and establish the boundaries needed for
-user-mode preemption.
+rum preempts user processes on one CPU. Each dispatch gets five PIT ticks,
+nominally 50 ms at 100 Hz. Kernel execution remains cooperative: a tick during
+a syscall or kernel worker records pending work and resumes that kernel code.
+Only an outer return to userspace or an explicit safe scheduling point can
+select another task.
 
 ## Resource owners
 
@@ -19,6 +20,7 @@ occupy separate bounded pools with a one-to-one relationship for now.
 | Kernel stack, saved kernel context and user CPU frame | Initial thread | Prepared privately, released after switching away |
 | Runnable/blocked/exited state and event registration | Initial thread | Scheduler publication through reaping |
 | Switch-hold nesting count | Initial thread | Balanced within one nonblocking kernel operation |
+| Remaining slice and pending reschedule request | Initial thread | Reset when selected; consumed by PIT ticks |
 
 Kernel workers use a process resource container with PID zero and may borrow
 the kernel address space or own a private one. Idle borrows kernel space and
@@ -36,8 +38,9 @@ introduces no new syscall or executable ABI, and no user-thread creation API.
 | Explicit yield or event wait | Task context, IF enabled on entry, no switch holds or active synchronous I/O |
 | Exit or user fault | Copy trusted results, close handles with IRQs enabled, then mark exited and switch |
 | Idle | Check runnable work with IF clear; schedule or use the existing STI/HLT sequence |
-| IRQ handler | Signal events or mark cancellation; never allocate, block, reap or switch |
-| Interrupt/syscall return to user mode | Check cancellation only after protected work and temporary ownership end |
+| IRQ handler | Account a tick, signal relevant events or mark cancellation; never allocate, block, reap or switch |
+| Outer interrupt/syscall return to user mode | With IF clear, check cancellation and service an expired slice after protected work and temporary ownership end |
+| Nested interrupt or return to kernel mode | Resume the interrupted kernel continuation; leave any scheduling request pending |
 | Construction | Hold switching while preparing resources; publish a complete owner/thread pair with IF clear |
 | Common filesystem or block callback | Finish synchronously before any yield, wait, exit or user return |
 | Inactive-resource reaper | Release only exited, inactive owners; never switch or wait within the protected update |
@@ -55,6 +58,48 @@ the caller's interrupt flag and reject IRQ, idle, or uninitialized callers;
 release also rejects an unmatched call. A hold is not a sleepable mutex and
 does not disable interrupts. Signals may still make other threads runnable.
 Yield/wait remain refused until the final hold is released.
+
+## Time slices and interrupt return
+
+The PIT handler calls `task_timer_tick()`. It decrements the current thread's
+saturating five-tick budget and marks a request when that budget reaches zero.
+It does not select a task. Further ticks leave the request pending. The budget
+uses no absolute timestamp, so the 32-bit PIT clock wrapping cannot alter it.
+This is a nominal dispatch budget rather than measured CPU time: kernel work
+and interrupt latency can consume or delay a slice.
+
+The common assembly path disables interrupts after C dispatch, reloads the
+original frame argument from its preserved register, then calls
+`task_on_user_return()`. This occurs after IRQ nesting accounting and PIC EOI.
+The boundary accepts a user return only from a running process's trusted
+TSS-entry frame at the top of its guarded kernel stack. A nested interrupt has
+a kernel CS and resumes without scheduling, even if the slice has expired.
+The check does not depend on a global interrupt depth that would become stale
+when a blocking syscall switches to another thread.
+
+The boundary records all general registers, segment selectors, EIP, EFLAGS,
+user ESP and SS. On an expired slice, the ordinary scheduler saves a kernel
+continuation beneath that frame. With IF clear it selects the next runnable
+task in circular slot order, updates CR3, TSS and current identity, and switches
+stacks. Resuming the old continuation returns to the shared assembly restore
+and `iret`; its full user frame stays on its own stack throughout. Cancellation
+is checked both before selection and after resuming, since it can arrive while
+the process is waiting for its next turn. The existing integer-only CPU policy
+remains in effect; x87, MMX and SSE instructions are still rejected.
+
+All runnable tasks participate in the same round-robin scan. Blocking, exiting
+or yielding gives up the current turn; the next selected task gets a fresh
+budget. If only the current task can run, it receives another slice without a
+stack switch. Idle is selected only when there is no other runnable work.
+Kernel workers must still yield, wait or exit explicitly. No switch is inserted
+into a switch-hold release, memory allocator, filesystem callback or driver.
+
+Timer events remain limited to the UI work event used by uptime, recovery and
+the kernel Snake loop. Keyboard reads, child completion and other event waiters
+use separate events. Expiring a slice does not signal or wake those waiters.
+Synchronous filesystem work and bounded ATA polling can delay scheduling until
+the operation finishes and execution reaches a safe boundary. There is no
+real-time latency guarantee.
 
 ## Shared state and protected updates
 
@@ -121,5 +166,16 @@ Run `make test` after changing these contracts. The task fixture in
 
 The process and file-syscall suites additionally exercise cross-page user
 validation, cancellation during input and storage work, nested foreground
-children, and repeated exit/fault cleanup. No timer-driven switching is enabled
-by this foundation work; that is the next roadmap step.
+children, and repeated exit/fault cleanup.
+
+For a focused preemption check, run `make test-preemption`. It boots the fixture
+through direct ELF and GRUB ISO at 16 and 64 MiB. Two CPU-bound ring-3 programs
+never yield during their progress loops; a kernel monitor checks that each
+advances during every round and receives a full slice. It checks private
+registers, segments, flags including DF and CF, separate physical pages,
+CR3/TSS agreement, absent stack guards and supervisor mappings. Repeated cases
+cover cancellation while suspended, user instruction/mapping faults, a slice
+expiring during a synchronous test syscall, nested timer interrupts, unrelated
+waiters and resource counts returning to baseline. A host test seeds the actual
+PIT counter at wraparound and verifies that every tick still reaches scheduler
+accounting. Serial results are saved in `build/test-artifacts/preemption/`.

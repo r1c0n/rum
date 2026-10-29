@@ -4,7 +4,8 @@
 #include <stdint.h>
 
 /* i386 C callee-saved registers and return address. Interrupt frames are
-   separate; this switches only cooperative kernel execution with IF clear. */
+   separate; this switches kernel continuations with IF clear, including those
+   suspended at a trusted return to user mode. */
 struct kernel_context {
     uint32_t edi, esi, ebx, ebp, eip, return_address;
 };

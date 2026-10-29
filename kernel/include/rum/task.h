@@ -8,6 +8,8 @@
 #include <rum/process_limits.h>
 
 #define RUM_TASK_CAPACITY (RUM_PROCESS_LIMIT + 2u)
+/* Five 100 Hz PIT ticks: nominally 50 ms; synchronous kernel work may delay it. */
+#define TASK_TIME_SLICE_TICKS 5u
 
 typedef uint32_t task_id;
 struct fs_context;
@@ -63,7 +65,7 @@ struct task_snapshot {
 bool task_initialize(void);
 /* Foreground with IF enabled. NULL space borrows the kernel directory.
    A registered inactive private space transfers ownership only on success.
-   Kernel entries return normally to exit; there is no timer preemption. */
+   Kernel entries return normally to exit and remain cooperatively scheduled. */
 task_id task_create(void (*entry)(void *), void *argument, struct paging_space *owned_space);
 task_id task_create_process(const struct task_process *process);
 /* Atomically publishes and registers the sole foreground process. */
@@ -112,7 +114,11 @@ bool task_foreground_end(task_id id);
 bool task_cancel_foreground(void);
 bool task_current_cancelled(void);
 void task_cancel_current_if_requested(void);
-void task_cancel_on_user_return(const struct exception_frame *frame);
+/* PIT handler: record work only, with no switch, allocation or event wakeup. */
+void task_timer_tick(void);
+/* Common assembly return only, IF clear and after IRQ dispatch/EOI. Kernel
+   returns do nothing; an outer user frame may cancel or service its slice. */
+void task_on_user_return(const struct exception_frame *frame);
 bool task_wait_process(task_id id, struct task_information *information);
 bool task_reap_process(task_id id);
 uint32_t task_reap(void); /* Foreground; only exited, inactive resources. */

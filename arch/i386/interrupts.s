@@ -103,6 +103,13 @@ interrupt_common:
     sub $12, %esp
     push %ebx
     call interrupt_dispatch
+    /* Syscalls may have enabled IRQs or slept. Stop IRQs again before the
+       trusted return boundary. C tail calls may reuse the argument slot, so
+       reload it from the callee-saved frame pointer before the second call.
+       EOI and IRQ nesting accounting have finished before any selection. */
+    cli
+    mov %ebx, (%esp)
+    call task_on_user_return
     mov %ebx, %esp
     /* A trusted caller may also supply a complete saved frame for first entry. */
 .global interrupt_return

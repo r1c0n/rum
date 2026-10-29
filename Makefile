@@ -84,6 +84,7 @@ ABI_IMAGES := $(addprefix build/tests/abi-image-,$(addsuffix .o,$(ABI_CASES)))
 TEST_DEPENDENCIES += $(ABI_OBJECTS:.o=.d) $(ABI_IMAGES:.o=.d) build/tests/abi-entry.d build/tests/user/probe.d build/tests/user/probe-entry.d
 TEST_DEPENDENCIES += build/tests/file-syscall-kernel.d build/tests/file-syscall-image.d build/tests/user/file-syscall.d
 TEST_DEPENDENCIES += build/tests/process-syscall-kernel.d build/tests/process-syscall-image.d build/tests/user/process-syscall.d
+TEST_DEPENDENCIES += build/tests/preemption-kernel.d build/tests/preemption-probe.d
 
 .PHONY: all check iso user test-user run run-kernel debug panic test test-host test-package doctor toolchain clean FORCE
 .SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) $(PROCESS_FAULT_OBJECTS) build/tests/paging-spaces.o build/tests/user-memory.o
@@ -253,6 +254,30 @@ test: test-host test-user test-package test-block build/tests/recovery.iso $(FAU
 
 .PHONY: test-file-syscalls
 test: test-file-syscalls
+
+.PHONY: test-preemption
+test: test-preemption
+test-preemption: build/tests/preemption.elf build/tests/preemption.iso build/tests/timer-test
+	./build/tests/timer-test
+	python3 tests/preemption-qemu-test.py --qemu $(QEMU)
+
+build/tests/timer-test: tests/timer-test.c hal/pc/pit.c kernel/include/rum/timer.h kernel/include/rum/task.h tests/include/rum/io.h
+	@mkdir -p $(@D)
+	$(HOST_CC) -Itests/include $(CPPFLAGS) -std=gnu11 -O2 -Wall -Wextra -Werror $< -o $@
+
+build/tests/preemption-probe.o: tests/preemption-probe.s $(LAYOUT_HEADERS) $(ABI_HEADERS) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
+
+build/tests/preemption.elf: build/tests/preemption-kernel.o build/tests/preemption-probe.o $(filter-out build/tests/fault-trigger.o build/arch/i386/interrupt.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
+
+build/tests/preemption.iso: build/tests/preemption.elf Makefile
+	@mkdir -p build/preemption-isodir/boot/grub
+	cp $< build/preemption-isodir/boot/rum.elf
+	printf 'set timeout=0\nmenuentry "rum preemption tests" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/preemption-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/preemption-isodir
 test-file-syscalls: build/tests/file-syscall.elf
 	python3 tests/file-syscall-qemu-test.py --qemu $(QEMU) --ram 16
 	python3 tests/file-syscall-qemu-test.py --qemu $(QEMU) --ram 64

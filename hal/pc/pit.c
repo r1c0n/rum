@@ -9,6 +9,9 @@ static volatile uint32_t ticks;
 static void timer_interrupt(void)
 {
     ++ticks;
+    task_timer_tick();
+    /* Only UI consumers (uptime, recovery, Snake) wait on this event. Console
+       reads and child/FS waits use their own events and are not tick-woken. */
     task_event_signal(task_work_event());
 }
 

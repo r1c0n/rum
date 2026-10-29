@@ -45,21 +45,20 @@ failure partway through process construction. Add assertions for forbidden
 scheduling contexts and compare ownership counts before and after cleanup.
 
 The ownership model, protected operations, and synchronization audit are
-recorded in [Scheduling safety](scheduling.md). Timer-driven switching remains
-part of step 2.
+recorded in [Scheduling safety](scheduling.md).
 
 ### 2. Timer-driven user-process preemption
 
-- [ ] Use PIT ticks to request rescheduling and define a documented time slice.
-- [ ] Switch a user process at a trusted outer interrupt return to user mode;
+- [x] Use PIT ticks to request rescheduling and define a documented time slice.
+- [x] Switch a user process at a trusted outer interrupt return to user mode;
   nested interrupts and interrupts from kernel mode only record pending work.
-- [ ] Preserve the complete user register frame and update task identity, CR3,
+- [x] Preserve the complete user register frame and update task identity, CR3,
   and TSS state together before restoring the selected context.
-- [ ] Implement fair round-robin selection among runnable tasks, with an idle
+- [x] Implement fair round-robin selection among runnable tasks, with an idle
   path when none are ready.
-- [ ] Apply pending scheduling requests at safe kernel boundaries without
+- [x] Apply pending scheduling requests at safe kernel boundaries without
   adding arbitrary kernel preemption.
-- [ ] Keep IRQ handlers bounded and allocation-free, and avoid treating every
+- [x] Keep IRQ handlers bounded and allocation-free, and avoid treating every
   timer tick as a reason to wake unrelated input or filesystem waiters.
 
 Run two CPU-bound programs that never yield and verify both make progress.
