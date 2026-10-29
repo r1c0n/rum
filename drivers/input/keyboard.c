@@ -77,6 +77,7 @@ static void keyboard_interrupt(void)
             queue[head] = character;
             head = next;
             task_event_signal(&input_event);
+            task_notify_shell_input();
             task_event_signal(task_work_event());
         }
     }

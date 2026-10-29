@@ -128,22 +128,25 @@ cleanup rules, along with the focused test command.
 
 ### 6. Process tools and minimal concurrent launch
 
-- [ ] Add a bounded public process-list query with identifiers, names, state,
+- [x] Add a bounded public process-list query with identifiers, names, state,
   and parent relationships, omitting addresses and kernel pointers.
-- [ ] Build standalone `ps`, `kill`, and `sleep` programs using only public
+- [x] Build standalone `ps`, `kill`, and `sleep` programs using only public
   headers and the runtime.
-- [ ] Add a minimal shell `start <program>` form that launches a nonforeground
+- [x] Add a minimal shell `start <program>` form that launches a nonforeground
   child and returns to the prompt; reserve full job syntax for 0.6.0.
-- [ ] Track and reap those children without blocking line input. Notify the
+- [x] Track and reap those children without blocking line input. Notify the
   shell when an owned child finishes and report its result once.
-- [ ] Keep existing foreground commands, program lookup, working-directory
+- [x] Keep existing foreground commands, program lookup, working-directory
   behavior, and user-facing error messages compatible.
-- [ ] Document process limits, termination permissions, output interleaving,
+- [x] Document process limits, termination permissions, output interleaving,
   and the distinction between starting a child and waiting for it.
 
 Start a CPU-bound child, use `ps` while it runs, run another program, and terminate
 only the selected child. Test registry exhaustion, malformed process queries,
 completion while the shell waits for input, and multiple rapidly exiting children.
+
+See [Running concurrent programs](process-tools.md) for command examples, limits
+and the focused test command.
 
 ### 7. 0.5.0 integration and release
 

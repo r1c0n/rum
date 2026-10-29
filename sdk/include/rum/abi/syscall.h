@@ -32,7 +32,8 @@
 #define RUM_SYS_TERMINATE 20 /* ebx: rum_terminate_request; request cancellation */
 #define RUM_SYS_YIELD 21 /* No arguments; voluntarily give up the current turn. */
 #define RUM_SYS_SLEEP 22 /* ebx: rum_sleep_request; zero after the delay. */
-#define RUM_SYS_COUNT  23
+#define RUM_SYS_PROCESS_LIST 23 /* ebx: in/out rum_process_list_request */
+#define RUM_SYS_COUNT  24
 #define RUM_ABI_PID_MAX 0x7FFFFFFF /* Positive IDs fit the signed result type. */
 
 #define RUM_STDIN  0

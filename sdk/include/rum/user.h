@@ -23,6 +23,7 @@ rum_result_t rum_wait(rum_pid_t, uint32_t flags, struct rum_process_result *);
 rum_result_t rum_terminate(rum_pid_t, uint32_t flags);
 rum_result_t rum_yield(void);
 rum_result_t rum_sleep(uint32_t milliseconds);
+rum_result_t rum_process_list(struct rum_process_entry *, uint32_t capacity, uint32_t *total);
 rum_result_t rum_replace(const char *, const void *, rum_size_t);
 rum_result_t rum_console(uint32_t);
 rum_result_t rum_run_command(const char *, const struct rum_arguments *, const char *, struct rum_process_result *);

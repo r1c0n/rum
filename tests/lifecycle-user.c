@@ -65,6 +65,45 @@ static rum_result_t raw(unsigned syscall, void *packet)
 }
 static void invalid(void)
 {
+    struct rum_process_entry entries[RUM_PROCESS_LIST_LIMIT]; uint32_t total = 0;
+    rum_result_t count = rum_process_list(entries, RUM_PROCESS_LIST_LIMIT, &total);
+    check(count >= 1 && (uint32_t)count == total && total <= RUM_PROCESS_LIST_LIMIT, 110);
+    unsigned self = 0;
+    for (int i = 0; i < count; ++i) {
+        check(entries[i].process_id > 0 && entries[i].process_id <= RUM_ABI_PID_MAX &&
+              entries[i].state >= RUM_PROCESS_RUNNABLE && entries[i].state <= RUM_PROCESS_ENDED &&
+              !entries[i].name[RUM_PROCESS_NAME_CAPACITY - 1], 111);
+        for (unsigned j = 0; entries[i].name[j]; ++j)
+            check(entries[i].name[j] >= 32 && entries[i].name[j] <= 126, 112);
+        if (entries[i].process_id == (rum_pid_t)rum_getpid()) {
+            ++self; check(entries[i].state == RUM_PROCESS_RUNNING && entries[i].parent_id == 0, 113);
+        }
+    }
+    check(self == 1 && rum_process_list(0, 0, &total) == 0 && total == (uint32_t)count, 114);
+    struct rum_process_list_request q = {1, sizeof q, PAGE + 4096 - 40, 1, 0, 0, {0, 0}};
+    unsigned char *canary = (void *)(uintptr_t)q.entries;
+    for (unsigned i = 0; i < 160; ++i) canary[i] = 0x5a;
+    check(raw(RUM_SYS_PROCESS_LIST, &q) == 1 && q.count == 1 && q.total == total, 115);
+    for (unsigned i = 80; i < 160; ++i) check(canary[i] == 0x5a, 127);
+    q.count = q.total = 0;
+    check(raw(RUM_SYS_PROCESS_LIST, (void *)UINT32_MAX) == -RUM_EFAULT &&
+          raw(RUM_SYS_PROCESS_LIST, (void *)(PAGE + 8192)) == -RUM_EFAULT &&
+          rum_syscall3(RUM_SYS_PROCESS_LIST, 0, 1, 0) == -RUM_EINVAL &&
+          rum_syscall3(RUM_SYS_PROCESS_LIST, 0, 0, 1) == -RUM_EINVAL, 116);
+    q.version = 2; check(raw(RUM_SYS_PROCESS_LIST, &q) == -RUM_EINVAL, 117); q.version = 1;
+    --q.size; check(raw(RUM_SYS_PROCESS_LIST, &q) == -RUM_EINVAL, 118); ++q.size;
+    q.capacity = UINT32_MAX; check(raw(RUM_SYS_PROCESS_LIST, &q) == -RUM_EINVAL, 119); q.capacity = 1;
+    for (unsigned i = 0; i < 2; ++i) {
+        q.reserved[i] = 1; check(raw(RUM_SYS_PROCESS_LIST, &q) == -RUM_EINVAL, 120); q.reserved[i] = 0;
+    }
+    q.count = 1; check(raw(RUM_SYS_PROCESS_LIST, &q) == -RUM_EINVAL, 121); q.count = 0;
+    q.total = 1; check(raw(RUM_SYS_PROCESS_LIST, &q) == -RUM_EINVAL, 122); q.total = 0;
+    q.entries = UINT32_MAX; check(raw(RUM_SYS_PROCESS_LIST, &q) == -RUM_EFAULT, 123);
+    q.entries = PAGE + 8192 - 40; check(raw(RUM_SYS_PROCESS_LIST, &q) == -RUM_EFAULT, 124);
+    q.entries = (rum_address_t)(uintptr_t)&q; check(raw(RUM_SYS_PROCESS_LIST, &q) == -RUM_EINVAL, 125);
+    q.entries = PAGE + 128;
+    struct rum_process_list_request *cross = (void *)(PAGE + 4096 - 16); *cross = q;
+    check(raw(RUM_SYS_PROCESS_LIST, cross) == 1 && cross->count == 1, 126);
     args("exit", 0, 0);
     struct rum_spawn_request s = {1, sizeof s, (rum_address_t)(uintptr_t)"/disk/DOCS",
         (rum_address_t)(uintptr_t)&arguments, 0, {0, 0, 0}};

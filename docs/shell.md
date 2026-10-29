@@ -2,9 +2,9 @@
 
 Boot rum, click inside QEMU, and type `help` at the `/> ` prompt. The prompt
 shows the working directory: `/disk/DOCS> ` means you are in `/disk/DOCS`.
-The normal shell is `/rum/shell.elf`, a userspace program. Each command in the
-table below is a separate ELF in `/rum`. They use the same public syscall
-interface as other programs. Input uses a US QWERTY keyboard layout.
+The normal shell is `/rum/shell.elf`, a userspace program. The tools below are
+separate ELFs in `/rum`; `start` is shell syntax for concurrent launch. They use
+the public syscall interface. Input uses a US QWERTY keyboard layout.
 
 If QEMU captures input, press `Ctrl+Alt+G` to release it.
 
@@ -24,6 +24,10 @@ If QEMU captures input, press `Ctrl+Alt+G` to release it.
 | `mkdir <path>` | Create a directory on `/disk` |
 | `rm <path>` | Remove a closed file or empty directory |
 | `run <program> [args]` | Launch a foreground ELF and wait for its result |
+| `start <program> [args]` | Launch a nonforeground child and return to the prompt |
+| `ps` | List user processes and their parents |
+| `kill <pid>` | Request cancellation of a child of this shell |
+| `sleep <milliseconds>` | Wait for a bounded duration; Ctrl+C cancels |
 | `snake` | Play ASCII Snake |
 | `exit` | Exit and let the kernel restart the shell |
 | `recovery` | Enter the kernel recovery shell |
@@ -108,8 +112,10 @@ Commands are lowercase and exact. Leading whitespace is skipped. `echo` and
 `write` preserve spaces inside and after their text.
 
 Arguments split on spaces and tabs. The launch interface allows 32 arguments,
-including the program name, and 4096 bytes of packed strings. Background jobs,
-quoting, escaping, pipelines, redirection, history and completion are unsupported.
+including the program name, and 4096 bytes of packed strings. `start` launches
+concurrent children with completion notices; see [Process tools](process-tools.md).
+Job-control syntax, quoting, escaping, pipelines, redirection, history and
+completion are unsupported.
 
 `snake.elf` launches the existing kernel game through a bounded console syscall.
 Use WASD, P, R and Q; see [Snake](snake.md). The uptime row continues updating

@@ -23,6 +23,10 @@ For a small API example, add `sdk/examples/name.c` and list it in `SDK_EXAMPLES`
 See [User ABI and ELF programs](../docs/user-abi.md) for complete build, launch,
 memory, argument, and error contracts.
 
+The runtime provides independent `rum_spawn`, `rum_wait`, `rum_terminate`,
+`rum_sleep` and `rum_process_list` calls. See [Process syscalls](../docs/process-syscalls.md)
+for packet layouts and [Process tools](../docs/process-tools.md) for shell examples.
+
 User programs compile against this public tree and generated ABI copies only.
 The kernel uses the same canonical ABI definitions alongside its private
 `kernel/include/rum/` headers. Never copy kernel-private structures into the SDK

@@ -53,6 +53,14 @@ rum_result_t rum_terminate(rum_pid_t id, uint32_t flags)
     return rum_syscall3(RUM_SYS_TERMINATE, (rum_address_t)(uintptr_t)&request, 0, 0);
 }
 rum_result_t rum_yield(void) { return rum_syscall3(RUM_SYS_YIELD, 0, 0, 0); }
+rum_result_t rum_process_list(struct rum_process_entry *entries, uint32_t capacity, uint32_t *total)
+{
+    struct rum_process_list_request request = { .version = RUM_PROCESS_LIST_VERSION, .size = sizeof request,
+        .entries = (rum_address_t)(uintptr_t)entries, .capacity = capacity };
+    rum_result_t result = rum_syscall3(RUM_SYS_PROCESS_LIST, (rum_address_t)(uintptr_t)&request, 0, 0);
+    if (result >= 0 && total) *total = request.total;
+    return result;
+}
 rum_result_t rum_sleep(uint32_t milliseconds)
 {
     struct rum_sleep_request request = { .version = RUM_SLEEP_ABI_VERSION, .size = sizeof request,

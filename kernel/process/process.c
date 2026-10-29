@@ -58,6 +58,10 @@ static rum_result_t start_process(const char *program, const struct rum_argument
         (void)paging_space_destroy(process.space);
         return -RUM_EINTR;
     }
+    const char *name = path;
+    for (unsigned i = 0; path[i]; ++i) if (path[i] == '/') name = path + i + 1;
+    for (unsigned i = 0; i < sizeof process.name - 1 && name[i]; ++i)
+        process.name[i] = (unsigned char)name[i] >= 32 && (unsigned char)name[i] <= 126 ? name[i] : '?';
     *child = shell ? task_create_shell_process(&process) :
         foreground ? task_create_foreground_process(&process) : task_create_process(&process);
     if (!*child) { (void)paging_space_destroy(process.space); return -RUM_ENOMEM; }
