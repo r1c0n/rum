@@ -141,7 +141,7 @@ follow the saved registers.
 ## Rules for changing this code
 
 - Keep GDT, TSS, and IDT storage mapped writable but supervisor-only.
-- Preserve the exact C frame layouts asserted in `include/rum/interrupts.h`.
+- Preserve the exact C frame layouts asserted in `kernel/include/rum/interrupts.h`.
 - Clear DF before entering C from any assembly path.
 - Keep the stack aligned according to the i386 C calling convention.
 - Do not read a user-frame tail after a ring-0 entry.

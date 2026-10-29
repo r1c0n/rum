@@ -58,6 +58,10 @@ directories, file creation and ELF launch.
 
 ## Kernel guides
 
+Start with the [source layout guide](source-layout.md) to find a subsystem or
+choose where new code belongs. The [SDK source guide](../sdk/README.md) covers
+the public headers and application runtime.
+
 | Guide | Use it for |
 | --- | --- |
 | [Boot, exceptions, and CPU state](exceptions.md) | GDT, TSS, IDT, interrupt frames, user CPU policy, and double faults |

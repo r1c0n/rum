@@ -30,17 +30,25 @@ The build produces:
 | `build/user/include/rum/abi/` | Generated public headers only |
 
 Private kernel headers are deliberately absent from the user include tree.
+The canonical public headers live in `sdk/include/rum/`; startup and runtime
+sources live in `sdk/lib/`, and the linker source is `sdk/linker/user.ld`.
+The processed linker script is generated at `build/sdk/linker/user.ld`.
 User code links with `-nostdlib`, rum's startup and syscall wrappers, and target
 `libgcc`; it does not link a host C library or any kernel object.
 
 ## Adding a program
 
-1. Add `user/programs/name.c` with a normal
+1. Add `apps/name/main.c` with a normal
    `int main(int argc, char **argv)` entry.
 2. Include `<rum/user.h>` for the supported runtime calls.
-3. Add `name` to `USER_PROGRAMS` in the Makefile.
+3. Add `name` to `APP_PROGRAMS` in the Makefile.
 4. Run `make user` and fix any compiler or ELF-validator error.
 5. Debug with the ELF under `build/user/debug/`, not the stripped asset.
+
+System commands use `system/commands/name.c` and `SYSTEM_COMMANDS`. SDK examples
+use `sdk/examples/name.c` and `SDK_EXAMPLES`. The shell has its own entry at
+`system/shell/main.c`. These lists form the explicit system-image manifest;
+placing a source file in a directory does not install an executable by itself.
 
 A minimal program looks like this:
 
@@ -57,7 +65,7 @@ int main(int argc, char **argv)
 ```
 
 `write` may complete partially. Production programs should loop until all bytes
-are written or an error is returned; `user/programs/hello.c` shows the complete
+are written or an error is returned; `sdk/examples/hello.c` shows the complete
 pattern.
 
 ## Launching a program
@@ -146,7 +154,7 @@ callee-saved registers.
 
 Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
 means success. A negative result is the negation of a `RUM_E*` value from
-`include/rum/abi/error.h`; these values are rum-specific and do not set a global
+`sdk/include/rum/abi/error.h`; these values are rum-specific and do not set a global
 `errno`.
 
 Read and write calls may return fewer bytes than requested. A zero-length call
@@ -249,7 +257,7 @@ clear.
 - **A write returns less than requested:** loop over the unconsumed bytes. The
   console backend currently copies at most 128 bytes per call.
 - **Private kernel headers are missing:** user code may include only
-  `user/include/rum/user.h` and copied `rum/abi/` headers.
+  `sdk/include/rum/user.h` and copied `rum/abi/` headers.
 - **The ELF checker rejects a segment:** inspect program headers with
   `i686-elf-readelf -l build/user/debug/name.elf` and check ranges, page overlap,
   alignment, and W+X flags.
