@@ -65,7 +65,7 @@ struct task_snapshot {
 bool task_initialize(void);
 /* Foreground with IF enabled. NULL space borrows the kernel directory.
    A registered inactive private space transfers ownership only on success.
-   Kernel entries return normally to exit; there is no timer preemption. */
+   Kernel entries return normally to exit and remain cooperatively scheduled. */
 task_id task_create(void (*entry)(void *), void *argument, struct paging_space *owned_space);
 task_id task_create_process(const struct task_process *process);
 /* Atomically publishes and registers the sole foreground process. */

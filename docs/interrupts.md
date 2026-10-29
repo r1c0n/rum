@@ -25,10 +25,11 @@ IRQ handlers run with maskable interrupts disabled. They may:
 - Read or acknowledge the device.
 - Update small bounded counters or queues.
 - Signal a task event and make an existing waiter runnable.
+- Account for a timer tick and record a pending scheduling request.
 
 They must not allocate memory, create or switch tasks, block, reclaim resources,
 run shell commands, or draw a full interface. Those operations happen after
-interrupt return in foreground context. `irq_in_handler()` lets shared APIs
+IRQ dispatch in task context or at a trusted return to user mode. `irq_in_handler()` lets shared APIs
 reject unsafe calls.
 
 The assembly entry and return format is shared with CPU exceptions. See
@@ -56,12 +57,16 @@ Spurious IRQ7 and IRQ15 require special handling:
 ## Timer and idle behavior
 
 PIT channel 0 uses mode 2 with divisor 11932, producing roughly 100 ticks per
-second. IRQ0 increments a 32-bit tick counter and signals the shared foreground
-work event.
+second. IRQ0 increments a 32-bit tick counter, accounts for the current thread's
+five-tick slice, and signals the shared UI work event. The timer handler never
+switches a task; selection happens after EOI at an outer return to user mode.
+Nested interrupts and interrupts during kernel work only leave a request
+pending. See [Scheduling safety](scheduling.md#time-slices-and-interrupt-return).
 
-The uptime worker and foreground Snake loop use ticks for display and movement. They
-compares unsigned tick differences, so normal scheduling continues across the
-counter wrap after roughly 497 days.
+The uptime worker and foreground Snake loop use ticks for display and movement.
+Movement uses unsigned tick differences; the scheduler's saturating tick budget
+is independent of the absolute clock. Counter wrap after roughly 497 days does
+not change time slices. The displayed uptime starts over when that counter wraps.
 
 When there is no input or runnable task, the shell waits for keyboard input,
 its kernel supervisor waits for shell exit, and the scheduler runs idle.

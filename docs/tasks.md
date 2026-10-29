@@ -1,13 +1,15 @@
 # Kernel tasks and process records
 
-rum has a cooperative, single-CPU scheduler. The boot task supervises the
+rum has a single-CPU scheduler with timer-driven user-process preemption. The boot task supervises the
 userspace shell, an uptime worker updates the status row, and an idle task sleeps
 when no work is ready. Up to 16 worker records can hold a kernel task or a user
 process. The recovery shell runs in the boot task.
 
-There is no timer preemption. A running kernel task keeps the CPU until it
-yields, waits, exits, or takes an interrupt. Interrupt return resumes the same
-context unless foreground code later invokes the scheduler.
+User processes receive five PIT ticks per dispatch, nominally 50 ms. A running
+kernel task keeps the CPU until it yields, waits or exits. Interrupts during
+kernel execution leave scheduling requests pending; an outer return to user
+mode can service them once protected work has finished. Bounded synchronous
+I/O can therefore delay scheduling.
 
 ## Task types
 
@@ -72,6 +74,10 @@ the old and new stacks remain addressable during the switch.
 
 `kernel_context_switch` preserves the i386 C callee-saved registers. New task
 entries begin with DF clear, correct C stack alignment, and interrupts enabled.
+Timer preemption suspends a kernel continuation beneath the complete user
+interrupt frame. Resuming it restores every saved user register and EFLAGS
+through the common `iret` path. See [Scheduling safety](scheduling.md#time-slices-and-interrupt-return)
+for return-frame validation, fairness and cancellation rules.
 
 ## Creating a kernel task
 

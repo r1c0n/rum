@@ -110,8 +110,9 @@ quoting, escaping, pipelines, redirection, history and completion are unsupporte
 
 `snake.elf` launches the existing kernel game through a bounded console syscall.
 Use WASD, P, R and Q; see [Snake](snake.md). The uptime row continues updating
-while the shell waits for input. CPU-bound children can delay its display until
-they yield or exit because scheduling is cooperative.
+while the shell waits for input and while CPU-bound user programs run. User
+processes receive nominal 50 ms time slices. Synchronous kernel work, including
+disk polling, can still delay the display until it reaches a safe scheduling point.
 
 ## Recovery and diagnostics
 

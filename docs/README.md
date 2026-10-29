@@ -25,7 +25,8 @@ It covers BIOS/IDE settings and prepared persistent-disk images.
 
 The normal boot provides a VGA text console, a PS/2 keyboard, a userspace shell,
 temporary RAM files, diagnostics, and ASCII Snake. The kernel has physical and
-virtual memory management, guarded task stacks, cooperative scheduling, and a
+virtual memory management, guarded task stacks, timer-preempted user processes,
+cooperative kernel tasks, and a
 controlled double-fault path. Prepared processes enter ring 3 through the
 production interrupt-return path, and a user exception terminates only that
 process while preserving its fault record for the parent. The production
