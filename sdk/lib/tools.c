@@ -40,6 +40,9 @@ void tool_error(const char *command, rum_result_t result)
     case RUM_ETIMEDOUT: message = "disk did not respond"; break;
     case RUM_EIO: message = "I/O failure"; break;
     case RUM_EINVAL: message = "invalid path, name or arguments"; break;
+    case RUM_ECHILD: message = "no matching child process"; break;
+    case RUM_ESRCH: message = "process does not exist"; break;
+    case RUM_EOVERFLOW: message = "value or process identifier is out of range"; break;
     default: message = "operation failed"; break;
     }
     tool_print(command); tool_print(": "); tool_print(message); tool_print(".\n");

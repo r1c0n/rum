@@ -7,6 +7,10 @@
 #define RUM_ABI_ARGUMENT_BYTES 4096 /* Includes every string's NUL. */
 #define RUM_PROCESS_ABI_VERSION 1
 #define RUM_COMMAND_ABI_VERSION 2
+#define RUM_LIFECYCLE_ABI_VERSION 1
+#define RUM_WAIT_ANY 0 /* Any direct child, never another process's child. */
+#define RUM_WAIT_NOHANG 1
+#define RUM_TERMINATE_SESSION 1 /* Delegated foreground shell-command authority. */
 #define RUM_COMMAND_TEXT_CAPACITY 256
 #define RUM_RUN_COMMAND 1
 #define RUM_SESSION_CHDIR 1
@@ -59,6 +63,34 @@ struct rum_process_result {
     int32_t status;
     uint32_t fault_vector, reserved;
 };
+/* Asynchronous, nonforeground launch. flags/reserved must be zero. Returns a
+   positive PID after complete publication; there is no output user pointer. */
+struct rum_spawn_request {
+    uint32_t version, size;
+    rum_address_t path, arguments;
+    uint32_t flags, reserved[3];
+};
+/* Returns 1 with a copied result and consumes that child's exit record, or 0
+   for NOHANG with live children but no completion. Errors/0 leave output intact.
+   Initialize the result's existing process ABI version, size and reserved. */
+struct rum_wait_request {
+    uint32_t version, size;
+    rum_pid_t process_id;
+    rum_address_t result;
+    uint32_t flags, reserved[3];
+};
+/* Request cancellation at a safe boundary. Zero flags permits direct children
+   only. SESSION additionally requires a marked foreground shell command and
+   permits another direct child of that command's shell. No arbitrary kill. */
+struct rum_terminate_request {
+    uint32_t version, size;
+    rum_pid_t process_id;
+    uint32_t flags, reserved[2];
+};
+_Static_assert(sizeof(struct rum_spawn_request) == 32 &&
+               sizeof(struct rum_wait_request) == 32 &&
+               sizeof(struct rum_terminate_request) == 24 &&
+               offsetof(struct rum_wait_request, result) == 12, "lifecycle packet layout");
 _Static_assert(sizeof(struct rum_run_request) == 32 && sizeof(struct rum_process_result) == 28,
                "process packet layout");
 

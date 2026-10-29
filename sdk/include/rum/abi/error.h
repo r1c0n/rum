@@ -27,5 +27,7 @@
 #define RUM_ETIMEDOUT 22
 #define RUM_ENODEV 23
 #define RUM_ENOEXEC 24
+#define RUM_ECHILD 25 /* No owned child matches, including an already reaped PID. */
+#define RUM_ESRCH 26 /* No process with that PID remains. */
 
 #endif

@@ -76,7 +76,7 @@ void kernel_main(uint32_t magic, uint32_t information)
     struct exception_user_frame frame;
     cpu_user_frame_initialize(&frame, RUM_USER_BASE, user_esp);
     cpu_interrupt_enable();
-    task_id process = task_create_process(&(struct task_process){
+    task_id process = task_create_foreground_process(&(struct task_process){
         .space = space,
         .user_frame = frame,
     });
@@ -117,7 +117,7 @@ void kernel_main(uint32_t magic, uint32_t information)
     check(results[15] == 1 && results[16] == 1 && results[17] == 'x' && results[18] == 0,
           "last user byte, cross-page blocking read, and non-returning exit");
 
-    check(task_reap() == 1 && !task_query(process, &info) &&
+    check(task_foreground_end(process) && task_reap() == 1 && !task_query(process, &info) &&
           pmm_stats().free_pages == baseline, "syscall process cleanup");
     terminal_writestring("rum production syscall tests passed.\n");
     serial_writestring("rum_syscall_test_ok\n");

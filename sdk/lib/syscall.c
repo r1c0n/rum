@@ -34,6 +34,24 @@ rum_result_t rum_run(const char *path, const struct rum_arguments *arguments, st
         (rum_address_t)(uintptr_t)result, 0, {0, 0} };
     return rum_syscall3(RUM_SYS_RUN, (rum_address_t)(uintptr_t)&request, 0, 0);
 }
+rum_result_t rum_spawn(const char *path, const struct rum_arguments *arguments)
+{
+    struct rum_spawn_request request = { .version = RUM_LIFECYCLE_ABI_VERSION, .size = sizeof request,
+        .path = (rum_address_t)(uintptr_t)path, .arguments = (rum_address_t)(uintptr_t)arguments };
+    return rum_syscall3(RUM_SYS_SPAWN, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
+rum_result_t rum_wait(rum_pid_t id, uint32_t flags, struct rum_process_result *result)
+{
+    struct rum_wait_request request = { .version = RUM_LIFECYCLE_ABI_VERSION, .size = sizeof request,
+        .process_id = id, .result = (rum_address_t)(uintptr_t)result, .flags = flags };
+    return rum_syscall3(RUM_SYS_WAIT, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
+rum_result_t rum_terminate(rum_pid_t id, uint32_t flags)
+{
+    struct rum_terminate_request request = { .version = RUM_LIFECYCLE_ABI_VERSION, .size = sizeof request,
+        .process_id = id, .flags = flags };
+    return rum_syscall3(RUM_SYS_TERMINATE, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
 rum_result_t rum_replace(const char *path, const void *data, rum_size_t bytes)
 {
     struct rum_replace_request request = { RUM_FS_ABI_VERSION, sizeof request,
