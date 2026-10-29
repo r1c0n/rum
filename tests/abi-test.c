@@ -5,6 +5,7 @@
 #include <rum/abi/layout.h>
 #include <rum/abi/process.h>
 #include <rum/abi/syscall.h>
+#include <rum/abi/time.h>
 #include <rum/process_limits.h>
 
 int main(void)

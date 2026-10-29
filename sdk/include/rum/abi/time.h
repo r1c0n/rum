@@ -4,7 +4,7 @@
 #include <rum/abi/types.h>
 
 #define RUM_SLEEP_ABI_VERSION 1
-#define RUM_SLEEP_MAX_MS 86400000u /* 24 hours; larger requests return ERANGE. */
+#define RUM_SLEEP_MAX_MS 86400000 /* 24 hours; larger requests return ERANGE. */
 
 #ifndef __ASSEMBLER__
 /* Relative milliseconds. Zero yields without arming a deadline. Positive
