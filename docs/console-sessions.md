@@ -24,7 +24,8 @@ Standard output and standard error remain writable by every process. Each
 syscall accepts at most 128 bytes and renders that chunk to VGA and COM1 without
 switching tasks between devices. Interrupts remain enabled. Separate writes
 can interleave, and a line longer than one chunk is not atomic. There is no
-per-process terminal, output redirection or prompt-redraw protocol yet.
+per-process terminal or output redirection. The shell redraws an edited line
+after a child completion notice; arbitrary program output can still interrupt it.
 
 The keyboard queue is shared. Ownership is checked again after an input wait
 wakes, before any character is removed. Keys left after a child's exit remain

@@ -60,6 +60,9 @@ The bottom row shows uptime.
 | `write <path> [text]` | Create or replace a file |
 | `mkdir <path>`, `rm <path>` | Create a disk directory or remove an object |
 | `run <program> [args]` | Run an ELF in the foreground and report its status |
+| `start <program> [args]` | Start a concurrent child without waiting |
+| `ps`, `kill <pid>` | List user processes or request child cancellation |
+| `sleep <milliseconds>` | Wait in the foreground; combine with `start` for a concurrent timer |
 | `snake` | Play ASCII Snake |
 | `recovery` | Enter the kernel shell for `mem`, `diag` and recovery commands |
 

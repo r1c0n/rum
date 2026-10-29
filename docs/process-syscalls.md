@@ -7,8 +7,8 @@ objects or device registers.
 `rum_run` combines launch, foreground input ownership and waiting. For independent
 children, use `rum_spawn`, `rum_wait` and `rum_terminate`. All programs use private
 address spaces, fresh standard streams and an independent working-directory
-reference. The shell still launches foreground commands; job syntax and a shell
-`start` command are separate work.
+reference. The shell also offers `start` and standalone process tools; see
+[Running concurrent programs](process-tools.md).
 
 ## Running a foreground child
 
@@ -284,8 +284,40 @@ owning continuation so temporary resources can be released before cancellation
 takes effect. There is no user signal handler that retries the sleep.
 
 Sleep and yield append calls to ABI version 1 without changing the existing
-process or filesystem packet layouts. The standalone shell `sleep` command is
-part of the later process-tools work; the SDK calls are available now.
+process or filesystem packet layouts. The standalone `sleep` command accepts
+decimal milliseconds using this same runtime call.
+
+## Listing user processes
+
+`rum_process_list(entries, capacity, total)` uses syscall 23. Capacity is 0–16;
+the result is the number of entries copied, and optional `total` receives the
+number present in that same snapshot. A smaller capacity returns a prefix with
+no overflow; capacity zero with a null entries pointer queries the total only.
+Each call is an independent snapshot. No ordering or cross-call stability is
+promised, and no process is retained by a query.
+
+The 32-byte `rum_process_list_request` contains `version`, `size`, `entries`,
+`capacity`, `count`, `total` and `reserved[2]`. Use `RUM_PROCESS_LIST_VERSION` (1),
+the exact size and zero count/total/reserved on input. ECX and EDX must be zero.
+The header must be readable and writable; entries must cover the full writable
+capacity and cannot overlap the header. Invalid capacity, flags or overlap
+returns `-RUM_EINVAL`; invalid buffers return `-RUM_EFAULT`. No filesystem or
+driver is called. The kernel copies a bounded snapshot with interrupts disabled
+and then copies only initialized entries and the completed header to userspace.
+
+Each 80-byte `rum_process_entry` contains PID, parent PID, state, flags and a
+64-byte NUL-terminated printable executable basename. Parent zero denotes a
+kernel parent or adoption. States are `RUM_PROCESS_RUNNABLE`, `RUNNING`,
+`WAITING` and `ENDED`; the only flag is `RUM_PROCESS_CANCELLING`. Kernel tasks,
+registers, addresses and private pointers are omitted. Exit records remain
+visible until collection. The snapshot grants no control authority.
+
+For the supervised shell only, a positive-length console read returns
+`-RUM_EINTR` when a direct child completion is pending. It consumes no keyboard
+bytes. The shell drains `rum_wait(ANY, NOHANG, ...)`, reports each completion,
+redraws its partial line and retries input. Child exit and keyboard input signal
+the shell's activity event; PIT ticks do not poll or wake it. Other processes
+retain their existing blocking input behavior.
 
 ## Console actions
 

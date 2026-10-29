@@ -56,6 +56,7 @@ directories, file creation and ELF launch.
 | [Setup](setup.md) | Installing dependencies, building, running, and attaching GDB |
 | [Virtual machines](virtual-machines.md) | VMware/VirtualBox settings, prepared VMDK/VDI images, and persistent files |
 | [Shell](shell.md) | Commands, editing rules, RAM-file examples, and input limitations |
+| [Process tools](process-tools.md) | Concurrent launch, `ps`, `kill`, `sleep`, completion notices and limits |
 | [System volume](system-volume.md) | `/rum`, standalone commands, build artifacts and boot-image validation |
 | [ASCII Snake](snake.md) | Controls, scoring, and score-file behavior |
 | [Heap and RAM files](storage.md) | File limits, embedded files, and the kernel storage APIs |

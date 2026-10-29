@@ -156,6 +156,7 @@ callee-saved registers.
 | 20 | `rum_terminate(pid, flags)` | Owned child or explicitly delegated shell command authority | Zero when accepted |
 | 21 | `rum_yield()` | All arguments zero | Zero after another scheduling turn |
 | 22 | `rum_sleep(milliseconds)` | Versioned relative-delay packet; zero yields | Zero when the delay expires |
+| 23 | `rum_process_list(entries, capacity, total)` | Bounded user-process snapshot | Copied count and snapshot total |
 
 Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
 means success. A negative result is the negation of a `RUM_E*` value from
@@ -176,8 +177,10 @@ drivers never receive a raw user pointer.
 writable user range. Positive-length standard-input reads require foreground
 ownership; nonforeground processes receive `-RUM_EACCES`. If no decoded
 character is queued, the foreground caller sleeps on a keyboard-specific
-event. Keyboard IRQs remain enabled while it waits, PIT ticks continue, and
-other runnable tasks can execute. The call returns after copying one or more
+event. The supervised shell also wakes for child completions and receives
+`-RUM_EINTR` until it collects them with nonblocking wait. Keyboard IRQs remain
+enabled while it waits, PIT ticks continue, and other runnable tasks can execute.
+The call returns after copying one or more
 available characters, up to its 128-byte limit.
 
 An unsupported number returns `-RUM_ENOSYS`, an invalid or wrong-direction handle returns
