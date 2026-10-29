@@ -81,7 +81,10 @@ static void invalid(void)
     }
     check(self == 1 && rum_process_list(0, 0, &total) == 0 && total == (uint32_t)count, 114);
     struct rum_process_list_request q = {1, sizeof q, PAGE + 4096 - 40, 1, 0, 0, {0, 0}};
+    unsigned char *canary = (void *)(uintptr_t)q.entries;
+    for (unsigned i = 0; i < 160; ++i) canary[i] = 0x5a;
     check(raw(RUM_SYS_PROCESS_LIST, &q) == 1 && q.count == 1 && q.total == total, 115);
+    for (unsigned i = 80; i < 160; ++i) check(canary[i] == 0x5a, 127);
     q.count = q.total = 0;
     check(raw(RUM_SYS_PROCESS_LIST, (void *)UINT32_MAX) == -RUM_EFAULT &&
           raw(RUM_SYS_PROCESS_LIST, (void *)(PAGE + 8192)) == -RUM_EFAULT &&

@@ -74,9 +74,12 @@ def exercise(console):
     while f"[{fault}] fault: faulted." not in console.serial.read_text():
         assert time.monotonic() < deadline; time.sleep(0.02)
     console.wait("/> ")
-    for _ in range(6):
-        launch(console, "hello")
+    rapid = [launch(console, "hello") for _ in range(6)]
     console.command("echo drained", "drained\r\n")
+    deadline = time.monotonic() + 5
+    while any(f"[{pid}] hello: exited with status 0." not in console.serial.read_text() for pid in rapid):
+        assert time.monotonic() < deadline; time.sleep(0.02)
+    assert all(console.serial.read_text().count(f"[{pid}] hello: exited with status 0.") == 1 for pid in rapid)
     rows = listing(console)
     assert len(rows) == 3 and parent in rows and second in rows, rows
     console.command("start absent", "file or directory not found.")

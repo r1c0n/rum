@@ -2,9 +2,9 @@
 
 Boot rum, click inside QEMU, and type `help` at the `/> ` prompt. The prompt
 shows the working directory: `/disk/DOCS> ` means you are in `/disk/DOCS`.
-The normal shell is `/rum/shell.elf`, a userspace program. Each command in the
-table below is a separate ELF in `/rum`. They use the same public syscall
-interface as other programs. Input uses a US QWERTY keyboard layout.
+The normal shell is `/rum/shell.elf`, a userspace program. The tools below are
+separate ELFs in `/rum`; `start` is shell syntax for concurrent launch. They use
+the public syscall interface. Input uses a US QWERTY keyboard layout.
 
 If QEMU captures input, press `Ctrl+Alt+G` to release it.
 
