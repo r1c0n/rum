@@ -45,6 +45,8 @@ struct task {
     enum task_state state;
     uint32_t stack, stack_slot, stack_base, stack_top, stack_pages;
     uint32_t switch_holds;
+    uint32_t slice_ticks;
+    bool reschedule;
     void (*entry)(void *);
     void *argument;
     struct exception_user_frame user_frame;
@@ -141,6 +143,7 @@ bool task_initialize(void)
     task_emergency_stack_base = emergency_base;
     task_current_stack_top = current->stack_top;
     ready = true;
+    current->slice_ticks = TASK_TIME_SLICE_TICKS;
     cpu_interrupt_restore(saved);
     return true;
 }
@@ -537,6 +540,9 @@ static void schedule(void)
         current->process->space != paging_active_space() ||
         rum_tss.esp0 != current->stack_top) cpu_halt();
     struct task *previous = current, *next = NULL;
+    /* Include the running task in the circular search. If it is the only
+       runnable context, keep it instead of taking a detour through idle. */
+    if (previous->state == TASK_RUNNING) previous->state = TASK_RUNNABLE;
     uint32_t index = (uint32_t)(previous - tasks);
     for (uint32_t offset = 1; offset <= TASK_SLOTS; ++offset) {
         uint32_t candidate = (index + offset) % TASK_SLOTS;
@@ -546,8 +552,10 @@ static void schedule(void)
         }
     }
     if (!next) next = &tasks[IDLE];
-    if (previous->state == TASK_RUNNING) previous->state = TASK_RUNNABLE;
     next->state = TASK_RUNNING;
+    previous->reschedule = false;
+    next->reschedule = false;
+    next->slice_ticks = TASK_TIME_SLICE_TICKS;
     if (next == previous) return;
     if (!paging_switch_space(next->process->space) ||
         !gdt_set_kernel_context(next->stack_top,
@@ -702,12 +710,29 @@ void task_cancel_current_if_requested(void)
         terminate_current(TASK_TERMINATION_CANCELLED, 0, NULL, 0);
 }
 
-void task_cancel_on_user_return(const struct exception_frame *frame)
+void task_timer_tick(void)
 {
-    if (frame && exception_frame_from_user(frame)) {
-        if (irq_in_handler() || (ready && switch_protected())) cpu_halt();
-        task_cancel_current_if_requested();
-    }
+    /* A saturating per-dispatch budget does not depend on the absolute PIT
+       count, so wrapping that clock cannot extend or shorten a time slice. */
+    if (!ready || !current || !current->slice_ticks) return;
+    if (!--current->slice_ticks) current->reschedule = true;
+}
+
+void task_on_user_return(const struct exception_frame *frame)
+{
+    if (!ready || !frame || !exception_frame_from_user(frame)) return;
+    /* A real CPL-3 entry uses TSS.ESP0 and has exactly one complete frame at
+       its top. Nested IRQs interrupt CPL 0 and cannot use this boundary. No
+       user pointer or user-selected frame is accepted here. */
+    if ((cpu_interrupt_save() & IF) || irq_in_handler() ||
+        current->process->kind != TASK_PROCESS || switch_protected() ||
+        (uintptr_t)frame != current->stack_top - sizeof(struct exception_user_frame)) cpu_halt();
+    current->user_frame = *(const struct exception_user_frame *)frame;
+    task_cancel_current_if_requested();
+    if (current->reschedule) schedule();
+    task_cancel_current_if_requested(); /* Cancellation may arrive while away. */
+    /* The complete interrupt frame is still on this task's guarded stack.
+       Resuming schedule returns to assembly, which restores it with IRET. */
 }
 
 bool task_wait_process(task_id id, struct task_information *result)
