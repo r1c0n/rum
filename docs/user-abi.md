@@ -171,8 +171,9 @@ before copying a chunk through a kernel buffer. Console code, filesystems and
 drivers never receive a raw user pointer.
 
 `rum_read` accepts readable file handles and standard input, and requires a
-writable user range. For standard input, if no
-decoded character is queued, the calling process sleeps on a keyboard-specific
+writable user range. Positive-length standard-input reads require foreground
+ownership; nonforeground processes receive `-RUM_EACCES`. If no decoded
+character is queued, the foreground caller sleeps on a keyboard-specific
 event. Keyboard IRQs remain enabled while it waits, PIT ticks continue, and
 other runnable tasks can execute. The call returns after copying one or more
 available characters, up to its 128-byte limit.
