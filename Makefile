@@ -85,6 +85,7 @@ TEST_DEPENDENCIES += $(ABI_OBJECTS:.o=.d) $(ABI_IMAGES:.o=.d) build/tests/abi-en
 TEST_DEPENDENCIES += build/tests/file-syscall-kernel.d build/tests/file-syscall-image.d build/tests/user/file-syscall.d
 TEST_DEPENDENCIES += build/tests/process-syscall-kernel.d build/tests/process-syscall-image.d build/tests/user/process-syscall.d
 TEST_DEPENDENCIES += build/tests/preemption-kernel.d build/tests/preemption-probe.d
+TEST_DEPENDENCIES += build/tests/lifecycle-kernel.d build/tests/lifecycle-ids-kernel.d build/tests/user/lifecycle.d
 
 .PHONY: all check iso user test-user run run-kernel debug panic test test-host test-package doctor toolchain clean FORCE
 .SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) $(PROCESS_FAULT_OBJECTS) build/tests/paging-spaces.o build/tests/user-memory.o
@@ -260,6 +261,36 @@ test: test-preemption
 test-preemption: build/tests/preemption.elf build/tests/preemption.iso build/tests/timer-test
 	./build/tests/timer-test
 	python3 tests/preemption-qemu-test.py --qemu $(QEMU)
+
+.PHONY: test-lifecycle
+test: test-lifecycle
+test-lifecycle: build/tests/lifecycle.elf build/tests/lifecycle.iso build/tests/lifecycle-ids.elf build/tests/lifecycle-ids.iso
+	python3 tests/lifecycle-qemu-test.py --qemu $(QEMU)
+
+build/tests/user/lifecycle.o: tests/lifecycle-user.c $(USER_INCLUDE_STAMP) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/tests/user/lifecycle.debug.elf: build/tests/user/lifecycle.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none \
+	    -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+build/tests/user/lifecycle.elf: build/tests/user/lifecycle.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@.tmp
+	build/tools/check-user-elf $@.tmp $<
+	mv -- $@.tmp $@
+build/tests/lifecycle-image.o: tests/lifecycle-image.s build/tests/user/lifecycle.elf
+	@mkdir -p $(@D)
+	$(AS) $< -o $@
+build/tests/lifecycle.elf: build/tests/lifecycle-kernel.o build/tests/lifecycle-image.o build/tests/fs-backend.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
+build/tests/lifecycle-ids.elf: build/tests/lifecycle-ids-kernel.o $(filter-out build/tests/fault-trigger.o build/kernel/process/task.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
+build/tests/lifecycle.iso build/tests/lifecycle-ids.iso: build/tests/%.iso: build/tests/%.elf Makefile
+	@mkdir -p build/$*-isodir/boot/grub
+	cp $< build/$*-isodir/boot/rum.elf
+	printf 'set timeout=0\nmenuentry "rum lifecycle tests" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/$*-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/$*-isodir
 
 build/tests/timer-test: tests/timer-test.c hal/pc/pit.c kernel/include/rum/timer.h kernel/include/rum/task.h tests/include/rum/io.h
 	@mkdir -p $(@D)

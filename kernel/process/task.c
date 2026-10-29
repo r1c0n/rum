@@ -34,6 +34,8 @@ struct process_state {
     struct fs_context filesystem;
     struct process_handles handles;
     bool cancellation_requested;
+    bool orphaned;
+    struct task_event children_event;
     bool interactive_shell;
     bool shell_command, shell_exit_requested;
     rum_result_t shell_exit_status;
@@ -61,7 +63,7 @@ static rum_pid_t next_process_id = 1;
 static bool ready;
 static uint32_t created, exited, reaped, switches;
 static task_id foreground;
-static struct task_event work_event, process_event;
+static struct task_event work_event;
 /* Debug symbols also let QEMU checks audit the actual stack owners. */
 volatile uint32_t task_idle_stack_base, task_emergency_stack_base, task_current_stack_top;
 extern const char __boot_stack_bottom[], __boot_stack_top[];
@@ -265,6 +267,18 @@ static task_id create_process(const struct task_process *process, bool make_fore
     return id;
 }
 
+rum_result_t task_process_creation_status(bool make_foreground)
+{
+    if (!ready || irq_in_handler()) return -RUM_EBUSY;
+    uint32_t saved = cpu_interrupt_save();
+    rum_result_t result = !(saved & IF) || current == &tasks[IDLE] ? -RUM_EBUSY :
+        !next_id || next_process_id > RUM_ABI_PID_MAX ? -RUM_EOVERFLOW :
+        make_foreground && foreground && foreground != current->id ? -RUM_EBUSY :
+        !available_slot(NULL) ? -RUM_ENOMEM : 0;
+    cpu_interrupt_restore(saved);
+    return result;
+}
+
 task_id task_create_process(const struct task_process *process)
 {
     return create_process(process, false);
@@ -326,7 +340,7 @@ rum_result_t task_session_control(unsigned action, const char *path)
     struct task *parent = NULL;
     for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].id == current->process->parent) parent = &tasks[i];
     if (!parent || !parent->process->interactive_shell || parent->state != TASK_BLOCKED ||
-        parent->waiting != &process_event) return -RUM_EACCES;
+        parent->waiting != &parent->process->children_event) return -RUM_EACCES;
     /* The parent cannot run or be reaped until this direct child ends. Disk
        traversal runs with interrupts enabled, outside any registry update. */
     if (action == RUM_SESSION_CHDIR) return process_fs_error(fs_context_chdir(&parent->process->filesystem, path));
@@ -491,7 +505,8 @@ static uint32_t reap_exited(bool include_processes)
     for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
         struct task *task = &tasks[i];
         if (task->state == TASK_UNUSED || task->id == foreground ||
-            (task->process->kind == TASK_PROCESS && !include_processes)) continue;
+            (task->process->kind == TASK_PROCESS && !task->process->orphaned &&
+             (!include_processes || task->process->parent != current->id))) continue;
         /* Kernel-space borrowers share the active directory; only owned
            private directories must be inactive before release. */
         /* Keep owner records and released frames consistent for IRQ snapshots.
@@ -628,9 +643,42 @@ static _Noreturn void terminate_current(enum task_termination termination,
     cpu_interrupt_enable();
     if (process_handles_destroy(&current->process->handles)) cpu_halt();
     (void)cpu_interrupt_save();
+    /* Abandon the complete descendant tree before publishing the parent's
+       exit. Adopt it into boot's cleanup ownership, wake/cancel live members,
+       and let the ordinary inactive-resource reaper discard their results.
+       Build the set first: rewriting parents during discovery loses ancestry. */
+    bool descendants[TASK_SLOTS] = {0};
+    task_id pending[TASK_SLOTS] = { current->id };
+    unsigned head = 0, tail = 1;
+    while (head < tail) {
+        task_id parent = pending[head++];
+        for (unsigned i = 2; i < TASK_SLOTS; ++i) {
+            if (tasks[i].state == TASK_UNUSED || &tasks[i] == current || descendants[i] ||
+                tasks[i].process->parent != parent) continue;
+            descendants[i] = true;
+            pending[tail++] = tasks[i].id; /* Each fixed slot is queued once. */
+        }
+    }
+    for (unsigned i = 2; i < TASK_SLOTS; ++i) if (descendants[i]) {
+        struct task *child = &tasks[i];
+        if (foreground == child->id)
+            foreground = current->process->kind == TASK_PROCESS ? current->id : 0;
+        child->process->parent = tasks[BOOT].id;
+        child->process->orphaned = true;
+        child->process->cancellation_requested = true;
+        if (child->state == TASK_BLOCKED) {
+            child->waiting = NULL;
+            child->state = TASK_RUNNABLE;
+        }
+    }
     current->state = TASK_EXITED;
     ++exited;
-    if (current->process->kind == TASK_PROCESS) task_event_signal(&process_event);
+    if (current->process->kind == TASK_PROCESS)
+        for (unsigned i = 0; i < TASK_SLOTS; ++i)
+            if (tasks[i].state != TASK_UNUSED && tasks[i].id == current->process->parent) {
+                task_event_signal(&tasks[i].process->children_event);
+                break;
+            }
     schedule();
     cpu_halt(); /* An exited context can never become runnable again. */
 }
@@ -704,6 +752,39 @@ bool task_current_cancelled(void)
     return requested;
 }
 
+bool task_current_owns_console(void)
+{
+    return task_current_is_process() && foreground == current->id && !current->process->orphaned;
+}
+
+rum_result_t task_request_termination(rum_pid_t id, bool session)
+{
+    if (!id || id > RUM_ABI_PID_MAX) return -RUM_EINVAL;
+    if (!task_current_is_process() || irq_in_handler()) return -RUM_EACCES;
+    uint32_t saved = cpu_interrupt_save();
+    struct task *target = NULL, *shell = NULL;
+    for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].state != TASK_UNUSED) {
+        if (tasks[i].process->kind == TASK_PROCESS && tasks[i].process->process_id == id) target = &tasks[i];
+        if (tasks[i].id == current->process->parent && tasks[i].process->interactive_shell) shell = &tasks[i];
+    }
+    rum_result_t result = 0;
+    bool authorized = session ? shell && current->process->shell_command &&
+        foreground == current->id && target && target->process->parent == shell->id :
+        target && target->process->parent == current->id;
+    if (!target) result = -RUM_ESRCH;
+    else if (!authorized || target == current || target->process->interactive_shell || target->process->orphaned)
+        result = -RUM_EACCES;
+    else if (target->state != TASK_EXITED) {
+        target->process->cancellation_requested = true;
+        if (target->state == TASK_BLOCKED) {
+            target->waiting = NULL;
+            target->state = TASK_RUNNABLE;
+        }
+    }
+    cpu_interrupt_restore(saved);
+    return result;
+}
+
 void task_cancel_current_if_requested(void)
 {
     if (task_current_cancelled())
@@ -738,18 +819,49 @@ void task_on_user_return(const struct exception_frame *frame)
 bool task_wait_process(task_id id, struct task_information *result)
 {
     if (!ready || !id || !result || irq_in_handler()) return false;
-    task_id parent = current->id;
+    struct task_information child;
+    return task_query(id, &child) && child.kind == TASK_PROCESS &&
+           child.parent == current->id && task_wait_child(child.process_id, false, result) == 1;
+}
+
+rum_result_t task_wait_child(rum_pid_t id, bool nohang, struct task_information *result)
+{
+    if (id > RUM_ABI_PID_MAX || !result) return -RUM_EINVAL;
+    if (!ready || irq_in_handler()) return -RUM_EBUSY;
+    uint32_t saved = cpu_interrupt_save();
+    bool safe = (saved & IF) && current != &tasks[IDLE] && !switch_protected();
+    cpu_interrupt_restore(saved);
+    if (!safe) return -RUM_EBUSY;
+    struct task_event *event = &current->process->children_event;
     for (;;) {
-        uint32_t observed = task_event_sequence(&process_event);
-        struct task_information item;
-        if (!task_query(id, &item) || item.kind != TASK_PROCESS || item.parent != parent)
-            return false;
-        if (item.state == TASK_EXITED) {
-            *result = item;
-            return true;
+        if (task_current_cancelled()) return -RUM_EINTR;
+        uint32_t observed = task_event_sequence(event);
+        saved = cpu_interrupt_save();
+        bool found = false;
+        for (unsigned i = 2; i < TASK_SLOTS; ++i) {
+            const struct task *child = &tasks[i];
+            if (child->state == TASK_UNUSED || child->process->kind != TASK_PROCESS ||
+                child->process->orphaned || child->process->parent != current->id ||
+                (id && child->process->process_id != id)) continue;
+            found = true;
+            if (child->state == TASK_EXITED) {
+                *result = information(child);
+                cpu_interrupt_restore(saved);
+                return 1;
+            }
         }
-        if (!task_wait(&process_event, observed)) return false;
+        cpu_interrupt_restore(saved);
+        if (!found) return -RUM_ECHILD;
+        if (nohang) return 0;
+        if (!task_wait(event, observed)) return -RUM_EBUSY;
     }
+}
+
+bool task_collect_child(task_id id)
+{
+    if (!ready || irq_in_handler()) return false;
+    if (foreground == id && !task_foreground_end(id)) return false;
+    return task_reap_process(id);
 }
 
 uint32_t task_event_sequence(const struct task_event *event)

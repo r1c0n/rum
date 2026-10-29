@@ -178,12 +178,25 @@ An exception from ring 0 still enters the kernel panic path,
 including a kernel fault that occurs while serving a process.
 
 Exited kernel workers can be reclaimed automatically by a resumed task or
-idle. Exited process records remain visible so a parent can observe their
-status. A foreground parent waits with `task_wait_process`, clears the foreground
-registration, and calls `task_reap_process` for that exact child. Reaping destroys
+idle. Exited process records remain visible so their parent can observe their
+status. `task_wait_child` uses a public PID (zero for any child) and returns one
+completed record without consuming it, zero for a pending nonblocking check,
+or a public error. Each parent has a separate child-completion event. The caller
+copies the result before `task_collect_child` ends any foreground registration
+and reaps that child. `task_wait_process` remains a task-ID compatibility wrapper.
+Reaping destroys
 the inactive address space, unmaps and frees the guarded stack, clears the
 record, and makes its slot available again. `task_reap()` remains available for
-bulk cleanup. Task IDs and process IDs are not recycled.
+bulk cleanup of the caller's completions and adopted orphans; it cannot discard
+another parent's results. Task IDs and process IDs are not recycled. Launch
+preflight reports `-RUM_EOVERFLOW` when either identity namespace is exhausted.
+
+Parent exit adopts, cancels and eventually reaps every remaining descendant,
+including abandoned exit records. The bounded descendant set is discovered
+before parent links change, and each member is queued once. Boot owns cleanup,
+and adopted process results are not exposed to public waits. No active stack
+or directory is destroyed by adoption; live children finish cancellation on
+their own contexts. See [process syscalls](process-syscalls.md#parent-exit-limits-and-identity-lifetime).
 
 Foreground cancellation is a request, not an asynchronous stack teardown.
 `task_cancel_foreground` is IRQ-safe and wakes a process blocked in a syscall.

@@ -39,6 +39,7 @@ static rum_result_t copy_path(struct paging_space *space, uint32_t address, char
 
 static rum_result_t stream_read(struct paging_space *space, uint32_t address, uint32_t chunk)
 {
+    if (!task_current_owns_console()) return -RUM_EACCES;
     char buffer[CONSOLE_CHUNK];
     for (;;) {
         task_cancel_current_if_requested();
@@ -210,6 +211,68 @@ static rum_result_t run_child(struct paging_space *space, uint32_t address)
     return 0;
 }
 
+static rum_result_t spawn_child(struct paging_space *space, uint32_t address)
+{
+    struct rum_spawn_request request;
+    if (!accessible(space, address, sizeof request, false) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    if (request.version != RUM_LIFECYCLE_ABI_VERSION || request.size != sizeof request ||
+        request.flags || request.reserved[0] || request.reserved[1] || request.reserved[2]) return -RUM_EINVAL;
+    char path[RUM_ABI_PATH_CAPACITY];
+    rum_result_t error = copy_path(space, request.path, path);
+    if (error) return error;
+    if (!accessible(space, request.arguments, sizeof(struct rum_arguments), false)) return -RUM_EFAULT;
+    struct rum_arguments *arguments = kmalloc(sizeof *arguments);
+    if (!arguments) return -RUM_ENOMEM;
+    if (!paging_copy_from_user(space, arguments, request.arguments, sizeof *arguments)) error = -RUM_EFAULT;
+    else if (!elf_arguments_valid(arguments)) error = -RUM_EINVAL;
+    task_id child = 0;
+    if (!error) error = process_spawn(path, arguments, &child);
+    (void)kfree(arguments);
+    if (error) return error;
+    struct task_information info;
+    if (!task_query(child, &info)) cpu_halt();
+    return (rum_result_t)info.process_id;
+}
+
+static rum_result_t wait_child(struct paging_space *space, uint32_t address)
+{
+    struct rum_wait_request request;
+    struct rum_process_result output;
+    if (!accessible(space, address, sizeof request, false) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    if (request.version != RUM_LIFECYCLE_ABI_VERSION || request.size != sizeof request ||
+        request.process_id > RUM_ABI_PID_MAX || (request.flags & ~RUM_WAIT_NOHANG) ||
+        request.reserved[0] || request.reserved[1] || request.reserved[2]) return -RUM_EINVAL;
+    /* Validate the whole output, including its input header, before sleeping
+       or inspecting a child. It is revalidated after waking and copied before
+       collection, so a failed copy cannot consume an exit record. */
+    if (!accessible(space, request.result, sizeof output, true) ||
+        !paging_copy_from_user(space, &output, request.result, sizeof output)) return -RUM_EFAULT;
+    if (output.version != RUM_PROCESS_ABI_VERSION || output.size != sizeof output || output.reserved)
+        return -RUM_EINVAL;
+    struct task_information child;
+    rum_result_t result = task_wait_child(request.process_id, request.flags & RUM_WAIT_NOHANG, &child);
+    if (result != 1) return result;
+    output = (struct rum_process_result){ .version = RUM_PROCESS_ABI_VERSION, .size = sizeof output,
+        .process_id = child.process_id, .termination = child.termination, .status = child.exit_status,
+        .fault_vector = child.termination == TASK_TERMINATION_FAULT ? child.fault.vector : 0 };
+    if (!accessible(space, request.result, sizeof output, true) ||
+        !paging_copy_to_user(space, request.result, &output, sizeof output)) return -RUM_EFAULT;
+    if (!task_collect_child(child.id)) cpu_halt();
+    return 1;
+}
+
+static rum_result_t terminate_child(struct paging_space *space, uint32_t address)
+{
+    struct rum_terminate_request request;
+    if (!accessible(space, address, sizeof request, false) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    if (request.version != RUM_LIFECYCLE_ABI_VERSION || request.size != sizeof request ||
+        (request.flags & ~RUM_TERMINATE_SESSION) || request.reserved[0] || request.reserved[1]) return -RUM_EINVAL;
+    return task_request_termination(request.process_id, request.flags & RUM_TERMINATE_SESSION);
+}
+
 static rum_result_t command_text(struct paging_space *space, uint32_t address, uint32_t capacity, uint32_t reserved)
 {
     if (reserved) return -RUM_EINVAL;
@@ -259,6 +322,7 @@ static rum_result_t replace_file(struct paging_space *space, uint32_t address)
 static rum_result_t console_action(uint32_t action, uint32_t reserved1, uint32_t reserved2)
 {
     if (reserved1 || reserved2 || action > RUM_CONSOLE_SNAKE) return -RUM_EINVAL;
+    if (!task_current_owns_console()) return -RUM_EACCES;
     if (!process_filesystem_context()) return -RUM_EBUSY;
     if (action == RUM_CONSOLE_CLEAR) {
         terminal_clear(); serial_writestring("\x1b[2J\x1b[H"); return 0;
@@ -305,6 +369,11 @@ void syscall_dispatch(struct exception_frame *frame)
     case RUM_SYS_GETCWD: result = working_directory(space, frame->ebx, frame->ecx); break;
     case RUM_SYS_FLUSH: result = process_handle_flush(process_handle_get(handles, frame->ebx)); break;
     case RUM_SYS_RUN: result = run_child(space, frame->ebx); break;
+    case RUM_SYS_SPAWN: case RUM_SYS_WAIT: case RUM_SYS_TERMINATE:
+        result = frame->ecx || frame->edx ? -RUM_EINVAL :
+            frame->eax == RUM_SYS_SPAWN ? spawn_child(space, frame->ebx) :
+            frame->eax == RUM_SYS_WAIT ? wait_child(space, frame->ebx) : terminate_child(space, frame->ebx);
+        break;
     case RUM_SYS_REPLACE: result = replace_file(space, frame->ebx); break;
     case RUM_SYS_CONSOLE: result = console_action(frame->ebx, frame->ecx, frame->edx); break;
     case RUM_SYS_COMMAND_TEXT: result = command_text(space, frame->ebx, frame->ecx, frame->edx); break;

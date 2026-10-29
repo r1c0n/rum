@@ -68,19 +68,19 @@ Document that bounded synchronous kernel I/O can still delay scheduling.
 
 ### 3. Separate spawn, wait, and termination interfaces
 
-- [ ] Add fixed-width, versioned spawn, wait, and termination requests to the
+- [x] Add fixed-width, versioned spawn, wait, and termination requests to the
   public ABI and user runtime.
-- [ ] Make spawn return a process identifier after complete construction;
+- [x] Make spawn return a process identifier after complete construction;
   failure must publish no runnable child and retain no temporary resources.
-- [ ] Support waiting for a specific child and checking for completion without
+- [x] Support waiting for a specific child and checking for completion without
   blocking. Define how a parent waits for any child as well.
-- [ ] Return signed exit status, fault category, or cancellation without
+- [x] Return signed exit status, fault category, or cancellation without
   exposing kernel addresses or private process records.
-- [ ] Define who may request termination. Permit child control and explicitly
+- [x] Define who may request termination. Permit child control and explicitly
   authorized shell-session control rather than arbitrary process access.
-- [ ] Define orphan adoption, abandoned exit-record cleanup, identifier
+- [x] Define orphan adoption, abandoned exit-record cleanup, identifier
   exhaustion, and rejection of stale or unrelated identifiers.
-- [ ] Preserve existing foreground RUN behavior and compatible command-launch
+- [x] Preserve existing foreground RUN behavior and compatible command-launch
   packets while implementing them through the new lifecycle operations.
 
 Validate every packet, flag, path, argument, and output buffer before creating

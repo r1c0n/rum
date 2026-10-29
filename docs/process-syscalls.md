@@ -4,6 +4,12 @@ Include `<rum/user.h>` and link with rum's user runtime. The normal shell uses
 these calls to launch programs and manage the console without accessing kernel
 objects or device registers.
 
+`rum_run` combines launch, foreground input ownership and waiting. For independent
+children, use `rum_spawn`, `rum_wait` and `rum_terminate`. All programs use private
+address spaces, fresh standard streams and an independent working-directory
+reference. The shell still launches foreground commands; job syntax and a shell
+`start` command are separate work.
+
 ## Running a foreground child
 
 ```c
@@ -82,8 +88,124 @@ write already in progress can commit. `RUN` returns a cancellation result rather
 than cancelling the waiting parent. The kernel marks only the supervised initial
 shell as interactive: Ctrl+C reaches that shell as a character for line editing.
 
-There are no background jobs, independent wait syscall, process-handle inheritance
-or general asynchronous kill interface.
+Open handles are not inherited, and there is no general signal or arbitrary-kill
+interface. The calls below provide bounded child control.
+
+## Launching without waiting
+
+```c
+/* args uses the same packed argument format shown above. */
+rum_result_t pid = rum_spawn("/rum/hello.elf", &args);
+if (pid < 0) return 1;
+
+struct rum_process_result child = {
+    .version = RUM_PROCESS_ABI_VERSION, .size = sizeof child
+};
+rum_result_t completed = rum_wait((rum_pid_t)pid, 0, &child);
+if (completed != 1) return 1;
+return child.termination == RUM_PROCESS_EXITED ? child.status : 1;
+```
+
+`rum_spawn` (18) returns a positive PID after the executable, address space,
+guarded kernel stack, working directory, streams and initial CPU frame have
+been prepared and published. It does not wait or transfer console input. A
+negative result publishes no child and releases temporary image, argument and
+construction resources. Paths, ELF validation and argument limits match `RUN`.
+
+The 32-byte `rum_spawn_request` contains `version`, `size`, `path`, `arguments`,
+`flags` and `reserved[3]`. Use `RUM_LIFECYCLE_ABI_VERSION` (1), the exact size,
+and zero flags/reserved words. Path and argument packets are fully copied and
+validated before loading. The unused ECX and EDX syscall arguments must be zero.
+There is no output pointer: EAX contains the PID or a negative public error.
+
+Nonforeground children receive `-RUM_EACCES` when reading standard input or
+changing console state through `rum_console`. They can use files and write to
+standard output/error. Output calls copy bounded chunks in cooperative kernel
+context; chunks from different processes can interleave. A nonforeground child
+cannot take over an already owned console through `RUN` (`-RUM_EBUSY`).
+
+## Waiting and collecting results
+
+`rum_wait(pid, flags, result)` (19) waits for one direct child. PID
+`RUM_WAIT_ANY` (0) selects any direct child; when several have finished, the
+kernel selects one completed registry slot without promising completion order.
+
+| Return | Meaning |
+| --- | --- |
+| `1` | Result copied successfully; that child's completion and remaining resources are collected |
+| `0` | `RUM_WAIT_NOHANG` was requested and matching children remain alive |
+| `-RUM_ECHILD` | No owned child matches, including an already collected or unrelated PID |
+| Other negative error | Invalid packet/buffer, or a refused operation; no completion is consumed |
+
+With zero flags, wait sleeps until a matching child ends. `RUM_WAIT_NOHANG` is
+the only supported flag and returns immediately. Both forms report signed exit
+status, cancellation, or the CPU fault vector through the existing 28-byte
+`rum_process_result`; no addresses or private fault record are returned.
+
+The 32-byte `rum_wait_request` contains `version`, `size`, `process_id`,
+`result`, `flags` and `reserved[3]`. Use lifecycle version 1 and zero reserved
+words and unused syscall registers. The result buffer must be readable and
+writable, with its process ABI version, exact size and zero reserved word
+initialized. Its other fields are ignored as input. A zero return or any error
+leaves it unchanged.
+
+The kernel validates output before sleeping, revalidates it after waking, and
+copies it before collecting the child. Even a failed copy after the child exits
+leaves its result available for a later valid wait. A successful wait consumes
+exactly one completion; waiting for it again returns `-RUM_ECHILD`. Each process
+has its own child-completion event, so another parent's child exit does not
+wake it. PIT ticks do not wake these waiters.
+
+## Requesting termination
+
+`rum_terminate(pid, flags)` (20) requests cancellation. With flags zero, only a
+direct child is permitted. It cannot target the caller, its parent, a sibling,
+an unrelated process, or the supervised shell. The kernel marks the target and
+wakes it if blocked; the target closes its handles and exits on its own stack
+at a safe boundary. Synchronous kernel I/O can finish before cancellation.
+
+The 24-byte `rum_terminate_request` contains `version`, `size`, `process_id`,
+`flags` and `reserved[2]`. Use lifecycle version 1, the exact size, zero reserved
+words and zero unused syscall registers. PID must be 1 through
+`RUM_ABI_PID_MAX`. Zero returns mean the request was accepted, including an
+already pending cancellation or an authorized child that has already exited.
+An existing exit result is preserved. A collected/unknown PID returns
+`-RUM_ESRCH`; an existing unauthorized target returns `-RUM_EACCES`.
+
+`RUM_TERMINATE_SESSION` is explicit delegated authority for a command launched
+by the initial shell's `rum_run_command`. Only that marked command while it
+owns the foreground may use the flag, and only against another direct child of
+its shell. It cannot cancel the shell, itself, another session's children or
+arbitrary descendants. Ordinary spawned children do not inherit this authority.
+This supports later shell process tools without making PID knowledge a right
+to terminate a process. Only the owning parent may wait for the result.
+
+## Parent exit, limits and identity lifetime
+
+A parent owns its uncollected child results. Exited children retain their slot,
+directory pin, address space and kernel stack until a successful wait collects
+them. Exit itself closes handles. The 16 worker/process slots include runnable,
+waiting and exited records; failing to wait can exhaust the registry.
+
+If a parent exits, faults or is cancelled, the kernel adopts its entire
+remaining descendant tree into boot's cleanup ownership, requests cancellation
+of live members and discards abandoned completions. This is a cleanup owner,
+not a public process a program can wait through. Each child terminates at a safe
+boundary; inactive stacks and address spaces are then reaped automatically.
+Cleanup can finish after the parent's result is returned. Applications cannot
+leave a daemon running by exiting its parent. Foreground restoration preserves
+the existing `RUN` chain and recovery supervisor.
+
+PIDs are positive and monotonically allocated through `RUM_ABI_PID_MAX`.
+Reaping frees a slot but never recycles its PID. Exhausting the PID or internal
+task-identity namespace returns `-RUM_EOVERFLOW` on future launches until reboot;
+registry capacity returns `-RUM_ENOMEM`. A failed publication consumes neither
+identity. Stale IDs can never select a later occupant of a reused slot.
+
+The new calls append syscall numbers without changing the original version-1
+ABI, `RUN` version-1 packets, version-2 command packets or result layout. Existing
+ELFs keep working. `RUN` uses the same launch, child-wait and collection
+primitives to preserve its synchronous foreground behavior.
 
 ## Standalone commands and session control
 
@@ -126,6 +248,17 @@ Console writes count bytes accepted from the program; serial output renders LF
 as CRLF, as kernel text output does. File writes preserve bytes exactly.
 
 ## Tests
+
+`make test-lifecycle` runs the public SDK calls through real ring-3 programs
+and separately checks identity exhaustion. Both fixtures boot through ELF and
+GRUB ISO at 16 and 64 MiB. Tests cover packet/flag validation, cross-page
+structures and buffers, failed loads and construction, nohang and any-child
+waits, retained and stale results, termination permissions, delegated shell
+control, parent exit/fault/cancellation, process-limit pressure and cleanup.
+A fixture revokes output write access while a wait is blocked and verifies
+that a failed copy does not discard the completion. Private counters are seeded
+near exhaustion only inside the isolated boundary fixture; rum exposes no
+counter-setting API. Logs are under `build/test-artifacts/lifecycle/`.
 
 `make test-userspace-shell` checks actual ring-3 launch packets, invalid headers,
 paths and cross-page buffers, nested foreground children, signed statuses,

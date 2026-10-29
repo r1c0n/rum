@@ -151,6 +151,9 @@ callee-saved registers.
 | 15 | `rum_console(action)` | Clear or Snake selector | Zero |
 | 16 | `rum_command_text(buffer, capacity)` | Exact command argument tail | Bytes including NUL; command child only |
 | 17 | `rum_session(action, path)` | Session directory change, exit or recovery | Zero; command child only |
+| 18 | `rum_spawn(path, args)` | Versioned nonforeground launch packet | Positive child PID |
+| 19 | `rum_wait(pid, flags, result)` | Specific child or any child, optional `RUM_WAIT_NOHANG` | 1 collected; 0 still pending |
+| 20 | `rum_terminate(pid, flags)` | Owned child or explicitly delegated shell command authority | Zero when accepted |
 
 Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
 means success. A negative result is the negation of a `RUM_E*` value from
@@ -168,8 +171,9 @@ before copying a chunk through a kernel buffer. Console code, filesystems and
 drivers never receive a raw user pointer.
 
 `rum_read` accepts readable file handles and standard input, and requires a
-writable user range. For standard input, if no
-decoded character is queued, the calling process sleeps on a keyboard-specific
+writable user range. Positive-length standard-input reads require foreground
+ownership; nonforeground processes receive `-RUM_EACCES`. If no decoded
+character is queued, the foreground caller sleeps on a keyboard-specific
 event. Keyboard IRQs remain enabled while it waits, PIT ticks continue, and
 other runnable tasks can execute. The call returns after copying one or more
 available characters, up to its 128-byte limit.

@@ -68,6 +68,9 @@ bool task_initialize(void);
    Kernel entries return normally to exit and remain cooperatively scheduled. */
 task_id task_create(void (*entry)(void *), void *argument, struct paging_space *owned_space);
 task_id task_create_process(const struct task_process *process);
+/* Foreground context; precise preflight error for ID exhaustion, limit and
+   foreground ownership. Creation still rechecks before publication. */
+rum_result_t task_process_creation_status(bool foreground);
 /* Atomically publishes and registers the sole foreground process. */
 task_id task_create_foreground_process(const struct task_process *process);
 /* Kernel supervisor only: Ctrl+C becomes input for this shell while it owns
@@ -113,6 +116,8 @@ _Noreturn void task_exit_from_user_fault(const struct exception_frame *frame,
 bool task_foreground_end(task_id id);
 bool task_cancel_foreground(void);
 bool task_current_cancelled(void);
+bool task_current_owns_console(void);
+rum_result_t task_request_termination(rum_pid_t id, bool session);
 void task_cancel_current_if_requested(void);
 /* PIT handler: record work only, with no switch, allocation or event wakeup. */
 void task_timer_tick(void);
@@ -120,6 +125,10 @@ void task_timer_tick(void);
    returns do nothing; an outer user frame may cancel or service its slice. */
 void task_on_user_return(const struct exception_frame *frame);
 bool task_wait_process(task_id id, struct task_information *information);
+/* Non-consuming wait: 1 complete, 0 NOHANG pending, or a public negative error.
+   PID zero selects any direct child. Copy output before task_collect_child. */
+rum_result_t task_wait_child(rum_pid_t id, bool nohang, struct task_information *);
+bool task_collect_child(task_id id);
 bool task_reap_process(task_id id);
 uint32_t task_reap(void); /* Foreground; only exited, inactive resources. */
 

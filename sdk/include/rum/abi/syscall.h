@@ -27,7 +27,10 @@
 #define RUM_SYS_CONSOLE 15 /* ebx: RUM_CONSOLE_* operation */
 #define RUM_SYS_COMMAND_TEXT 16 /* ebx: buffer, ecx: capacity; command child only */
 #define RUM_SYS_SESSION 17 /* ebx: RUM_SESSION_*, ecx: path for CHDIR, edx: zero */
-#define RUM_SYS_COUNT  18
+#define RUM_SYS_SPAWN 18 /* ebx: rum_spawn_request; returns positive child PID */
+#define RUM_SYS_WAIT 19 /* ebx: rum_wait_request; 1 completed, 0 NOHANG pending */
+#define RUM_SYS_TERMINATE 20 /* ebx: rum_terminate_request; request cancellation */
+#define RUM_SYS_COUNT  21
 #define RUM_ABI_PID_MAX 0x7FFFFFFF /* Positive IDs fit the signed result type. */
 
 #define RUM_STDIN  0
