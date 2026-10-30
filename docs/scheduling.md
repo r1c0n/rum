@@ -239,3 +239,9 @@ reused slots, protected-context rejection, public packet validation and real
 PS/2 cancellation. It checks idle wakeups after the slice budget has saturated
 and waits that hold temporary kernel allocations until cancellation returns.
 See [process syscalls](process-syscalls.md#tests) for the fixtures and artifacts.
+
+`make test-integration-stress` combines those scheduling paths with real ATA
+and FAT16 work. CPU workers validate private data while file workers retain
+handles across waits and a foreground process blocks on PS/2 input. Repeated
+normal exit, parent fault and Ctrl+C must restore all ownership counts. The
+[release guide](release.md) explains host-byte, FAT-copy and `fsck.fat` checks.

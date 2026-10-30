@@ -333,6 +333,12 @@ as CRLF, as kernel text output does. File writes preserve bytes exactly.
 
 ## Tests
 
+`make test-integration-stress` mixes CPU-bound workers, sleepers, foreground
+keyboard reads and real FAT16 file operations. It repeats parent exit, fault
+and Ctrl+C while children retain disk handles, then checks resource baselines
+and exact persisted bytes through host tools. See the [release guide](release.md)
+for the combined workload and clean-source release checks.
+
 `make test-console-sessions` drives real PS/2 input through nested foreground
 launches, competing readers, child faults, failed loads, cancellation during
 construction and filesystem work, and output from simultaneous writers. It also

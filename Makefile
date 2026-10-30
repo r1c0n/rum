@@ -88,6 +88,7 @@ TEST_DEPENDENCIES += build/tests/preemption-kernel.d build/tests/preemption-prob
 TEST_DEPENDENCIES += build/tests/lifecycle-kernel.d build/tests/lifecycle-ids-kernel.d build/tests/user/lifecycle.d
 TEST_DEPENDENCIES += build/tests/waits-kernel.d build/tests/sleep-kernel.d build/tests/user/sleep.d
 TEST_DEPENDENCIES += build/tests/console-kernel.d build/tests/user/console.d
+TEST_DEPENDENCIES += build/tests/integration-kernel.d build/tests/user/integration.d
 
 .PHONY: all check iso user test-user run run-kernel debug panic test test-host test-package doctor toolchain clean FORCE
 .SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) $(PROCESS_FAULT_OBJECTS) build/tests/paging-spaces.o build/tests/user-memory.o
@@ -283,6 +284,33 @@ test-host: build/tests/session-test
 
 .PHONY: test-console-sessions
 .PHONY: test-process-tools
+.PHONY: test-integration-stress
+test: test-integration-stress
+test-integration-stress: build/tests/integration.elf build/tests/integration.iso
+	python3 tests/integration-stress-test.py --qemu $(QEMU)
+
+build/tests/user/integration.o: tests/integration-user.c $(USER_INCLUDE_STAMP) Makefile
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/tests/user/integration.debug.elf: build/tests/user/integration.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none \
+	    -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+build/tests/user/integration.elf: build/tests/user/integration.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@.tmp
+	build/tools/check-user-elf $@.tmp $<
+	mv -- $@.tmp $@
+build/tests/integration-image.o: tests/integration-image.s build/tests/user/integration.elf
+	@mkdir -p $(@D)
+	$(AS) $< -o $@
+build/tests/integration.elf: build/tests/integration-kernel.o build/tests/integration-image.o $(filter-out build/tests/fault-trigger.o build/arch/i386/interrupt.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
+build/tests/integration.iso: build/tests/integration.elf Makefile
+	@mkdir -p build/integration-isodir/boot/grub
+	cp $< build/integration-isodir/boot/rum.elf
+	printf 'set timeout=0\nmenuentry "rum integration stress" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/integration-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/integration-isodir
+
 test: test-process-tools
 test-process-tools: all
 	python3 tests/process-tools-test.py --qemu $(QEMU)
@@ -474,6 +502,7 @@ build/tests/fs.elf: build/tests/fs-kernel.o build/tests/fs-image.o build/tests/f
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
 
+build/tests/task-kernel.o: CFLAGS += -Wframe-larger-than=8192
 build/tests/task.elf: build/tests/task-kernel.o build/tests/task-probe.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@

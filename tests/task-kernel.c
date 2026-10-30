@@ -103,10 +103,13 @@ static void refuse_switch(void)
     check(!task_yield() && !task_wait(&timed, task_event_sequence(&timed)) &&
           task_wait_for(&timed, timed.sequence, 2) == TASK_WAIT_INVALID && task_sleep(1) == -RUM_EBUSY,
           "protected callback cannot yield or attach a waiter");
-    check(task_snapshot_read(&after) && after.current == before.current &&
-          after.switches == before.switches && after.states[TASK_BLOCKED] == before.states[TASK_BLOCKED] &&
-          after.event_waiters == before.event_waiters && after.deadline_waiters == before.deadline_waiters &&
-          !protected_runs, "protected rejection preserves scheduling state");
+    check(task_snapshot_read(&after), "snapshot after protected callback");
+    check(after.current == before.current, "protected rejection preserves current identity");
+    check(after.switches == before.switches, "protected rejection cannot switch contexts");
+    check(after.states[TASK_BLOCKED] == before.states[TASK_BLOCKED], "protected rejection preserves blocked count");
+    check(after.event_waiters == before.event_waiters, "protected rejection preserves event registrations");
+    check(after.deadline_waiters == before.deadline_waiters, "protected rejection preserves deadlines");
+    check(!protected_runs, "protected worker has not run");
     uint32_t flags = cpu_interrupt_save();
     cpu_interrupt_restore(flags);
     check(flags & 0x200, "protected callback keeps interrupts enabled");
@@ -316,7 +319,10 @@ static __attribute__((noinline)) void allocation_boundaries(uint32_t baseline)
 
 static __attribute__((noinline)) void process_records(uint32_t baseline)
 {
-    struct task_snapshot initial, before, after;
+    /* BOOT alone runs this fixture. Three snapshots plus nested process/FS
+       construction exceed its 16 KiB stack; keep inspection buffers off that
+       stack without allocating during the exhaustion checks below. */
+    static struct task_snapshot initial, before, after;
     check(task_snapshot_read(&initial) && !initial.processes && !initial.user_pages &&
           !initial.user_table_pages, "initial process ownership ledger");
     struct paging_space *space = paging_space_create();

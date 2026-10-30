@@ -150,24 +150,27 @@ and the focused test command.
 
 ### 7. 0.5.0 integration and release
 
-- [ ] Stress several runnable, sleeping, and input-waiting processes while
+- [x] Stress several runnable, sleeping, and input-waiting processes while
   reading and writing FAT files.
-- [ ] Verify address-space isolation and register preservation across many
+- [x] Verify address-space isolation and register preservation across many
   timer-driven switches.
-- [ ] Repeat spawn, wait, fault, and cancellation until process, handle,
+- [x] Repeat spawn, wait, fault, and cancellation until process, handle,
   object, heap, and physical-page counts return to their baseline.
-- [ ] Exercise parent exit, orphan cleanup, failed publication, pending I/O,
+- [x] Exercise parent exit, orphan cleanup, failed publication, pending I/O,
   and shell restart with outstanding children.
-- [ ] Run the complete host and QEMU suite through both boot paths and
+- [x] Run the complete host and QEMU suite through both boot paths and
   supported RAM sizes, including missing disks, read-only mounts, malformed
   volumes, and full media.
-- [ ] Update process, scheduler, console, ABI, and troubleshooting guides.
-- [ ] Verify Windows and Linux packaging and boot the exact packaged ISO.
+- [x] Update process, scheduler, console, ABI, and troubleshooting guides.
+- [x] Verify Windows and Linux packaging and boot the exact packaged ISO.
 
 0.5.0 is ready when two CPU-bound user programs make progress independently,
 the shell remains usable while a nonforeground child runs, and cancelling or
 faulting one process leaves the others alive. Persistent bytes must still
 survive a separate boot, and diskless boot must retain recovery and Snake.
+
+See [Building a release](release.md) for clean-source validation, host package
+checks and the evidence saved with each candidate.
 
 ## 0.6.0 — shell workflows and userspace tools
 

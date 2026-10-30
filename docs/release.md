@@ -53,6 +53,29 @@ references, objects, live heap allocations and private pages must return to
 their baseline. CPU isolation, invalid user buffers and syscall packets have
 separate regression cases.
 
+For the concurrent workload specifically, run:
+
+```sh
+make test-integration-stress
+```
+
+This uses disposable FAT16 images and a test-only kernel/program pair. Each of
+four boot/RAM combinations runs 16 rounds and 80 processes: two CPU workers,
+file writers/readers, a sleeper and a foreground reader. It checks independent
+physical mappings at equal virtual addresses, active CR3/TSS agreement and
+private canaries while scheduling continues. Parent exit, fault and Ctrl+C leave
+children holding real disk handles for the normal adoption/cleanup paths.
+After every round, process, session, wait, file-reference, live-heap and physical
+page counts must return to baseline, accounting for retained heap mappings.
+
+After QEMU stops, Mtools must recover exact binary bytes, both FAT copies must
+agree, unrelated files and sectors beyond the volume must be unchanged, and
+`fsck.fat -n` must report a clean filesystem. Install `dosfstools` if that checker
+is missing. Logs, filesystem checks and process/switch totals are saved in
+`build/test-artifacts/integration-stress/`. The complete suite includes this test
+alongside the dedicated no-yield register-preservation, lifecycle, console,
+public-ABI and disk-failure tests.
+
 ## Verify packaging on each host
 
 Python packaging needs no additional modules. After building the ISO:
@@ -82,6 +105,27 @@ qemu-system-i386 -m 64M -cdrom rum.iso
 For an archive made on another host, compare the uncompressed ISO's SHA256
 with the verified `result.json`. ZIP bytes can differ between hosts because
 source timestamps differ.
+
+To validate the exact clean-build candidate without replacing local build
+outputs, run the host check against its result directory. On Windows:
+
+```powershell
+py -3 tests/release-host-test.py --release build/release-check/<commit>-<time> --qemu qemu-system-i386.exe
+```
+
+On Linux/WSL, use `python3` and `--qemu qemu-system-i386`. This stages tracked
+packaging sources and documentation in a temporary directory, packages the
+validated ISO with that host's Python, verifies every ZIP member, and boots the
+ISO extracted from that ZIP with native QEMU. It exercises `start`, `ps`, `kill`,
+timed completion notices, recovery diagnostics and Snake. It never attaches a
+mutable disk. Results and the archive are under the candidate directory's
+`host-windows/` or `host-linux/` folder.
+
+The clean check must have passed and the ISO hash must match. If only the README
+or documentation changed while completing the release checklist, the host check
+records both the tested code commit and the packaging commit. Any executable,
+test or build-source change requires a new clean check. The working tree must
+be committed for both checks.
 
 ## Try persistent files
 

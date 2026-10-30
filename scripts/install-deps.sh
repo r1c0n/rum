@@ -5,4 +5,4 @@ if (( EUID != 0 )); then
     exit 1
 fi
 apt-get update
-apt-get install -y --no-install-recommends build-essential bison flex libgmp3-dev libmpc-dev libmpfr-dev texinfo curl ca-certificates xz-utils grub-common grub-pc-bin xorriso mtools python3 qemu-system-x86 gdb
+apt-get install -y --no-install-recommends build-essential bison flex libgmp3-dev libmpc-dev libmpfr-dev texinfo curl ca-certificates xz-utils grub-common grub-pc-bin xorriso mtools dosfstools python3 qemu-system-x86 gdb
