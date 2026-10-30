@@ -158,16 +158,19 @@ and the focused test command.
   object, heap, and physical-page counts return to their baseline.
 - [x] Exercise parent exit, orphan cleanup, failed publication, pending I/O,
   and shell restart with outstanding children.
-- [ ] Run the complete host and QEMU suite through both boot paths and
+- [x] Run the complete host and QEMU suite through both boot paths and
   supported RAM sizes, including missing disks, read-only mounts, malformed
   volumes, and full media.
 - [x] Update process, scheduler, console, ABI, and troubleshooting guides.
-- [ ] Verify Windows and Linux packaging and boot the exact packaged ISO.
+- [x] Verify Windows and Linux packaging and boot the exact packaged ISO.
 
 0.5.0 is ready when two CPU-bound user programs make progress independently,
 the shell remains usable while a nonforeground child runs, and cancelling or
 faulting one process leaves the others alive. Persistent bytes must still
 survive a separate boot, and diskless boot must retain recovery and Snake.
+
+See [Building a release](release.md) for clean-source validation, host package
+checks and the evidence saved with each candidate.
 
 ## 0.6.0 — shell workflows and userspace tools
 

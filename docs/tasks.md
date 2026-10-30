@@ -264,6 +264,13 @@ an insufficient buffer.
 
 ## Inspecting task state
 
+Boot and task stacks are each 16 KiB. A full `task_snapshot` occupies several
+KiB, so keep bulk comparison buffers off the stack when nested construction
+or diagnostics already use it. Test-only static buffers are suitable when one
+boot context owns the check; they also avoid allocations during memory-exhaustion
+tests. Preserve the guarded-stack limits when adding inspection code. The task
+fixture rejects individual stack frames larger than 8 KiB at compile time.
+
 `task_query(id, &information)` returns one record with its kind, state, IDs,
 stack bounds, directory, latest trusted frame, termination kind, exit status or
 fault record, and resource ownership.
