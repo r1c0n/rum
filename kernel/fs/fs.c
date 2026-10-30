@@ -14,6 +14,14 @@ static struct reference references[FS_REFERENCE_LIMIT];
 static fs_reference next_token = 1;
 static bool ready, busy;
 
+bool fs_operation_active(void)
+{
+    uint32_t flags = cpu_interrupt_save();
+    bool active = busy;
+    cpu_interrupt_restore(flags);
+    return active;
+}
+
 static bool equal(const char *a, const char *b)
 {
     while (*a && *a == *b) { ++a; ++b; }

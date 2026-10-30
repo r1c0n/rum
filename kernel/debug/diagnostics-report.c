@@ -70,6 +70,11 @@ void diagnostics_render(const struct kernel_diagnostics *snapshot, diagnostics_w
     write("Lifecycle: "); decimal(write, snapshot->tasks.created); write(" created, ");
     decimal(write, snapshot->tasks.exited); write(" exited, "); decimal(write, snapshot->tasks.reaped);
     write(" reaped, "); decimal(write, snapshot->tasks.switches); write(" switches\n");
+    write("Sessions: "); decimal(write, snapshot->tasks.console.sessions - snapshot->tasks.console.closing); write(" live, ");
+    decimal(write, snapshot->tasks.console.closing); write(" closing, ");
+    decimal(write, snapshot->tasks.console.members); write(" members | ");
+    decimal(write, snapshot->tasks.console.session_references); write(" session refs, ");
+    decimal(write, snapshot->tasks.console.process_references); write(" process refs\n");
     write("Heap: "); decimal(write, snapshot->heap.used_bytes); write(" / ");
     decimal(write, snapshot->heap.mapped_bytes); write(" bytes, ");
     decimal(write, snapshot->heap.allocations); write(" allocations\nRAM files: ");

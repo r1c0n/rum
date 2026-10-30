@@ -18,11 +18,15 @@ If you only want to try the release ISO, no compiler is required:
 qemu-system-i386 -m 64M -cdrom rum.iso
 ```
 
+For VMware Workstation or VirtualBox, follow [Virtual machines](virtual-machines.md).
+It covers BIOS/IDE settings and prepared persistent-disk images.
+
 ## What works today
 
 The normal boot provides a VGA text console, a PS/2 keyboard, a userspace shell,
 temporary RAM files, diagnostics, and ASCII Snake. The kernel has physical and
-virtual memory management, guarded task stacks, cooperative scheduling, and a
+virtual memory management, guarded task stacks, timer-preempted user processes,
+cooperative kernel tasks, and a
 controlled double-fault path. Prepared processes enter ring 3 through the
 production interrupt-return path, and a user exception terminates only that
 process while preserving its fault record for the parent. The production
@@ -30,6 +34,9 @@ process while preserving its fault record for the parent. The production
 input and output, directory listing, and working-directory operations.
 The shell can launch one foreground user process, wait for its
 result, report its signed status or fault, and cancel it with Ctrl+C.
+Programs can also spawn nonforeground children, wait for one or any owned child,
+poll for completion and request authorized cancellation through the SDK.
+The runtime also provides voluntary yield and bounded, cancellable sleep.
 
 Stripped user ELF programs live in a separate read-only boot volume at `/rum`. The
 kernel loader validates them again, builds private mappings and an initial user
@@ -47,7 +54,9 @@ directories, file creation and ELF launch.
 | Guide | Use it for |
 | --- | --- |
 | [Setup](setup.md) | Installing dependencies, building, running, and attaching GDB |
+| [Virtual machines](virtual-machines.md) | VMware/VirtualBox settings, prepared VMDK/VDI images, and persistent files |
 | [Shell](shell.md) | Commands, editing rules, RAM-file examples, and input limitations |
+| [Process tools](process-tools.md) | Concurrent launch, `ps`, `kill`, `sleep`, completion notices and limits |
 | [System volume](system-volume.md) | `/rum`, standalone commands, build artifacts and boot-image validation |
 | [ASCII Snake](snake.md) | Controls, scoring, and score-file behavior |
 | [Heap and RAM files](storage.md) | File limits, embedded files, and the kernel storage APIs |
@@ -58,17 +67,23 @@ directories, file creation and ELF launch.
 
 ## Kernel guides
 
+Start with the [source layout guide](source-layout.md) to find a subsystem or
+choose where new code belongs. The [SDK source guide](../sdk/README.md) covers
+the public headers and application runtime.
+
 | Guide | Use it for |
 | --- | --- |
 | [Boot, exceptions, and CPU state](exceptions.md) | GDT, TSS, IDT, interrupt frames, user CPU policy, and double faults |
 | [Device interrupts](interrupts.md) | PIC routing, PIT ticks, keyboard input, and IRQ restrictions |
 | [Kernel tasks and process records](tasks.md) | Scheduling, guarded stacks, events, process publication, and cleanup |
+| [Scheduling safety](scheduling.md) | Process/thread ownership, protected operations, switch boundaries, and I/O restrictions |
 | [Filesystems and paths](filesystems.md) | Backend operations, mounts, naming, access, retained objects, and working directories |
 | [Memory management](memory.md) | Multiboot memory discovery, physical pages, paging, and checked user access |
 | [Memory map and ownership](memory-layout.md) | Virtual ranges, limits, and who must release each resource |
 | [User ABI and ELF programs](user-abi.md) | Building user code and following the public syscall, stack, and ELF contracts |
 | [Filesystem syscalls](filesystem-syscalls.md) | Opening files from userspace, directory iteration, seek, paths and error handling |
 | [Process syscalls](process-syscalls.md) | Foreground launch, child results, console ownership and cancellation |
+| [Console sessions](console-sessions.md) | Keyboard ownership, nested Ctrl+C, output ordering and shell restart cleanup |
 
 The [roadmap](roadmap.md) describes planned work: multitasking and process
 control for 0.5.0, then shell workflows and userspace tools for 0.6.0. The guides

@@ -30,17 +30,25 @@ The build produces:
 | `build/user/include/rum/abi/` | Generated public headers only |
 
 Private kernel headers are deliberately absent from the user include tree.
+The canonical public headers live in `sdk/include/rum/`; startup and runtime
+sources live in `sdk/lib/`, and the linker source is `sdk/linker/user.ld`.
+The processed linker script is generated at `build/sdk/linker/user.ld`.
 User code links with `-nostdlib`, rum's startup and syscall wrappers, and target
 `libgcc`; it does not link a host C library or any kernel object.
 
 ## Adding a program
 
-1. Add `user/programs/name.c` with a normal
+1. Add `apps/name/main.c` with a normal
    `int main(int argc, char **argv)` entry.
 2. Include `<rum/user.h>` for the supported runtime calls.
-3. Add `name` to `USER_PROGRAMS` in the Makefile.
+3. Add `name` to `APP_PROGRAMS` in the Makefile.
 4. Run `make user` and fix any compiler or ELF-validator error.
 5. Debug with the ELF under `build/user/debug/`, not the stripped asset.
+
+System commands use `system/commands/name.c` and `SYSTEM_COMMANDS`. SDK examples
+use `sdk/examples/name.c` and `SDK_EXAMPLES`. The shell has its own entry at
+`system/shell/main.c`. These lists form the explicit system-image manifest;
+placing a source file in a directory does not install an executable by itself.
 
 A minimal program looks like this:
 
@@ -57,7 +65,7 @@ int main(int argc, char **argv)
 ```
 
 `write` may complete partially. Production programs should loop until all bytes
-are written or an error is returned; `user/programs/hello.c` shows the complete
+are written or an error is returned; `sdk/examples/hello.c` shows the complete
 pattern.
 
 ## Launching a program
@@ -143,10 +151,16 @@ callee-saved registers.
 | 15 | `rum_console(action)` | Clear or Snake selector | Zero |
 | 16 | `rum_command_text(buffer, capacity)` | Exact command argument tail | Bytes including NUL; command child only |
 | 17 | `rum_session(action, path)` | Session directory change, exit or recovery | Zero; command child only |
+| 18 | `rum_spawn(path, args)` | Versioned nonforeground launch packet | Positive child PID |
+| 19 | `rum_wait(pid, flags, result)` | Specific child or any child, optional `RUM_WAIT_NOHANG` | 1 collected; 0 still pending |
+| 20 | `rum_terminate(pid, flags)` | Owned child or explicitly delegated shell command authority | Zero when accepted |
+| 21 | `rum_yield()` | All arguments zero | Zero after another scheduling turn |
+| 22 | `rum_sleep(milliseconds)` | Versioned relative-delay packet; zero yields | Zero when the delay expires |
+| 23 | `rum_process_list(entries, capacity, total)` | Bounded user-process snapshot | Copied count and snapshot total |
 
 Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
 means success. A negative result is the negation of a `RUM_E*` value from
-`include/rum/abi/error.h`; these values are rum-specific and do not set a global
+`sdk/include/rum/abi/error.h`; these values are rum-specific and do not set a global
 `errno`.
 
 Read and write calls may return fewer bytes than requested. A zero-length call
@@ -160,10 +174,13 @@ before copying a chunk through a kernel buffer. Console code, filesystems and
 drivers never receive a raw user pointer.
 
 `rum_read` accepts readable file handles and standard input, and requires a
-writable user range. For standard input, if no
-decoded character is queued, the calling process sleeps on a keyboard-specific
-event. Keyboard IRQs remain enabled while it waits, PIT ticks continue, and
-other runnable tasks can execute. The call returns after copying one or more
+writable user range. Positive-length standard-input reads require foreground
+ownership; nonforeground processes receive `-RUM_EACCES`. If no decoded
+character is queued, the foreground caller sleeps on a keyboard-specific
+event. The supervised shell also wakes for child completions and receives
+`-RUM_EINTR` until it collects them with nonblocking wait. Keyboard IRQs remain
+enabled while it waits, PIT ticks continue, and other runnable tasks can execute.
+The call returns after copying one or more
 available characters, up to its 128-byte limit.
 
 An unsupported number returns `-RUM_ENOSYS`, an invalid or wrong-direction handle returns
@@ -249,7 +266,7 @@ clear.
 - **A write returns less than requested:** loop over the unconsumed bytes. The
   console backend currently copies at most 128 bytes per call.
 - **Private kernel headers are missing:** user code may include only
-  `user/include/rum/user.h` and copied `rum/abi/` headers.
+  `sdk/include/rum/user.h` and copied `rum/abi/` headers.
 - **The ELF checker rejects a segment:** inspect program headers with
   `i686-elf-readelf -l build/user/debug/name.elf` and check ranges, page overlap,
   alignment, and W+X flags.

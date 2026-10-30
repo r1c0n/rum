@@ -10,10 +10,14 @@
 #include <rum/process_limits.h>
 #include <rum/ramfs.h>
 
-rum_result_t process_start_foreground(const char *program, const struct rum_arguments *arguments, task_id *child)
+static rum_result_t start_process(const char *program, const struct rum_arguments *arguments,
+                                  bool foreground, bool shell, task_id *child)
 {
     if (!child || !program || !elf_arguments_valid(arguments)) return -RUM_EINVAL;
     *child = 0;
+    if (shell && task_current_is_process()) return -RUM_EACCES;
+    rum_result_t status = task_process_creation_status(foreground);
+    if (status) return status;
     if (!process_filesystem_context()) return -RUM_EBUSY;
     char path[FS_PATH_CAPACITY]; size_t length = 0;
     while (length < sizeof path && program[length]) ++length;
@@ -54,9 +58,29 @@ rum_result_t process_start_foreground(const char *program, const struct rum_argu
         (void)paging_space_destroy(process.space);
         return -RUM_EINTR;
     }
-    *child = task_create_foreground_process(&process);
+    const char *name = path;
+    for (unsigned i = 0; path[i]; ++i) if (path[i] == '/') name = path + i + 1;
+    for (unsigned i = 0; i < sizeof process.name - 1 && name[i]; ++i)
+        process.name[i] = (unsigned char)name[i] >= 32 && (unsigned char)name[i] <= 126 ? name[i] : '?';
+    *child = shell ? task_create_shell_process(&process) :
+        foreground ? task_create_foreground_process(&process) : task_create_process(&process);
     if (!*child) { (void)paging_space_destroy(process.space); return -RUM_ENOMEM; }
     return 0;
+}
+
+rum_result_t process_start_foreground(const char *path, const struct rum_arguments *arguments, task_id *child)
+{
+    return start_process(path, arguments, true, false, child);
+}
+
+rum_result_t process_start_shell(const char *path, const struct rum_arguments *arguments, task_id *child)
+{
+    return start_process(path, arguments, true, true, child);
+}
+
+rum_result_t process_spawn(const char *path, const struct rum_arguments *arguments, task_id *child)
+{
+    return start_process(path, arguments, false, false, child);
 }
 
 static rum_result_t run_foreground(const char *path, const struct rum_arguments *arguments,
@@ -70,9 +94,11 @@ static rum_result_t run_foreground(const char *path, const struct rum_arguments 
     if (error) return error;
     if (command_text && !task_mark_shell_command(child, command_text)) cpu_halt();
     struct task_information info;
-    if (!task_wait_process(child, &info) || !task_foreground_end(child)) return -RUM_EIO;
+    if (!task_query(child, &info)) cpu_halt();
+    error = task_wait_child(info.process_id, false, &info);
+    if (error != 1) return error < 0 ? error : -RUM_EIO;
     *result = (struct process_result){ info.process_id, info.termination, info.exit_status, info.fault };
-    if (!task_reap_process(child)) return -RUM_EIO;
+    if (!task_collect_child(child)) cpu_halt();
     return 0;
 }
 

@@ -23,36 +23,42 @@ cooperative at explicitly safe points.
 
 ### 1. Scheduling and ownership prerequisites
 
-- [ ] Audit interrupt entry/return, syscall entry/return, context switching, and
+- [x] Separate process-owned resources from the initial thread's execution,
+  stack, scheduling state, and wait registration while retaining one thread
+  per process and the current public ABI.
+- [x] Audit interrupt entry/return, syscall entry/return, context switching, and
   cancellation before allowing a timer interrupt to select another process.
-- [ ] Document which task, process, filesystem, handle, console, and memory
+- [x] Document which task, process, filesystem, handle, console, and memory
   structures are shared, and what protects each update.
-- [ ] Define safe scheduling points. Never switch in an IRQ handler, during a
+- [x] Define safe scheduling points. Never switch in an IRQ handler, during a
   short interrupt-disabled update, while holding a lock, or while exposing
   partially constructed resources.
-- [ ] Audit blocking callbacks and bounded ATA polling. Keep filesystem and
+- [x] Audit blocking callbacks and bounded ATA polling. Keep filesystem and
   driver operations serialized, and release ownership before a task sleeps.
-- [ ] Define runnable, waiting, and exited states, scheduler limits, and the
+- [x] Define runnable, waiting, and exited states, scheduler limits, and the
   ownership of stacks, address spaces, working directories, and exit records.
-- [ ] Preserve the existing user CPU policy, guarded stacks, and kernel fault
+- [x] Preserve the existing user CPU policy, guarded stacks, and kernel fault
   behavior while introducing the new scheduling paths.
 
 Test event wakeups racing with waits, cancellation during a syscall, and
 failure partway through process construction. Add assertions for forbidden
 scheduling contexts and compare ownership counts before and after cleanup.
 
+The ownership model, protected operations, and synchronization audit are
+recorded in [Scheduling safety](scheduling.md).
+
 ### 2. Timer-driven user-process preemption
 
-- [ ] Use PIT ticks to request rescheduling and define a documented time slice.
-- [ ] Switch a user process at a trusted outer interrupt return to user mode;
+- [x] Use PIT ticks to request rescheduling and define a documented time slice.
+- [x] Switch a user process at a trusted outer interrupt return to user mode;
   nested interrupts and interrupts from kernel mode only record pending work.
-- [ ] Preserve the complete user register frame and update task identity, CR3,
+- [x] Preserve the complete user register frame and update task identity, CR3,
   and TSS state together before restoring the selected context.
-- [ ] Implement fair round-robin selection among runnable tasks, with an idle
+- [x] Implement fair round-robin selection among runnable tasks, with an idle
   path when none are ready.
-- [ ] Apply pending scheduling requests at safe kernel boundaries without
+- [x] Apply pending scheduling requests at safe kernel boundaries without
   adding arbitrary kernel preemption.
-- [ ] Keep IRQ handlers bounded and allocation-free, and avoid treating every
+- [x] Keep IRQ handlers bounded and allocation-free, and avoid treating every
   timer tick as a reason to wake unrelated input or filesystem waiters.
 
 Run two CPU-bound programs that never yield and verify both make progress.
@@ -62,19 +68,19 @@ Document that bounded synchronous kernel I/O can still delay scheduling.
 
 ### 3. Separate spawn, wait, and termination interfaces
 
-- [ ] Add fixed-width, versioned spawn, wait, and termination requests to the
+- [x] Add fixed-width, versioned spawn, wait, and termination requests to the
   public ABI and user runtime.
-- [ ] Make spawn return a process identifier after complete construction;
+- [x] Make spawn return a process identifier after complete construction;
   failure must publish no runnable child and retain no temporary resources.
-- [ ] Support waiting for a specific child and checking for completion without
+- [x] Support waiting for a specific child and checking for completion without
   blocking. Define how a parent waits for any child as well.
-- [ ] Return signed exit status, fault category, or cancellation without
+- [x] Return signed exit status, fault category, or cancellation without
   exposing kernel addresses or private process records.
-- [ ] Define who may request termination. Permit child control and explicitly
+- [x] Define who may request termination. Permit child control and explicitly
   authorized shell-session control rather than arbitrary process access.
-- [ ] Define orphan adoption, abandoned exit-record cleanup, identifier
+- [x] Define orphan adoption, abandoned exit-record cleanup, identifier
   exhaustion, and rejection of stale or unrelated identifiers.
-- [ ] Preserve existing foreground RUN behavior and compatible command-launch
+- [x] Preserve existing foreground RUN behavior and compatible command-launch
   packets while implementing them through the new lifecycle operations.
 
 Validate every packet, flag, path, argument, and output buffer before creating
@@ -84,15 +90,15 @@ result buffer must not discard a child's exit record.
 
 ### 4. Sleeping and cancellable event waits
 
-- [ ] Expose yield and bounded timed sleep through the public runtime.
-- [ ] Use checked duration conversion and wrap-safe clock comparisons; define
+- [x] Expose yield and bounded timed sleep through the public runtime.
+- [x] Use checked duration conversion and wrap-safe clock comparisons; define
   zero-duration sleep and the maximum supported interval.
-- [ ] Let input, child completion, and timer deadlines block only the caller.
-- [ ] Preserve the event-sequence protocol so a signal between checking a
+- [x] Let input, child completion, and timer deadlines block only the caller.
+- [x] Preserve the event-sequence protocol so a signal between checking a
   predicate and attaching a waiter cannot be lost.
-- [ ] Wake a cancelled task without freeing its active stack or address space,
+- [x] Wake a cancelled task without freeing its active stack or address space,
   and finish termination at an existing safe boundary.
-- [ ] Remove wait registrations and deadline references on every exit path.
+- [x] Remove wait registrations and deadline references on every exit path.
 
 Test wakeups before and after registration, several waiters on one event,
 cancelled sleepers, deadline overflow, and repeated sleep/exit cycles. Idle
@@ -100,62 +106,71 @@ should sleep when there is no runnable work; blocked tasks should not busy-poll.
 
 ### 5. Foreground console ownership and shell supervision
 
-- [ ] Replace assumptions about one nested foreground chain with an explicit,
+- [x] Replace assumptions about one nested foreground chain with an explicit,
   referenced shell session and foreground owner.
-- [ ] Give keyboard input and Ctrl+C only to the foreground process or the
+- [x] Give keyboard input and Ctrl+C only to the foreground process or the
   interactive shell; nonforeground processes must not consume shell input.
-- [ ] Define the result of a background console read and how console output
+- [x] Define the result of a background console read and how console output
   from several processes is serialized.
-- [ ] Transfer ownership on foreground launch and restore it after normal
+- [x] Transfer ownership on foreground launch and restore it after normal
   exit, fault, cancellation, or a failed launch.
-- [ ] Restrict directory-change, exit, and recovery requests to an authorized
+- [x] Restrict directory-change, exit, and recovery requests to an authorized
   shell command; ordinary concurrent children cannot modify the shell.
-- [ ] Define cleanup of session-owned children on shell restart and preserve
+- [x] Define cleanup of session-owned children on shell restart and preserve
   the existing restart limit and kernel recovery path.
 
 Test competing input readers, nested launches, a child fault during input,
 Ctrl+C during disk work, and shell restart with live children. Recovery must
 remain reachable without leaving a dead process as the console owner.
 
+See [Console sessions](console-sessions.md) for ownership, output, restart and
+cleanup rules, along with the focused test command.
+
 ### 6. Process tools and minimal concurrent launch
 
-- [ ] Add a bounded public process-list query with identifiers, names, state,
+- [x] Add a bounded public process-list query with identifiers, names, state,
   and parent relationships, omitting addresses and kernel pointers.
-- [ ] Build standalone `ps`, `kill`, and `sleep` programs using only public
+- [x] Build standalone `ps`, `kill`, and `sleep` programs using only public
   headers and the runtime.
-- [ ] Add a minimal shell `start <program>` form that launches a nonforeground
+- [x] Add a minimal shell `start <program>` form that launches a nonforeground
   child and returns to the prompt; reserve full job syntax for 0.6.0.
-- [ ] Track and reap those children without blocking line input. Notify the
+- [x] Track and reap those children without blocking line input. Notify the
   shell when an owned child finishes and report its result once.
-- [ ] Keep existing foreground commands, program lookup, working-directory
+- [x] Keep existing foreground commands, program lookup, working-directory
   behavior, and user-facing error messages compatible.
-- [ ] Document process limits, termination permissions, output interleaving,
+- [x] Document process limits, termination permissions, output interleaving,
   and the distinction between starting a child and waiting for it.
 
 Start a CPU-bound child, use `ps` while it runs, run another program, and terminate
 only the selected child. Test registry exhaustion, malformed process queries,
 completion while the shell waits for input, and multiple rapidly exiting children.
 
+See [Running concurrent programs](process-tools.md) for command examples, limits
+and the focused test command.
+
 ### 7. 0.5.0 integration and release
 
-- [ ] Stress several runnable, sleeping, and input-waiting processes while
+- [x] Stress several runnable, sleeping, and input-waiting processes while
   reading and writing FAT files.
-- [ ] Verify address-space isolation and register preservation across many
+- [x] Verify address-space isolation and register preservation across many
   timer-driven switches.
-- [ ] Repeat spawn, wait, fault, and cancellation until process, handle,
+- [x] Repeat spawn, wait, fault, and cancellation until process, handle,
   object, heap, and physical-page counts return to their baseline.
-- [ ] Exercise parent exit, orphan cleanup, failed publication, pending I/O,
+- [x] Exercise parent exit, orphan cleanup, failed publication, pending I/O,
   and shell restart with outstanding children.
-- [ ] Run the complete host and QEMU suite through both boot paths and
+- [x] Run the complete host and QEMU suite through both boot paths and
   supported RAM sizes, including missing disks, read-only mounts, malformed
   volumes, and full media.
-- [ ] Update process, scheduler, console, ABI, and troubleshooting guides.
-- [ ] Verify Windows and Linux packaging and boot the exact packaged ISO.
+- [x] Update process, scheduler, console, ABI, and troubleshooting guides.
+- [x] Verify Windows and Linux packaging and boot the exact packaged ISO.
 
 0.5.0 is ready when two CPU-bound user programs make progress independently,
 the shell remains usable while a nonforeground child runs, and cancelling or
 faulting one process leaves the others alive. Persistent bytes must still
 survive a separate boot, and diskless boot must retain recovery and Snake.
+
+See [Building a release](release.md) for clean-source validation, host package
+checks and the evidence saved with each candidate.
 
 ## 0.6.0 — shell workflows and userspace tools
 

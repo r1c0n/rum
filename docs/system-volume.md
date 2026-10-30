@@ -22,7 +22,9 @@ remain mutable RAM files, and `/disk` is the optional persistent FAT16 volume.
 
 The normal shell only edits input, splits arguments, searches for executables
 and waits for them. Command behavior lives in separate sources under
-`user/programs/`. Every program uses public headers and syscalls; the user build
+`system/commands/`; the shell lives in `system/shell/main.c`. Examples live in
+`sdk/examples/`, and application entry points live in `apps/`. Every program
+uses public SDK headers and syscalls; the user build
 cannot include private kernel interfaces or link kernel objects. Drivers,
 memory management and filesystem implementation remain kernel services.
 The kernel recovery console and Snake engine remain kernel applications.

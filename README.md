@@ -4,7 +4,8 @@ A small hobby operating system written in C and x86 assembly, named after
 the Scottish island of Rùm.
 
 rum boots through GRUB into a VGA text console with a shell, RAM files, protected
-user programs, and ASCII Snake. It runs on a 32-bit x86 BIOS machine in QEMU.
+user programs, and ASCII Snake. It boots with 32-bit x86 BIOS firmware in QEMU,
+VMware Workstation, and VirtualBox.
 
 ## Screenshots
 
@@ -36,6 +37,10 @@ The launcher builds in WSL and opens Windows QEMU. To build and run from Ubuntu
 instead, use `make doctor` and `make run`. See [setup](docs/setup.md) for manual
 installation, toolchain options, and troubleshooting.
 
+VMware Workstation and VirtualBox users can follow the
+[virtual-machine setup guide](docs/virtual-machines.md), including prepared
+VMDK/VDI data disks and a VMware preset.
+
 ## Using rum
 
 Click inside QEMU and enter `help` at the `/> ` prompt. The prompt shows your
@@ -55,6 +60,9 @@ The bottom row shows uptime.
 | `write <path> [text]` | Create or replace a file |
 | `mkdir <path>`, `rm <path>` | Create a disk directory or remove an object |
 | `run <program> [args]` | Run an ELF in the foreground and report its status |
+| `start <program> [args]` | Start a concurrent child without waiting |
+| `ps`, `kill <pid>` | List user processes or request child cancellation |
+| `sleep <milliseconds>` | Wait in the foreground; combine with `start` for a concurrent timer |
 | `snake` | Play ASCII Snake |
 | `recovery` | Enter the kernel shell for `mem`, `diag` and recovery commands |
 
@@ -79,6 +87,7 @@ input with `Ctrl+Alt+G`.
 - Writable GDT/TSS, IDT, shared interrupt entry, and CPU exception diagnostics.
 - PIC interrupts, a 100 Hz PIT timer, and PS/2 keyboard input.
 - Cooperative kernel tasks with guarded virtual stacks, event waits, and deferred cleanup.
+- Timer-driven user-process preemption with round-robin scheduling and nominal 50 ms slices.
 - A dedicated double-fault task and emergency stack for controlled overflow reports.
 - A physical allocator for 4 KiB pages below 1 GiB.
 - Supervisor paging with protected kernel pages and private user address spaces.
@@ -91,6 +100,8 @@ input with `Ctrl+Alt+G`.
 - A shared path layer and writable FAT16 mount at `/disk`, with checked cluster ownership.
 - A separate freestanding user ELF build, production loader, and public ABI.
 - Foreground user-process launch, waiting, fault reporting, cleanup, and Ctrl+C.
+- Independent child spawn, blocking/nonblocking waits, and authorized termination.
+- Public yield and bounded sleep, with cancellable event/deadline waits.
 
 rum is a single-CPU system. The normal shell and programs started with `run`
 execute in ring 3 using public syscalls. Snake and the recovery shell remain
@@ -175,10 +186,13 @@ qemu-system-i386 -m 64M -cdrom rum.iso
 | --- | --- |
 | `arch/i386/` | Startup assembly, CPU tables, interrupt stubs, paging, and linker script |
 | `boot/grub/` | GRUB configuration |
-| [`kernel/`](kernel/README.md) | Core, drivers, memory, processes, filesystems, UI, and diagnostics |
-| `include/rum/` | Kernel interfaces |
+| [`kernel/`](kernel/README.md) | Core, memory, processes, I/O, filesystems, recovery, diagnostics, and private headers |
+| `hal/pc/` | PC interrupt routing, PIC, and PIT |
+| `drivers/` | Display, serial, input, and storage drivers |
 | `assets/ramfs/` | Embedded boot files |
-| `user/` | Userspace shell, standalone command programs, public runtime and linker script |
+| [`sdk/`](sdk/README.md) | Public headers, application runtime, linker script, examples, and ELF validator |
+| [`system/`](system/README.md) | Userspace shell and standalone system commands |
+| `apps/` | Application entry points, including Snake |
 | `scripts/` | Toolchain setup, environment checks, embedding, and QEMU tests |
 | `tests/` | Host tests and isolated test kernels |
 | `docs/` | Setup, usage, architecture, and contributor guides |
@@ -188,4 +202,5 @@ The project follows the boot and toolchain approach in
 `arch/i386/boot.s` sets up its stack and CPU segments before calling C.
 
 See the [documentation](docs/README.md) for subsystem details and debugging.
+The [source layout guide](docs/source-layout.md) explains where new code belongs.
 Multitasking and userspace development plans are in the [roadmap](docs/roadmap.md).

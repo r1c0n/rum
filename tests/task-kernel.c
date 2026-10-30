@@ -1,4 +1,5 @@
 #include <rum/cpu.h>
+#include <rum/abi/error.h>
 #include <rum/diagnostics.h>
 #include <rum/fs.h>
 #include <rum/gdt.h>
@@ -27,6 +28,9 @@ static struct task_event broadcast;
 static volatile uint32_t waiters_ready, waiters_done, idle_irqs;
 static uint32_t short_runs;
 static bool require_idle_ticks;
+static uint32_t protected_runs;
+static enum block_error injected_block_error;
+static bool injected_fs_error;
 static task_id process_task;
 static uint32_t process_directory;
 static struct exception_user_frame process_frame;
@@ -85,6 +89,111 @@ static void context_check(void)
     check((flags & 0x600) == 0x200, "diagnostics restore IF/DF before output");
 }
 
+static void protected_worker(void *argument)
+{
+    (void)argument;
+    context_check();
+    ++protected_runs;
+}
+
+static void refuse_switch(void)
+{
+    struct task_snapshot before, after;
+    check(task_snapshot_read(&before), "snapshot before protected callback");
+    check(!task_yield() && !task_wait(&timed, task_event_sequence(&timed)) &&
+          task_wait_for(&timed, timed.sequence, 2) == TASK_WAIT_INVALID && task_sleep(1) == -RUM_EBUSY,
+          "protected callback cannot yield or attach a waiter");
+    check(task_snapshot_read(&after), "snapshot after protected callback");
+    check(after.current == before.current, "protected rejection preserves current identity");
+    check(after.switches == before.switches, "protected rejection cannot switch contexts");
+    check(after.states[TASK_BLOCKED] == before.states[TASK_BLOCKED], "protected rejection preserves blocked count");
+    check(after.event_waiters == before.event_waiters, "protected rejection preserves event registrations");
+    check(after.deadline_waiters == before.deadline_waiters, "protected rejection preserves deadlines");
+    check(!protected_runs, "protected worker has not run");
+    uint32_t flags = cpu_interrupt_save();
+    cpu_interrupt_restore(flags);
+    check(flags & 0x200, "protected callback keeps interrupts enabled");
+}
+
+static struct block_result guarded_read(struct block_device *device, uint64_t lba,
+                                         uint64_t count, void *buffer)
+{
+    (void)lba;
+    check(block_request_active() && device->busy, "block callback holds device ownership");
+    refuse_switch();
+    if (device->context) {
+        struct block_result nested = block_read(device->context, 0, count, buffer, 512);
+        check(nested.error == injected_block_error && block_request_active(),
+              "nested request release keeps outer request protected");
+    }
+    return (struct block_result){ .error = injected_block_error,
+        .completed = injected_block_error == BLOCK_OK ? count : 0 };
+}
+
+static struct block_result guarded_write(struct block_device *device, uint64_t lba,
+                                          uint64_t count, const void *buffer)
+{
+    return guarded_read(device, lba, count, (void *)buffer);
+}
+
+static struct block_result guarded_flush(struct block_device *device)
+{
+    return guarded_read(device, 0, 0, NULL);
+}
+
+static enum fs_error guarded_stat(void *context, uint64_t id, struct fs_node *node)
+{
+    check(fs_operation_active(), "filesystem callback holds namespace ownership");
+    refuse_switch();
+    return injected_fs_error ? FS_IO_ERROR : ramfs_backend()->operations->stat(context, id, node);
+}
+
+static void protected_scheduling(void)
+{
+    check(!task_switch_release() && task_switch_hold() && task_switch_hold(),
+          "nested scheduling scopes and unbalanced release");
+    task_id worker = task_create(protected_worker, NULL, NULL);
+    check(worker, "construct a complete child under an outer scheduling scope");
+    refuse_switch();
+    check(task_switch_release(), "release inner scheduling scope");
+    refuse_switch();
+    check(task_switch_release() && !task_switch_release(), "release outer scope exactly once");
+
+    const struct block_operations operations = { guarded_read, guarded_write, guarded_flush };
+    struct block_device inner = { .sector_count = 1, .sector_size = 512,
+        .online = true, .operations = &operations };
+    struct block_device outer = inner;
+    outer.context = &inner;
+    uint8_t buffer[512];
+    const enum block_error failures[] = { BLOCK_OK, BLOCK_IO_ERROR, BLOCK_TIMEOUT };
+    for (unsigned i = 0; i < sizeof failures / sizeof failures[0]; ++i) {
+        injected_block_error = failures[i];
+        check(block_read(&outer, 0, 1, buffer, sizeof buffer).error == failures[i] &&
+              !block_request_active(), "read success/failure releases scheduling protection");
+        check(block_write(&outer, 0, 1, buffer, sizeof buffer).error == failures[i] &&
+              !block_request_active(), "write success/failure releases scheduling protection");
+        check(block_flush(&inner).error == failures[i] && !block_request_active(),
+              "flush success/failure releases scheduling protection");
+    }
+    struct fs_operations fs_operations = *ramfs_backend()->operations;
+    fs_operations.stat = guarded_stat;
+    struct fs_backend backend = *ramfs_backend();
+    backend.operations = &fs_operations;
+    backend.naming = FS_NAMES_FAT83;
+    injected_fs_error = true;
+    check(fs_mount_disk(&backend) == FS_IO_ERROR && !fs_operation_active(),
+          "failed mount releases scheduling protection");
+    injected_fs_error = false;
+    check(fs_mount_disk(&backend) == FS_OK && !fs_operation_active(),
+          "successful mount releases scheduling protection");
+    struct fs_information information;
+    check(fs_stat_path(NULL, "/disk", &information) == FS_OK && !fs_operation_active(),
+          "path lookup protects backend callbacks");
+    check(fs_unmount_disk() == FS_OK && !fs_operation_active(), "remove protected test mount");
+    check(task_yield() && protected_runs == 1, "yield resumes after every protection clears");
+    (void)task_reap();
+}
+
 void task_test_worker(void *argument)
 {
     uintptr_t index = (uintptr_t)argument;
@@ -111,6 +220,8 @@ static void tick(void)
     check(task_snapshot_read(&snapshot) && snapshot.current == task_current_id(), "IRQ-safe snapshot");
     uint32_t before = pmm_stats().free_pages;
     check(!task_yield() && !task_wait(&timed, timed.sequence) &&
+          task_wait_for(&timed, timed.sequence, 2) == TASK_WAIT_INVALID && task_sleep(1) == -RUM_EBUSY &&
+          !task_switch_hold() && !task_switch_release() &&
           !task_create(task_test_entry, NULL, NULL) && task_reap() == 0,
           "IRQ cannot allocate, block, switch or reap tasks");
     check(pmm_stats().free_pages == before, "IRQ owns no task allocation");
@@ -208,7 +319,10 @@ static __attribute__((noinline)) void allocation_boundaries(uint32_t baseline)
 
 static __attribute__((noinline)) void process_records(uint32_t baseline)
 {
-    struct task_snapshot initial, before, after;
+    /* BOOT alone runs this fixture. Three snapshots plus nested process/FS
+       construction exceed its 16 KiB stack; keep inspection buffers off that
+       stack without allocating during the exhaustion checks below. */
+    static struct task_snapshot initial, before, after;
     check(task_snapshot_read(&initial) && !initial.processes && !initial.user_pages &&
           !initial.user_table_pages, "initial process ownership ledger");
     struct paging_space *space = paging_space_create();
@@ -316,7 +430,8 @@ void kernel_main(uint32_t magic, uint32_t information)
     memset(&snapshot, 0xFF, sizeof snapshot);
     check(!task_snapshot_read(NULL) && !task_snapshot_read(&snapshot) && !snapshot.count &&
           !snapshot.current && !paging_stats().spaces, "uninitialized snapshots fail without stale output");
-    check(!task_current_id() && !task_yield() && !task_create(task_test_entry, NULL, NULL),
+    check(!task_current_id() && !task_yield() && !task_switch_hold() && !task_switch_release() &&
+          !task_create(task_test_entry, NULL, NULL),
           "no tasks before initialization");
     check(magic == MULTIBOOT_BOOTLOADER_MAGIC && information, "Multiboot handoff");
     check(pmm_initialize((const void *)(uintptr_t)information, (uintptr_t)__kernel_start,
@@ -365,6 +480,8 @@ void kernel_main(uint32_t magic, uint32_t information)
 
     allocation_boundaries(baseline);
     process_records(baseline);
+    protected_scheduling();
+    check(pmm_stats().free_pages == baseline, "protected callbacks leave no resources");
 
     /* Exercise the bounded registry repeatedly, including borrowed kernel spaces.
        Old IDs must never refer to a later occupant of the same slot. */

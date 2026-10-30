@@ -60,6 +60,12 @@ number of bytes transferred and advances that handle's offset by that amount.
 A file read at or beyond EOF returns zero. A zero-length operation ignores its
 buffer after validating the handle, direction and object kind.
 
+Standard input belongs to the foreground owner; positive-length reads by a
+nonforeground process return `-RUM_EACCES` without consuming queued keys.
+Output/error streams accept writes from all processes. Each console chunk
+reaches VGA and COM1 without a task switch, but separate writes may interleave.
+See [Console sessions](console-sessions.md) for ownership and cancellation rules.
+
 The kernel validates the entire nonempty user buffer, including pages beyond
 the chunk it will transfer. Invalid, unmapped, supervisor-only, overflowing or
 read-only output ranges return `-RUM_EFAULT` before any backend call or offset
@@ -128,7 +134,7 @@ removing it. RAM supports files in its flat root, but cannot create directories.
 `int 0x80` retains the [register convention](user-abi.md#syscall-convention).
 The C wrappers construct open and seek packets. Directory iteration accepts a
 caller-initialized entry packet. All packet words are `uint32_t`, with exact
-layouts declared in `include/rum/abi/filesystem.h`:
+layouts declared in `sdk/include/rum/abi/filesystem.h`:
 
 | Packet | Bytes | Words in order |
 | --- | --- | --- |

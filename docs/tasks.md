@@ -1,15 +1,32 @@
 # Kernel tasks and process records
 
-rum has a cooperative, single-CPU scheduler. The boot task supervises the
+rum has a single-CPU scheduler with timer-driven user-process preemption. The boot task supervises the
 userspace shell, an uptime worker updates the status row, and an idle task sleeps
 when no work is ready. Up to 16 worker records can hold a kernel task or a user
 process. The recovery shell runs in the boot task.
 
-There is no timer preemption. A running kernel task keeps the CPU until it
-yields, waits, exits, or takes an interrupt. Interrupt return resumes the same
-context unless foreground code later invokes the scheduler.
+User processes receive five PIT ticks per dispatch, nominally 50 ms. A running
+kernel task keeps the CPU until it yields, waits or exits. Interrupts during
+kernel execution leave scheduling requests pending; an outer return to user
+mode can service them once protected work has finished. Bounded synchronous
+I/O can therefore delay scheduling.
 
 ## Task types
+
+The scheduler's private records separate process resources from thread execution.
+`process_state` owns the PID, parent relationship, address space, working
+directory, handles, termination result, cancellation request, and shell-session
+state. The schedulable `task` is its initial thread: it owns the kernel stack,
+saved context, user frame, run state, wait registration, and switch holds.
+
+There is one initial thread per process. Kernel workers use the same resource
+container with PID zero; idle has no working directory. The two bounded pools
+are published together with interrupts disabled, and cleared together only
+after execution has switched away. Public task queries still combine both
+records, so diagnostics and existing callers keep their interface.
+
+See [Scheduling safety](scheduling.md) for protected operations and the rules
+for adding a scheduling point.
 
 | Kind | PID | Address space | Entry behavior |
 | --- | --- | --- | --- |
@@ -57,6 +74,10 @@ the old and new stacks remain addressable during the switch.
 
 `kernel_context_switch` preserves the i386 C callee-saved registers. New task
 entries begin with DF clear, correct C stack alignment, and interrupts enabled.
+Timer preemption suspends a kernel continuation beneath the complete user
+interrupt frame. Resuming it restores every saved user register and EFLAGS
+through the common `iret` path. See [Scheduling safety](scheduling.md#time-slices-and-interrupt-return)
+for return-frame validation, fairness and cancellation rules.
 
 ## Creating a kernel task
 
@@ -130,7 +151,38 @@ event. A blocking standard-input syscall waits on that narrower event so PIT
 ticks cannot wake it when no character has arrived.
 
 Do not yield or wait while holding a lock, owning temporary interrupt-disabled
-state, or exposing another task's partially updated resource.
+state, or exposing another task's partially updated resource. Use a balanced
+`task_switch_hold` / `task_switch_release` scope for nonblocking construction
+or other operations that must not suspend. Holds nest and belong to the current
+thread. IRQ, idle, uninitialized, and unbalanced calls return false.
+
+Yield and wait also refuse an active common-filesystem operation or block
+request. These operations run synchronously with interrupts enabled, but no
+backend callback may suspend while it owns namespace or device state. Rejected
+waits do not attach a waiter. The central switch asserts these restrictions,
+IF-clear entry, and agreement between the current owner, active CR3, and TSS.
+
+For an event with a timeout, use
+`task_wait_for(&event, observed, timeout_ticks)`. Its result distinguishes
+`TASK_WAIT_EVENT`, `TASK_WAIT_TIMEOUT`, `TASK_WAIT_CANCELLED` and
+`TASK_WAIT_INVALID`. A null event waits only for the timeout. The relative tick
+interval must be less than `TIMER_HALF_RANGE` (2^31); zero checks the event once
+and otherwise times out immediately. An already changed sequence wins over a
+zero timeout. Invalid contexts or intervals attach no waiter.
+
+Event-sequence comparison, tick capture and registration happen with IF clear.
+The first event or deadline to wake a blocked task removes both registrations
+before making it runnable. A cancellation pending on entry or resumption takes
+priority over the wake reason. Keep the event alive until its waiters resume;
+none of these helpers frees an event or terminates its caller. Kernel code must
+release any temporary ownership before applying cancellation at a safe boundary.
+Existing `task_wait` callers still recheck their predicate and cancellation flag
+after a successful wake.
+
+`task_sleep(milliseconds)` uses the same deadline machinery and checked duration
+conversion as the public SDK call. It returns zero on timeout, `-RUM_EINTR` when
+cancelled, or a range/context error. Zero milliseconds yields. The public limits
+and tick rounding are described in [process syscalls](process-syscalls.md#yielding-and-sleeping).
 
 ## Exit and cleanup
 
@@ -148,12 +200,26 @@ An exception from ring 0 still enters the kernel panic path,
 including a kernel fault that occurs while serving a process.
 
 Exited kernel workers can be reclaimed automatically by a resumed task or
-idle. Exited process records remain visible so a parent can observe their
-status. A foreground parent waits with `task_wait_process`, clears the foreground
-registration, and calls `task_reap_process` for that exact child. Reaping destroys
+idle. Exited process records remain visible so their parent can observe their
+status. `task_wait_child` uses a public PID (zero for any child) and returns one
+completed record without consuming it, zero for a pending nonblocking check,
+or a public error. Each parent has a separate child-completion event. The caller
+copies the result before `task_collect_child` acknowledges the completed launch
+and reaps that child. Foreground ownership is restored during exit, before
+completion is signalled. `task_wait_process` remains a task-ID compatibility wrapper.
+Reaping destroys
 the inactive address space, unmaps and frees the guarded stack, clears the
 record, and makes its slot available again. `task_reap()` remains available for
-bulk cleanup. Task IDs and process IDs are not recycled.
+bulk cleanup of the caller's completions and adopted orphans; it cannot discard
+another parent's results. Task IDs and process IDs are not recycled. Launch
+preflight reports `-RUM_EOVERFLOW` when either identity namespace is exhausted.
+
+Parent exit adopts, cancels and eventually reaps every remaining descendant,
+including abandoned exit records. The bounded descendant set is discovered
+before parent links change, and each member is queued once. Boot owns cleanup,
+and adopted process results are not exposed to public waits. No active stack
+or directory is destroyed by adoption; live children finish cancellation on
+their own contexts. See [process syscalls](process-syscalls.md#parent-exit-limits-and-identity-lifetime).
 
 Foreground cancellation is a request, not an asynchronous stack teardown.
 `task_cancel_foreground` is IRQ-safe and wakes a process blocked in a syscall.
@@ -162,8 +228,13 @@ a blocking wait resumes, or on a trusted interrupt/syscall return to ring 3.
 The parent then observes and reaps it through the same path used for normal
 exit and user faults.
 
-The supervised initial shell is marked interactive, so Ctrl+C is queued for its
-line editor rather than cancelling it. Its foreground children remain cancellable.
+`task_create_shell_process` publishes the initial shell and its interactive role
+atomically, so Ctrl+C cannot cancel it between publication and role assignment.
+Use `process_start_shell` to load that supervised root from a file. Ordinary
+process factories cannot grant this role. Ctrl+C is queued for the shell's
+line editor; its foreground children remain cancellable. The private
+[console session layer](console-sessions.md#kernel-ownership) retains owners
+and restores the immediate live parent, independently of task parent-ID changes.
 
 Each process gets a fresh [32-slot handle table](filesystem-syscalls.md), with
 standard streams in 0–2. Open files are not inherited. File references are
@@ -193,6 +264,13 @@ an insufficient buffer.
 
 ## Inspecting task state
 
+Boot and task stacks are each 16 KiB. A full `task_snapshot` occupies several
+KiB, so keep bulk comparison buffers off the stack when nested construction
+or diagnostics already use it. Test-only static buffers are suitable when one
+boot context owns the check; they also avoid allocations during memory-exhaustion
+tests. Preserve the guarded-stack limits when adding inspection code. The task
+fixture rejects individual stack frames larger than 8 KiB at compile time.
+
 `task_query(id, &information)` returns one record with its kind, state, IDs,
 stack bounds, directory, latest trusted frame, termination kind, exit status or
 fault record, and resource ownership.
@@ -201,6 +279,9 @@ fault record, and resource ownership.
 allocating. It is safe from IRQ context and includes state totals, process and
 memory counts, and lifecycle counters. The shell's `diag` command renders this
 information; see [Kernel diagnostics](diagnostics.md).
+The snapshot also counts `event_waiters` and `deadline_waiters`; a timed event
+wait contributes to both. Wakeup and exit detach both registrations before
+collection, and an exited record cannot be reaped with a wait still attached.
 
 ## Common mistakes
 

@@ -5,6 +5,7 @@
 #include <rum/abi/layout.h>
 #include <rum/abi/process.h>
 #include <rum/abi/syscall.h>
+#include <rum/abi/time.h>
 #include <rum/process_limits.h>
 
 int main(void)
@@ -26,7 +27,8 @@ int main(void)
     const unsigned numbers[] = {RUM_SYS_EXIT, RUM_SYS_READ, RUM_SYS_WRITE, RUM_SYS_GETPID,
         RUM_SYS_OPEN, RUM_SYS_CLOSE, RUM_SYS_SEEK, RUM_SYS_READDIR, RUM_SYS_CHDIR,
         RUM_SYS_GETCWD, RUM_SYS_MKDIR, RUM_SYS_REMOVE, RUM_SYS_FLUSH,
-        RUM_SYS_RUN, RUM_SYS_REPLACE, RUM_SYS_CONSOLE, RUM_SYS_COMMAND_TEXT, RUM_SYS_SESSION};
+        RUM_SYS_RUN, RUM_SYS_REPLACE, RUM_SYS_CONSOLE, RUM_SYS_COMMAND_TEXT, RUM_SYS_SESSION,
+        RUM_SYS_SPAWN, RUM_SYS_WAIT, RUM_SYS_TERMINATE, RUM_SYS_YIELD, RUM_SYS_SLEEP, RUM_SYS_PROCESS_LIST};
     _Static_assert(sizeof numbers / sizeof numbers[0] == RUM_SYS_COUNT, "complete syscall list");
     for (unsigned i = 0; i < RUM_SYS_COUNT; ++i) {
         assert(numbers[i] < RUM_SYS_COUNT);
