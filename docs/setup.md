@@ -40,7 +40,8 @@ make run
 ```
 
 The dependency script installs the host build tools, compiler prerequisites,
-GRUB BIOS modules, `xorriso`, Mtools, Python 3, QEMU, and GDB. `make doctor`
+GRUB BIOS modules, `xorriso`, Mtools, `dosfstools` (including `fsck.fat`), Python 3,
+QEMU, and GDB. `make doctor`
 checks the compiler target, target `libgcc`, and the tools used to build and boot.
 
 The toolchain script builds GNU Binutils 2.45 and GCC 15.2.0 for `i686-elf`,
@@ -73,6 +74,7 @@ make run-kernel      # Boot the ELF through QEMU's Multiboot loader
 make test            # Run the complete host, package, and QEMU suite
 make test-package    # Build and validate the release ZIP
 make test-host       # Run host tests only
+make test-integration-stress # Concurrent CPU/input/timer/FAT workload and cleanup
 make test-user       # Check user ELF assets and malformed inputs
 make test-block      # Sector API, ATA faults and disposable QEMU images
 make test-fs         # Paths, filesystem backends and process directory ownership

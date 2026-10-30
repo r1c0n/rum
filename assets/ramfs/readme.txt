@@ -1,4 +1,4 @@
-rum OS v0.4.0
+rum OS v0.5.0
 
 ls [path]              List RAM or disk files.
 cat welcome.txt        Read an embedded file.
