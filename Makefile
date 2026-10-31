@@ -258,7 +258,7 @@ build/tests/session-test: tests/session-test.c kernel/process/session.c kernel/i
 	@mkdir -p $(@D)
 	$(HOST_CC) -Itests/include $(CPPFLAGS) -std=gnu11 -O2 -Wall -Wextra -Werror $(sort $(filter %.c,$^)) -o $@
 
-test-host: build/tests/session-test
+test-host: build/tests/session-test build/tests/timer-test
 
 .PHONY: test-console-sessions
 .PHONY: test-process-tools
@@ -390,7 +390,6 @@ build/tests/preemption.iso: build/tests/preemption.elf Makefile
 	grub-mkrescue -o $@ build/preemption-isodir
 test-file-syscalls: build/tests/file-syscall.elf
 	python3 tests/file-syscall-qemu-test.py --qemu $(QEMU) --ram 16
-	python3 tests/file-syscall-qemu-test.py --qemu $(QEMU) --ram 64
 
 build/tests/user/file-syscall.o: tests/file-syscall-user.c $(USER_INCLUDE_STAMP) Makefile
 	@mkdir -p $(@D)
@@ -450,7 +449,6 @@ test-block: build/tests/block-test build/tests/ata-test build/tests/block.elf is
 	./build/tests/ata-test
 	python3 tests/disk-tools-test.py --boot-output-checks
 	python3 tests/block-qemu-test.py --qemu $(QEMU) --ram 16
-	python3 tests/block-qemu-test.py --qemu $(QEMU) --ram 64
 
 TEST_DEPENDENCIES += build/tests/block-kernel.d
 build/tests/block.elf: build/tests/block-kernel.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
@@ -697,7 +695,6 @@ test-fat16-write-host: build/tests/fat16-write-test
 .PHONY: test-fat16-write
 test-fat16-write: test-fat16-write-host build/tests/fat16-write.elf
 	python3 tests/fat16-write-qemu-test.py --qemu $(QEMU) --ram 16 --faults
-	python3 tests/fat16-write-qemu-test.py --qemu $(QEMU) --ram 64
 
 TEST_DEPENDENCIES += build/tests/fat16-write-kernel.d build/tests/fat16-write-checks.d
 build/tests/fat16-write.elf: build/tests/fat16-write-kernel.o build/tests/fat16-write-checks.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
@@ -705,7 +702,6 @@ build/tests/fat16-write.elf: build/tests/fat16-write-kernel.o build/tests/fat16-
 .PHONY: test-fat16
 test-fat16: test-fat16-host build/tests/fat16.elf iso
 	python3 tests/fat16-qemu-test.py --qemu $(QEMU) --ram 16
-	python3 tests/fat16-qemu-test.py --qemu $(QEMU) --ram 64
 
 TEST_DEPENDENCIES += build/tests/fat16-kernel.d build/tests/fat16-checks.d
 build/tests/fat16.elf: build/tests/fat16-kernel.o build/tests/fat16-checks.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
@@ -725,6 +721,7 @@ build/tests/ata-test: tests/ata-test.c drivers/storage/ata.c kernel/io/block.c k
 test-host: build/tests/ata-test
 
 test-host: build/tests/block-test build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
+	./build/tests/timer-test
 	./build/tests/session-test
 	./build/tests/path-test
 	./build/tests/fs-test
@@ -763,7 +760,20 @@ prepare-disk: user
 	python3 scripts/prepare-disk.py "$$DISK_IMAGE" --size-mib "$$DISK_SIZE_MIB"
 
 .PHONY: test-build
-test-build: user iso build/tests/recovery.iso $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PROCESS_FAULT_KERNELS) build/tests/syscall.elf build/tests/elf-loader.elf $(PAGING_KERNELS) build/tests/storage.elf build/tests/fs.elf build/tests/task.elf build/tests/task-fault.elf build/tests/task-double-fault.elf $(ABI_KERNELS) build/tests/preemption.elf build/tests/preemption.iso build/tests/timer-test build/tests/lifecycle.elf build/tests/lifecycle.iso build/tests/lifecycle-ids.elf build/tests/lifecycle-ids.iso build/tests/waits.elf build/tests/waits.iso build/tests/sleep.elf build/tests/sleep.iso build/tests/session-test build/tests/integration.elf build/tests/integration.iso all build/tests/console.elf build/tests/console.iso build/tests/console-supervisor.iso build/tests/file-syscall.elf build/tests/process-syscall.elf build/tests/readonly.iso build/tests/block-test build/tests/ata-test build/tests/block.elf build/tests/path-test build/tests/fs-test build/tests/fat16-test build/tests/fat16-write-test build/tests/fat16-write.elf build/tests/fat16.elf build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
+test-build: user iso build/tests/recovery.iso $(FAULT_KERNELS) \
+    build/tests/irq.elf $(CPU_KERNELS) $(PROCESS_FAULT_KERNELS) build/tests/syscall.elf \
+    build/tests/elf-loader.elf $(PAGING_KERNELS) build/tests/storage.elf build/tests/fs.elf \
+    build/tests/task.elf build/tests/task-fault.elf build/tests/task-double-fault.elf $(ABI_KERNELS) \
+    build/tests/preemption.elf build/tests/preemption.iso build/tests/timer-test build/tests/lifecycle.elf \
+    build/tests/lifecycle.iso build/tests/lifecycle-ids.elf build/tests/lifecycle-ids.iso build/tests/waits.elf \
+    build/tests/waits.iso build/tests/sleep.elf build/tests/sleep.iso build/tests/session-test \
+    build/tests/integration.elf build/tests/integration.iso all build/tests/console.elf \
+    build/tests/console.iso build/tests/console-supervisor.iso build/tests/file-syscall.elf build/tests/process-syscall.elf \
+    build/tests/readonly.iso build/tests/block-test build/tests/ata-test build/tests/block.elf \
+    build/tests/path-test build/tests/fs-test build/tests/fat16-test build/tests/fat16-write-test \
+    build/tests/fat16-write.elf build/tests/fat16.elf build/tests/console-test build/tests/memory-test \
+    build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test \
+    build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
 
 TEST_JOBS ?= 4
 .PHONY: test

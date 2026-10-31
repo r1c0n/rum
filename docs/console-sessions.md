@@ -87,7 +87,7 @@ been reclaimed in recovery, every session count should be zero.
 ## Testing
 
 Run `make test-console-sessions` in Ubuntu, or through WSL from Windows. The
-fixtures boot through direct ELF and GRUB ISO at 16 and 64 MiB. Real PS/2 input
+fixtures boot through direct ELF and GRUB ISO at ELF/16 MiB and ISO/64 MiB. Real PS/2 input
 checks competing readers, shell Ctrl+C, nested cancellation returning to a
 parent, a child fault with queued input, failed loads, serialized output chunks,
 and cancellation during construction and synchronous filesystem work.

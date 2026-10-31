@@ -44,10 +44,13 @@ class Console:
     def command(self, text, expected=None):
         start = self.serial.stat().st_size
         self.type(text + "\n")
+        # Only a prompt after this command's echo completes the request. Faster
+        # key delivery can otherwise observe the previous prompt still on disk.
         deadline = time.monotonic() + 20
         while True:
             output = self.serial.read_bytes()[start:].decode(errors="replace")
-            if text + "\r\n" in output and output.endswith("> "): break
+            if text + "\r\n" in output and output.endswith("> "):
+                break
             assert "rum kernel panic" not in output and time.monotonic() < deadline, (text, output)
             time.sleep(0.02)
         result = self.serial.read_bytes()[start:].decode(errors="replace")

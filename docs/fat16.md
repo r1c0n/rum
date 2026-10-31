@@ -255,7 +255,7 @@ subsequent mount acquires a fresh FAT snapshot and generation.
 
 ```sh
 make test-fat16-host  # mtools images, portable backend, read faults and rollback
-make test-fat16       # Host checks plus real ATA reads in 16/64 MiB QEMU guests
+make test-fat16       # Host checks plus real ATA reads in a 16 MiB QEMU guest
 make test-fat16-write-host # Writable backend, full media, every write/flush failure
 make test-fat16-write # Real ATA writes, interruptions, and host FAT validation
 make test            # Complete regression suite

@@ -710,6 +710,8 @@ def keyboard_test(stream, symbols, artifacts, mode, serial):
         raise RuntimeError("Keyboard scrolling damaged the prompt or timer status row")
     counts = struct.unpack("<16I", dump_ram(stream, symbols["irq_counts"], 64,
                                           artifacts / f"{mode}-irq-counts.bin"))
+    # PIT progress is measured separately in timer_test; typing no longer
+    # imposes a minimum one-second duration on this keyboard scenario.
     if counts[0] < 2 or counts[1] < 50 or any(counts[2:]):
         raise RuntimeError(f"Unexpected hardware IRQ delivery: {counts}")
     dropped = struct.unpack("<I", dump_ram(stream, symbols["dropped"], 4,

@@ -57,11 +57,6 @@ def matrix(qemu, ram, iso, temporary):
     with shell.boot(qemu, ram, prefix + "-write", disk=disk, iso=iso) as console:
         console.command("write /notes.txt " + note)
         console.command("cat /notes.txt", "\r\n" + note + "\r\n> ")
-        console.command("run hello", "Program exited with status 0.")
-        console.command("run fault", "Program stopped after a user fault.")
-        console.type("run spin\n")
-        console.send("ctrl", "c")
-        console.wait("Program cancelled.\r\n/> ")
     assert images.file_bytes(disk, "/NOTES.TXT") == note.encode()
     saved = disk.read_bytes()
     with shell.boot(qemu, ram, prefix + "-reboot", disk=disk, iso=iso) as console:

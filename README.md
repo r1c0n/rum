@@ -82,6 +82,9 @@ not update existing disks. Use a new disk for a fresh installation, or back up
 an existing image before deliberately replacing its `/RUM` files with host FAT
 tools. Never run two VMs against the same writable disk.
 
+`make test` uses four guest workers by default. Use `TEST_JOBS=2` or `1` on
+a smaller host. See [testing](docs/testing.md) for coverage and reports.
+
 ## Packaging
 
 `python3 scripts/package.py` creates `rum.zip` containing the ISO, this README

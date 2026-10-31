@@ -48,3 +48,5 @@ Use `TEST_JOBS=2` or `1` on a smaller host. `make test-host`, `test-user`,
 `test-fs`, `test-fat16`, `test-fat16-write`, `test-userspace-shell` and
 `test-system-disk` are focused checks. Logs and reports are under
 `build/test-artifacts/`. Tests use disposable images, never a caller's disk.
+
+See [testing](testing.md) for worker limits, coverage and timing reports.

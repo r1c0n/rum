@@ -221,6 +221,7 @@ def main():
             elif operation == "shrink":
                 assert images.file_bytes(work, "/TARGET.BIN") == baseline["files"]["/TARGET.BIN"][:513]
             for index in range(len(events)):
+                # A flush has no data buffer; transfer extents are identical.
                 for tear in ((0,) if events[index] == "F" else (0, 16, 30, 256, 512)):
                     work.write_bytes(original)
                     trace, failed = execute(work, operation, index, tear)
@@ -242,7 +243,7 @@ def main():
                 work.write_bytes(original)
                 execute(work, operation, 0, kind)
                 count += 1
-            print(f"PASS: {operation}: all {len(events)} write/flush stages, five failure extents, timeout and device fault", flush=True)
+            print(f"PASS: {operation}: all {len(events)} write/flush stages, five write extents, flush errors, timeout and device fault", flush=True)
         (ARTIFACTS / "faults.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(f"PASS: {count} host FAT16 write scenarios", flush=True)
 
