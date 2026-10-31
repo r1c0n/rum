@@ -103,13 +103,13 @@ def supervision(console, process):
     deadline = time.monotonic() + 45
     while True:
         text = console.serial.read_text(errors="replace") if console.serial.exists() else ""
-        if "Userspace shell stopped repeatedly." in text and text.endswith("> "):
+        if "The shell stopped repeatedly." in text and text.endswith("> "):
             break
         if "rum kernel panic" in text or process.poll() is not None or time.monotonic() > deadline:
             raise AssertionError(text[-7000:])
         time.sleep(0.02)
     assert text.count("rum_console_orphan_ready") == 3, "shell did not leave a live child in each generation"
-    assert text.count("Restarting the userspace shell.") == 2, "restart limit changed"
+    assert text.count("Restarting the shell.") == 2, "restart limit changed"
     console.command("echo console restored", "console restored\r\n> ")
     diagnostic = console.command("diag")
     assert "Tasks: 2 live" in diagnostic and "Processes: 0" in diagnostic, diagnostic

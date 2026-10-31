@@ -784,8 +784,8 @@ def shell_test(stream, symbols, artifacts, mode, serial):
            "  snake        Play ASCII Snake.\r\n> ")
     type_text("about\n")
     expect("rum OS v0.5.0\r\n"
-           "An island of our own. A hobby kernel in C and x86 assembly.\r\n"
-           "32-bit x86 | GRUB Multiboot | PIC, PIT and PS/2\r\n> ")
+           "An island of our own.\r\n"
+           "A small operating system for 32-bit x86.\r\n> ")
     start = len(serial.read_bytes())
     type_text("diag x\ndiag\n")
     expect("borrowed\r\n> ")
@@ -1424,14 +1424,14 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                                      ("rum kernel panic", "Page fault", "CPU halted.") if paging else
                                      ("rum IRQ return and spurious interrupt tests passed.",) if irq_test else
                                      ("rum kernel panic", FAULT_CASES[fault][2], "CPU halted.") if fault
-                                     else ("rum OS v0.5.0", "Hello, kernel world!", "[ok] Multiboot handoff",
-                                           "[ok] Kernel GDT and segments", "[ok] IDT and CPU exception handlers",
-                                           "[ok] PIT timer at 100 Hz", "[ok] PS/2 keyboard (US layout)",
-                                           "[ok] Multiboot memory map", "[ok] Physical page allocator",
-                                           "[ok] Paging (4 KiB pages, null guard)",
-                                           "[ok] Kernel heap (16-byte alignment)",
-                                           "[ok] RAM filesystem and embedded files",
-                                           "uptime:", "Close QEMU to return"))
+                                     else ("rum OS v0.5.0", "[ok] Bootloader",
+                                           "[ok] CPU protection", "[ok] Exception handling",
+                                           "[ok] System timer", "[ok] PS/2 keyboard (US layout)",
+                                           "[ok] Memory map", "[ok] Physical memory",
+                                           "[ok] Virtual memory",
+                                           "[ok] Kernel memory",
+                                           "[ok] RAM filesystem",
+                                           "uptime:"))
                     for expected in expected_text:
                         if expected not in screen:
                             raise RuntimeError(f"Missing VGA text {expected!r} ({mode})")

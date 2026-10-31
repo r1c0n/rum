@@ -86,7 +86,7 @@ int main(int argc, char **argv)
 {
     (void)argc; (void)argv;
     char line[RUM_COMMAND_TEXT_CAPACITY]; unsigned used = 0;
-    tool_print("rum userspace shell. Type 'help' for commands.\n");
+    tool_print("Type 'help' for commands.\n");
     prompt();
     for (;;) {
         char c; rum_result_t result = rum_read(RUM_STDIN, &c, 1);

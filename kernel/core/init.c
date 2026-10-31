@@ -115,15 +115,15 @@ static void userspace_session(void)
     while (failures < 3) {
         task_id child;
         rum_result_t error = process_start_shell(shell_path, &arguments, &child);
-        if (error) { print("Cannot load the userspace shell.\n"); break; }
+        if (error) { print("Cannot start the shell.\n"); break; }
         uint32_t started = timer_ticks();
         struct task_information result;
         if (!task_wait_process(child, &result) || !task_foreground_end(child) || !task_reap_process(child)) cpu_halt();
         if (result.termination == TASK_TERMINATION_EXIT && result.exit_status == RUM_SHELL_RECOVERY_STATUS) break;
         /* A session lasting 30 seconds starts a new restart window. */
         if ((uint32_t)(timer_ticks() - started) >= TIMER_HZ * 30u) failures = 0;
-        if (++failures == 3) { print("Userspace shell stopped repeatedly.\n"); break; }
-        print("Restarting the userspace shell.\n");
+        if (++failures == 3) { print("The shell stopped repeatedly.\n"); break; }
+        print("Restarting the shell.\n");
     }
     if (uptime) {
         uptime_stop = true;
@@ -238,24 +238,22 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     print("  An island of our own.\n");
     terminal_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     print("  rum OS v0.5.0 | 32-bit x86\n");
-    print("  Hello, kernel world!\n");
     terminal_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
-    print("  [ok] Multiboot handoff\n");
-    print("  [ok] C kernel and stack\n");
-    print("  [ok] VGA text console\n");
-    print("  [ok] COM1 serial logging\n");
-    print("  [ok] Kernel GDT and segments\n");
-    print("  [ok] IDT and CPU exception handlers\n");
-    print("  [ok] Multiboot memory map\n");
-    print("  [ok] Physical page allocator\n");
-    print("  [ok] Paging (4 KiB pages, null guard)\n");
-    print("  [ok] Kernel heap (16-byte alignment)\n");
-    print("  [ok] RAM filesystem and embedded files\n");
-    if (system == FS_OK) print("  [ok] Userspace system volume /rum\n");
+    print("  [ok] Bootloader\n");
+    print("  [ok] Display\n");
+    print("  [ok] Serial console\n");
+    print("  [ok] CPU protection\n");
+    print("  [ok] Exception handling\n");
+    print("  [ok] Memory map\n");
+    print("  [ok] Physical memory\n");
+    print("  [ok] Virtual memory\n");
+    print("  [ok] Kernel memory\n");
+    print("  [ok] RAM filesystem\n");
+    if (system == FS_OK) print("  [ok] System volume /rum\n");
     if (filesystem == FS_OK) print(fat16_info().writable ?
         "  [ok] FAT16 /disk (read/write)\n" : "  [ok] FAT16 /disk (read only)\n");
-    print("  [ok] PIC remapped (IRQ0/IRQ1 only)\n");
-    print("  [ok] PIT timer at 100 Hz\n");
+    print("  [ok] Interrupt controller\n");
+    print("  [ok] System timer\n");
     if (keyboard_ready) {
         print("  [ok] PS/2 keyboard (US layout)\n\n");
     } else {
@@ -263,8 +261,6 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
         print("  [failed] PS/2 keyboard initialization\n\n");
     }
     terminal_set_color(VGA_LIGHT_GREY, VGA_BLACK);
-    print("  Type 'help' for commands; Backspace edits.\n");
-    print("  Close QEMU to return to your host.\n");
     update_uptime(0);
     pic_unmask(0);
     if (keyboard_ready)

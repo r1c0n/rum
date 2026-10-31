@@ -49,11 +49,11 @@ def main():
         for label, data in cases.items():
             image.write_bytes(data)
             with console.boot(args.qemu, 16, "system-" + label, system_image=image,
-                              marker="Cannot load the userspace shell.") as guest:
+                              marker="Cannot start the shell.") as guest:
                 assert "rum_system: invalid request" in guest.serial.read_text()
                 guest.command("cat readme.txt", "rum")
         with console.boot(args.qemu, 16, "system-missing", system_image=False,
-                          marker="Cannot load the userspace shell.") as guest:
+                          marker="Cannot start the shell.") as guest:
             assert "rum_system: unavailable" in guest.serial.read_text()
             guest.command("echo RAM recovery works", "RAM recovery works")
     print(f"PASS: {len(cases)} malformed system modules and missing module retain usable RAM recovery", flush=True)

@@ -9,12 +9,12 @@ int main(int argc, char **argv)
         "pwd               Show the working directory\ncd [path]         Change directory\n"
         "write <path> [text] Create or replace a file\n"
         "mkdir <path>      Create a disk directory\nrm <path>         Remove a file or empty directory\n"
-        "run <program> [arguments] Launch a foreground ELF; Ctrl+C cancels\n"
+        "run <program> [arguments] Run a program; Ctrl+C cancels\n"
         "start <program> [arguments] Start without waiting\n"
-        "ps                List user processes\nkill <pid>        Request cancellation\n"
-        "sleep <milliseconds> Wait for a bounded duration\n"
+        "ps                List processes\nkill <pid>        Request cancellation\n"
+        "sleep <milliseconds> Wait for the specified time\n"
         "snake             Play Snake (WASD, P, R, Q)\n"
-        "exit              Restart the shell\nrecovery          Enter the kernel recovery shell\n"
-        "Tools are programs in /rum; start is shell syntax. The prompt shows your directory.\n");
+        "exit              Restart the shell\nrecovery          Open the recovery shell\n"
+        "Programs are available in /rum.\n");
     return 0;
 }

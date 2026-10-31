@@ -55,7 +55,7 @@ class Console:
 
 
 @contextmanager
-def boot(qemu, ram, label, disk=None, iso=False, options="", readonly=False, marker="rum userspace shell.", system_image=True,
+def boot(qemu, ram, label, disk=None, iso=False, options="", readonly=False, marker="Type 'help' for commands.", system_image=True,
          image=None, disk_arguments=None):
     with tempfile.TemporaryDirectory(prefix="rum-shell-qmp-") as temporary:
         serial, monitor = Path(temporary) / "serial", Path(temporary) / "qmp"
@@ -229,15 +229,15 @@ def main():
         with boot(args.qemu, 64, "missing-disk") as console:
             console.command("ls /disk", "filesystem is not mounted.")
             console.command("cat /readme.txt")
-            for _ in range(2): console.command("exit", "Restarting the userspace shell.")
+            for _ in range(2): console.command("exit", "Restarting the shell.")
             console.command("exit", "Kernel recovery shell.")
             console.command("echo recovery works", "recovery works")
             console.command("diag", "Tasks: 2 live, 4 owned stack pages, 4 emergency stack pages, 0 owned directories")
             console.command("diag", "Processes: 0 | 0 user tables, 0 user pages")
-        for program, marker in (("/missing.elf", "Cannot load the userspace shell."),
-                                ("/readme.txt", "Cannot load the userspace shell."),
-                                ("/rum/nonzero.elf", "Userspace shell stopped repeatedly."),
-                                ("/rum/fault.elf", "Userspace shell stopped repeatedly.")):
+        for program, marker in (("/missing.elf", "Cannot start the shell."),
+                                ("/readme.txt", "Cannot start the shell."),
+                                ("/rum/nonzero.elf", "The shell stopped repeatedly."),
+                                ("/rum/fault.elf", "The shell stopped repeatedly.")):
             with boot(args.qemu, 16, "fallback-" + Path(program).stem, options="rum.shell=" + program,
                       marker=marker) as console:
                 console.command("echo recovery works", "recovery works")

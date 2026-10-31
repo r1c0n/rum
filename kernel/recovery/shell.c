@@ -123,8 +123,8 @@ static void execute(void)
             return;
         }
         print("rum OS v0.5.0\n"
-              "An island of our own. A hobby kernel in C and x86 assembly.\n"
-              "32-bit x86 | GRUB Multiboot | PIC, PIT and PS/2\n");
+              "An island of our own.\n"
+              "A small operating system for 32-bit x86.\n");
     } else if (equal(command, "echo")) {
         print(arguments);
         print("\n");
