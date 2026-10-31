@@ -6,7 +6,15 @@
 int main(int argc, char **argv);
 static const char *program;
 static struct rum_arguments arguments;
-static void check(int ok, int status) { if (!ok) rum_exit(status); }
+static void check(int ok, int status)
+{
+    if (ok) return;
+    static const char message[] = "rum_console_assertion_failed: ";
+    char code[] = { (char)('0' + status / 10), (char)('0' + status % 10), '\n' };
+    (void)rum_write(2, message, sizeof message - 1);
+    (void)rum_write(2, code, sizeof code);
+    rum_exit(status);
+}
 static unsigned length(const char *s) { unsigned n = 0; while (s[n]) ++n; return n; }
 static int equal(const char *a, const char *b)
 {
@@ -62,7 +70,7 @@ static void denied(void)
 }
 static void alone(void) { check(rum_syscall3(TEST_ALONE, 0, 0, 0) == 1, 98); }
 /* The normal kernel boots this same ELF as its initial shell for supervision
-   tests. RAM handshake files survive each restart; no test syscall is used. */
+   tests. Disk handshake files survive each restart; no test syscall is used. */
 static int supervised(void)
 {
     char turn = '0', ready = 0;
@@ -86,9 +94,11 @@ int main(int argc, char **argv)
     check(argc == 3, 1); const char *mode = argv[1];
     if (equal(mode, "orphan")) {
         denied();
-        check(rum_open("/readme.txt", RUM_OPEN_READ, 0) == 3 &&
-              rum_replace("/session.RDY", argv[2], 1) == 0, 2);
+        check(rum_open("/readme.txt", RUM_OPEN_READ, 0) == 3, 2);
+        /* Publish readiness after the marker: otherwise the parent can exit
+           and cancel this child before its diagnostic write gets scheduled. */
         say("rum_console_orphan_ready\n");
+        check(rum_replace("/session.RDY", argv[2], 1) == 0, 2);
         check(rum_sleep(RUM_SLEEP_MAX_MS) == 0, 3); return 4;
     }
     if (equal(mode, "probe")) {
