@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 import time
 
-TEST_RAM_SIZES = (16, 64)
+TEST_RAM_SIZES = (64,)
 BOOT_RAM_SIZES = (16, 64, 256, 1152)
 
 

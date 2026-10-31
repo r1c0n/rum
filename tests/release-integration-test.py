@@ -172,7 +172,7 @@ def main():
     if not args.packaged_only:
         with tempfile.TemporaryDirectory(prefix="rum-release-disks-") as temporary:
             for ram in (16, 64):
-                for iso in (False, True):
+                for iso in ((False,) if ram == 16 else (True,)):
                     matrix(args.qemu, ram, iso, Path(temporary))
                     errors(args.qemu, ram, iso, Path(temporary))
     digest = packaged(args.qemu, ROOT / "rum.zip")

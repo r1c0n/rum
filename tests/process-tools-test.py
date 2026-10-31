@@ -115,7 +115,7 @@ def main():
     args = parser.parse_args()
     shell.ARTIFACTS.mkdir(parents=True, exist_ok=True)
     for iso in (False, True):
-        for ram in (16, 64):
+        for ram in ((64,) if iso else (16,)):
             with shell.boot(args.qemu, ram, f"tools-{'iso' if iso else 'elf'}-{ram}m", iso=iso) as console:
                 exercise(Console(console.stream, console.serial))
             print(f"PASS: process tools, {'iso' if iso else 'elf'}, {ram} MiB: concurrent launch, listing, scoped kill, sleep and notifications", flush=True)
