@@ -1,6 +1,6 @@
 # FAT16 disks
 
-rum mounts a supported FAT16 volume at `/disk` when an image is attached as the
+rum mounts a supported FAT16 volume at `/` when an image is attached as the
 secondary IDE master. Embedded files remain at the RAM root. Kernel callers can
 read and write files, resize them, and create and remove directories. Mounting
 and normal boot never format, repair, or write the image.
@@ -48,9 +48,9 @@ wsl.exe -d Ubuntu --cd $PWD.Path --exec mformat -i build/fat16.raw -T 32768 -c 2
 ```
 
 The serial log reports `rum_fat16: ok` on success; the console shows
-`FAT16 /disk (read/write)` for a writable device, or `FAT16 /disk (read only)`.
+`FAT16 / (read/write)` for a writable device, or `FAT16 / (read only)`.
 A blank, unsupported, or invalid volume reports a
-filesystem error and boot continues with RAM files. No disk reports
+filesystem error and boot continues in recovery. No disk reports
 `unavailable filesystem`.
 
 Writes change the supplied image. Use a disposable copy for experiments.
@@ -120,7 +120,7 @@ supported subset. Shared chains, malformed chains, and incorrect `.`/`..`
 entries reject the mutation before writes. The audit never frees unreachable
 allocated clusters or repairs metadata. A tree over its audit budget returns
 `FS_UNSUPPORTED`; excessive directory depth returns `FS_TOO_DEEP`.
-Other RAM files remain usable. A directory larger than the slot limit returns
+Recovery diagnostics remain usable. A directory larger than the slot limit returns
 `FS_UNSUPPORTED`.
 
 Block read errors retain ATA status and error-register diagnostics. If a later
@@ -145,7 +145,7 @@ For example, an explicit kernel action can create or replace a note:
 
 ```c
 static const char note[] = "rum on disk\n";
-enum fs_error error = fs_replace(NULL, "/disk/NOTE.TXT", note, sizeof note - 1);
+enum fs_error error = fs_replace(NULL, "/NOTE.TXT", note, sizeof note - 1);
 /* Check error before relying on the new contents. */
 ```
 
@@ -202,7 +202,7 @@ FAT copy nor repairs a damaged volume.
 Once an attempted write might have changed the disk, a later I/O or flush error
 faults the mount. `fat16_info().faulted` becomes true, `writable` becomes false,
 and further backend lookup, reads, writes, and flushes return `FS_IO_ERROR` until
-unmount. Existing references can close and RAM files keep working. This prevents
+unmount. Existing references can close, and the shell can enter recovery without loading another program. This prevents
 allocation from uncertain metadata; it does not roll back disk bytes. Close
 references, stop QEMU, preserve the image, and inspect or repair a copy with
 host FAT tools before mounting again. A fresh mount still checks both FATs.
@@ -219,16 +219,16 @@ attempted write leaves the mount usable and its allocations unchanged.
 
 ## Kernel use and lifetime
 
-Boot calls `fat16_mount(ata_device())` after RAM files and tasks initialize.
+Boot calls `fat16_mount(ata_device())` after the heap and namespace initialize, before task filesystem contexts are created.
 Kernel code can mount a different supported block device with the same call
-after `fs_initialize`; only one disk backend can occupy `/disk`. Write access
+after `fs_initialize`; only one disk backend can occupy `/`. Write access
 requires a device not marked read-only and both write and flush callbacks.
 Otherwise the backend mounts read-only. `fat16_mount_read_only` forces that
 policy even for a writable device.
 
 ```c
 fs_reference file;
-enum fs_error error = fs_open(NULL, "/disk/NOTE.TXT", FS_READ, &file);
+enum fs_error error = fs_open(NULL, "/NOTE.TXT", FS_READ, &file);
 if (error == FS_OK) {
     unsigned char bytes[128];
     struct fs_io_result result = fs_read(file, 0, bytes, sizeof bytes);

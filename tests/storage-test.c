@@ -13,11 +13,11 @@ void storage_check(bool condition, const char *name)
 
 int main(void)
 {
-    assert(!kmalloc(1) && !test_file_put("unready", NULL, 0) && !test_files_initialize());
+    assert(!kmalloc(1));
     test_page_budget(1);
     assert(!heap_initialize() && !test_pages_owned() && !heap_stats().mapped_bytes);
     test_page_budget(-1);
-    assert(heap_initialize() && test_files_initialize());
+    assert(heap_initialize());
     size_t mapped = heap_stats().mapped_bytes;
     unsigned owned = test_pages_owned();
     test_page_budget(2);
@@ -31,6 +31,6 @@ int main(void)
     test_page_budget(-1);
     assert(kfree(original));
     storage_checks();
-    puts("PASS: heap alignment/split/coalesce/realloc/calloc/limits/OOM rollback, binary RAM files, atomic writes, embedded boot files");
+    puts("PASS: heap alignment/split/coalesce/realloc/calloc/limits/OOM rollback");
     return 0;
 }

@@ -177,7 +177,7 @@ checks and the evidence saved with each candidate.
 The goal is to connect programs through standard streams and make everyday
 file work convenient. Complete shared-handle and pipe semantics before adding
 pipelines or job syntax. Programs remain separate ELFs in the read-only `/rum`
-boot volume; user files and optional applications remain on `/disk`.
+boot volume; user files and optional applications remain on `/`.
 
 ### 1. Shared open objects and descriptor inheritance
 
@@ -317,7 +317,7 @@ and script execution remain outside this release.
   destination-exists behavior before mutation.
 - [ ] Keep cross-mount moves explicit: copy and flush successfully before
   deleting the source, and report partial outcomes honestly.
-- [ ] Provide an opt-in setup command for `/disk/HOME` and `/disk/APPS`. Never
+- [ ] Provide an opt-in setup command for `/HOME` and `/APPS`. Never
   create, format, or replace a user disk as a side effect of normal boot.
 - [ ] Document how to run copied applications without making `/rum` writable
   or searching user-controlled directories ahead of system tools by default.

@@ -5,7 +5,7 @@
 void fs_checks(void)
 {
     fs_test_backend_initialize();
-    fs_check(fs_mount_disk(fs_test_backend()) == FS_OK, "mount root");
+    if (!fs_stats().mounts) fs_check(fs_mount_disk(fs_test_backend()) == FS_OK, "mount root");
     struct fs_statistics baseline = fs_stats();
     struct fs_context cwd = {0};
     fs_check(fs_context_initialize(&cwd) == FS_OK && fs_context_chdir(&cwd, "/docs/nest/..") == FS_OK, "relative root context");
@@ -32,6 +32,9 @@ void fs_checks(void)
     fs_test_backend_bad_cursor = true;
     fs_check(fs_readdir(file, &cursor, &entry) == FS_IO_ERROR, "invalid backend cursor");
     fs_test_backend_bad_cursor = false;
-    fs_check(fs_close(file) == FS_OK && fs_unmount_disk() == FS_OK, "unmount cleanup");
-    fs_check(fs_open(NULL, "/", FS_READ, &file) == FS_UNAVAILABLE, "missing disk has no fallback filesystem");
+    fs_check(fs_close(file) == FS_OK, "close root cursor");
+    if (!baseline.references) {
+        fs_check(fs_unmount_disk() == FS_OK, "unmount cleanup");
+        fs_check(fs_open(NULL, "/", FS_READ, &file) == FS_UNAVAILABLE, "missing disk has no fallback filesystem");
+    } else fs_check(fs_unmount_disk() == FS_BUSY, "boot root remains pinned");
 }

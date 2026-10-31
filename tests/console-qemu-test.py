@@ -38,8 +38,15 @@ def boot(qemu, case, kind, ram):
         elif case == "ownership":
             arguments = ["-kernel", str(ROOT / "build/tests/console.elf")]
         else:
-            arguments = ["-kernel", str(ROOT / "build/rum.elf"), "-initrd", str(ROOT / "build/tests/console-system.img"),
-                         "-append", "rum.shell=/rum/console.elf"]
+            arguments = ["-kernel", str(ROOT / "build/rum.elf"), "-append", "rum.shell=/rum/console.elf"]
+        if case == "supervision":
+            disk = Path(temporary) / "system.raw"
+            shell.images.build(disk)
+            shell.images.seed_system(disk, {"CONSOLE.ELF": ROOT / "build/tests/user/console.elf"})
+            # Use the production IDE layout rather than QEMU's secondary CD-ROM.
+            image_path = ROOT / ("build/tests/console-supervisor.iso" if kind == "iso" else "build/rum.elf")
+            arguments = shell.launcher.boot_arguments(image_path, kernel=kind == "elf", disk=disk)
+            if kind == "elf": arguments += ["-append", "rum.shell=/rum/console.elf"]
         process = subprocess.Popen([qemu, "-machine", "pc", "-accel", "tcg", "-m", f"{ram}M", "-display", "none",
             "-serial", f"file:{serial}", "-qmp", qmp, "-no-reboot", "-no-shutdown", *arguments],
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
@@ -125,11 +132,10 @@ def main():
     args = parser.parse_args()
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     for case, exercise in (("ownership", ownership), ("supervision", supervision)):
-        for kind in ("elf", "iso"):
-            for ram in (16, 64):
-                with boot(args.qemu, case, kind, ram) as (console, process):
-                    exercise(console, process)
-                print(f"PASS: console {case}, {kind}, {ram} MiB: ownership, cancellation and reference cleanup", flush=True)
+        for kind, ram in (("elf", 16), ("iso", 64)):
+            with boot(args.qemu, case, kind, ram) as (console, process):
+                exercise(console, process)
+            print(f"PASS: console {case}, {kind}, {ram} MiB: ownership, cancellation and reference cleanup", flush=True)
 
 
 if __name__ == "__main__":

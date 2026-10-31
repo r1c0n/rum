@@ -1,9 +1,8 @@
 # VMware and VirtualBox
 
-rum boots from `rum.iso` in both VMware Workstation and VirtualBox. There is no
-installation step: keep the ISO attached when you restart the VM. A hard disk
-is optional; it provides persistent files at `/disk` while `/rum` remains the
-read-only system volume supplied by the ISO.
+rum boots from `rum.iso` in both VMware Workstation and VirtualBox. Keep the ISO attached when you restart the VM. A prepared FAT16 system disk
+is required for the normal shell: it supplies `/RUM` programs and persistent
+root files. Without it, the ISO provides the recovery console.
 
 ## Settings
 
@@ -16,11 +15,11 @@ read-only system volume supplied by the ISO.
 | Display | VGA-compatible text display; 3D off |
 | Keyboard | PS/2 |
 | Boot medium | `rum.iso`, optical drive first |
-| Optional data disk | 16 MiB unpartitioned FAT16, secondary IDE master |
+| System disk | 16 MiB unpartitioned FAT16, secondary IDE master |
 
 The current ATA driver probes only the legacy secondary IDE master at ports
 `0x170` / `0x376`. A disk connected through SATA, SCSI, NVMe, primary IDE, or the
-secondary slave will not appear at `/disk`. The disk format alone does not
+secondary slave will not appear at `/`. The disk format alone does not
 select its controller.
 
 ## Prepare the files
@@ -51,15 +50,15 @@ It creates a new `build/vm-images/` directory:
 | --- | --- |
 | `rum.iso` | Copy of the built boot ISO |
 | `rum.vmx` | VMware BIOS/IDE preset using relative paths |
-| `rum-data.vmdk` | VMware persistent data disk |
-| `rum-data.vdi` | VirtualBox persistent data disk |
+| `rum-data.vmdk` | VMware installed system disk |
+| `rum-data.vdi` | VirtualBox installed system disk |
 | `rum-data.raw` | Equivalent raw disk for QEMU and host FAT tools |
 | `README.md` | Short setup instructions suitable for the extracted bundle |
 | `SHA256SUMS` | Initial file checksums |
 | `rum-vm-images.zip` | Portable bundle of these initial files |
 
 Both converted disks contain FAT16 directly at sector zero and include
-`README.TXT`. They are data disks, not bootable system disks. The helper compares
+`README.TXT`. They contain `/RUM` programs but do not contain an HDD bootloader; keep the ISO attached. The helper compares
 each converted image against the raw image before producing the bundle.
 [QEMU documents these conversion formats and options](https://www.qemu.org/docs/master/system/images.html).
 
@@ -71,7 +70,7 @@ wsl.exe -d Ubuntu --cd $PWD.Path --exec python3 scripts/prepare-vm-images.py --o
 ```
 
 The standard `rum.zip` release archive stays unchanged: ISO, root README, and
-documentation. These optional mutable disks are a separate bundle. The VMDK,
+documentation. These fresh system disks are a separate bundle. The VMDK,
 VDI, and raw images start with the same bytes, but subsequent edits to one are
 independent of the others.
 
@@ -163,18 +162,18 @@ memory, CPU, and display settings; the attachment commands alone do not.
 At rum's prompt:
 
 ```text
-/> ls /disk
+/> ls /
 README.TXT
-/> cat /disk/README.TXT
-Hello from rum's persistent data disk!
+/> cat /README.TXT
+Hello from rum's installed system disk!
 This file survives VM restarts.
-/> write /disk/NOTE.TXT hello from rum
-/> cat /disk/NOTE.TXT
+/> write /NOTE.TXT hello from rum
+/> cat /NOTE.TXT
 hello from rum
 ```
 
 Wait for the prompt after the write, power off the VM, and start it again with
-the same ISO and data disk attached. `cat /disk/NOTE.TXT` should recover the
+the same ISO and data disk attached. `cat /NOTE.TXT` should recover the
 same text. rum has no guest shutdown command yet; a completed filesystem write
 flushes before returning success. FAT16 is not journaled, so avoid powering off
 while a file operation is active. See [FAT16 write guarantees](fat16.md).
@@ -186,8 +185,8 @@ access use the emulated legacy hardware directly.
 ## Troubleshooting
 
 - **No bootable medium:** attach the ISO, enable connection at power-on, use
-  BIOS, and put the optical drive first. The small data disk is not bootable.
-- **The shell works but `/disk` is unavailable:** verify IDE **1:0 / Secondary
+  BIOS, and put the optical drive first. The system disk requires the ISO to start the kernel.
+- **The shell works but `/` is unavailable:** verify IDE **1:0 / Secondary
   Master** and use the prepared FAT16 image. A blank disk or an MBR-partitioned
   volume is not the supported disk layout.
 - **Keyboard input is missing:** click the display and use the legacy PS/2
@@ -195,7 +194,7 @@ access use the emulated legacy hardware directly.
 - **No files survive reboot:** use the same disk and normal writable mode.
   Immutable/nonpersistent disks or restoring a snapshot can discard changes.
 - **Only the recovery shell starts:** check that you attached the complete
-  current ISO; it must include the separate userspace system image.
+  current ISO and a prepared disk containing `/RUM/SHELL.ELF`.
 
 The settings above were boot-tested on Windows with VMware Workstation
 17.5.2 and VirtualBox 7.2.4. VirtualBox additionally passed keyboard-driven

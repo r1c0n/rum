@@ -14,7 +14,7 @@ Memory services have a strict startup order:
 1. `pmm_initialize` parses and reserves the Multiboot memory map.
 2. `paging_initialize` allocates the kernel directory and enables CR0.PG/WP.
 3. `heap_initialize` maps the first heap page.
-4. Additional address spaces, user pages, guarded stacks, and RAM files may then
+4. Additional address spaces, user pages, guarded stacks, and filesystem caches may then
    be created.
 
 Do not call a later layer while one of its dependencies is uninitialized.

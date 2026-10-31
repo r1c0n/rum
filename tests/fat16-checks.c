@@ -31,7 +31,7 @@ static void listing(const char *path)
     fat16_check(fs_open(NULL, path, FS_READ, &directory) == FS_OK, "open listed directory");
     uint64_t cursor = 0; struct fs_entry entry; enum fs_error error;
     while ((error = fs_readdir(directory, &cursor, &entry)) == FS_OK) {
-        if (path[5]) append(path + 5);
+        if (path[1]) append(path);
         append("/"); append(entry.name); append(entry.kind == FS_DIRECTORY ? "\tD\t" : "\tF\t");
         number(entry.size); append("\n");
     }

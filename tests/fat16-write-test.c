@@ -79,9 +79,6 @@ int main(int argc, char **argv)
                     fat16_info().faulted && !fat16_info().writable);
                 unsigned stopped = events;
                 assert(fs_replace(NULL, "/AGAIN.BIN", "x", 1) == FS_IO_ERROR && events == stopped);
-                fs_reference ram; char data[6];
-                assert(fs_open(NULL, "/ram.txt", FS_READ, &ram) == FS_OK &&
-                    fs_read(ram, 0, data, 6).transferred == 6 && !memcmp(data, "island", 6) && fs_close(ram) == FS_OK);
             } else if (!strcmp(argv[2], "reject") || !strncmp(argv[2], "full", 4)) {
                 assert(error == (!strncmp(argv[2], "full", 4) ? FS_NO_SPACE : FS_IO_ERROR) && !writes && !events && !fat16_info().faulted);
             } else if (!strcmp(argv[2], "oom")) {

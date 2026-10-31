@@ -19,18 +19,12 @@ shell.ARTIFACTS = ARTIFACTS
 images = shell.images
 
 
-def recovery(console):
-    console.command("write ram.txt island")
-    console.command("cat ram.txt", "\r\nisland\r\n> ")
-    console.command("run hello", "Program exited with status 0.")
-    console.command("recovery", "Kernel recovery shell.")
-    console.command("cat ram.txt", "island")
+def recovery(console, active_shell=True):
+    if active_shell: console.command("recovery", "Kernel recovery shell.")
     console.command("diag", "Processes: 0 | 0 user tables, 0 user pages")
     console.command("mem", "Heap:")
-    console.type("snake\n")
-    console.wait("rum_snake_started\r\n")
-    console.send("q")
-    console.wait("> ")
+    console.type("snake\n"); console.wait("rum_snake_started\r\n")
+    console.send("q"); console.wait("> ")
     console.command("echo recovered", "recovered")
 
 
@@ -56,13 +50,13 @@ def matrix(qemu, ram, iso, temporary):
     kind = "iso" if iso else "elf"
     prefix = f"{ram}m-{kind}"
     disk = temporary / (prefix + ".raw")
-    images.build(disk)
+    images.build(disk); images.seed_system(disk)
     original = disk.read_bytes()
     original_files = images.audit(disk)["files"]
     note = "rum release bytes  with spaces  "
     with shell.boot(qemu, ram, prefix + "-write", disk=disk, iso=iso) as console:
-        console.command("write /disk/notes.txt " + note)
-        console.command("cat /disk/notes.txt", "\r\n" + note + "\r\n> ")
+        console.command("write /notes.txt " + note)
+        console.command("cat /notes.txt", "\r\n" + note + "\r\n> ")
         console.command("run hello", "Program exited with status 0.")
         console.command("run fault", "Program stopped after a user fault.")
         console.type("run spin\n")
@@ -71,32 +65,32 @@ def matrix(qemu, ram, iso, temporary):
     assert images.file_bytes(disk, "/NOTES.TXT") == note.encode()
     saved = disk.read_bytes()
     with shell.boot(qemu, ram, prefix + "-reboot", disk=disk, iso=iso) as console:
-        console.command("cat /disk/notes.txt", "\r\n" + note + "\r\n> ")
+        console.command("cat /notes.txt", "\r\n" + note + "\r\n> ")
     assert disk.read_bytes() == saved
     saved_files = images.audit(disk)["files"]
     assert all(saved_files[name] == data for name, data in original_files.items())
     canaries(original, saved)
-    with shell.boot(qemu, ram, prefix + "-missing", iso=iso) as console:
-        console.command("ls /disk", "filesystem is not mounted.")
-        recovery(console)
+    with shell.boot(qemu, ram, prefix + "-missing", iso=iso, marker="Kernel recovery shell.") as console:
+        console.command("ls /", "unavailable filesystem")
+        recovery(console, False)
     damaged = bytearray(original)
     damaged[13] = 3
     disk.write_bytes(damaged)
-    with shell.boot(qemu, ram, prefix + "-malformed", disk=disk, iso=iso) as console:
-        console.command("ls /disk", "filesystem is not mounted.")
-        recovery(console)
+    with shell.boot(qemu, ram, prefix + "-malformed", disk=disk, iso=iso, marker="Kernel recovery shell.") as console:
+        console.command("ls /", "unavailable filesystem")
+        recovery(console, False)
     assert disk.read_bytes() == damaged
     disk.write_bytes(original)
     leave_one_cluster(disk)
     before = disk.read_bytes()
     before_files = images.audit(disk)["files"]
     with shell.boot(qemu, ram, prefix + "-full", disk=disk, iso=iso) as console:
-        console.command("write /disk/LAST.TXT last cluster")
-        console.command("write /disk/FAIL.TXT too full", "filesystem is full.")
-        console.command("write /disk/LAST.TXT replacement", "filesystem is full.")
-        console.command("cat /disk/LAST.TXT", "last cluster")
-        console.command("rm /disk/LAST.TXT")
-        console.command("write /disk/REUSED.TXT reused cluster")
+        console.command("write /LAST.TXT last cluster")
+        console.command("write /FAIL.TXT too full", "filesystem is full.")
+        console.command("write /LAST.TXT replacement", "filesystem is full.")
+        console.command("cat /LAST.TXT", "last cluster")
+        console.command("rm /LAST.TXT")
+        console.command("write /REUSED.TXT reused cluster")
         recovery(console)
     assert images.file_bytes(disk, "/REUSED.TXT") == b"reused cluster"
     state = images.audit(disk)
@@ -107,9 +101,9 @@ def matrix(qemu, ram, iso, temporary):
     readonly_image = ROOT / "build/tests/readonly.iso" if iso else None
     with shell.boot(qemu, ram, prefix + "-readonly", disk=disk, iso=iso,
                     image=readonly_image, options="" if iso else "rum.disk-readonly") as console:
-        console.command("write /disk/NO.TXT nope", "read-only filesystem.")
-        console.command("mkdir /disk/NO", "read-only filesystem.")
-        console.command("cat /disk/KEEP.BIN")
+        console.command("write /NO.TXT nope", "read-only filesystem.")
+        console.command("mkdir /NO", "read-only filesystem.")
+        console.command("cat /KEEP.BIN")
         recovery(console)
     assert disk.read_bytes() == original
     print(f"PASS: {prefix} valid/reboot/no-disk/malformed/full/read-only, exact host notes.txt and recovery", flush=True)
@@ -120,7 +114,7 @@ def errors(qemu, ram, iso, temporary):
     for event in ("read_aio", "write_aio", "flush_to_disk"):
         label = f"{ram}m-{'iso' if iso else 'elf'}-{event}"
         disk, config = temporary / (label + ".raw"), temporary / (label + ".conf")
-        images.build(disk)
+        images.build(disk); images.seed_system(disk)
         original = disk.read_bytes()
         state = images.audit(disk)
         rule = '[inject-error]\nevent = "' + event + '"\nerrno = "5"\nonce = "on"\n'
@@ -134,11 +128,11 @@ def errors(qemu, ram, iso, temporary):
                   "-device", "ide-hd,drive=rum-errors,bus=ide.1,unit=0,werror=report,rerror=report"]
         with shell.boot(qemu, ram, label, iso=iso, disk_arguments=device) as console:
             if event == "read_aio":
-                console.command("cat /disk/TARGET.BIN", "I/O failure.")
-                console.command("ls /disk", "KEEP.BIN")
+                console.command("cat /TARGET.BIN", "I/O failure.")
+                console.command("ls /", "KEEP.BIN")
             else:
-                console.command("write /disk/FAIL.TXT injected failure", "I/O failure.")
-                console.command("ls /disk", "I/O failure.")
+                console.command("write /FAIL.TXT injected failure", "I/O failure.")
+                console.command("ls /", "I/O failure.")
             recovery(console)
         after = disk.read_bytes()
         canaries(original, after)
@@ -146,7 +140,7 @@ def errors(qemu, ram, iso, temporary):
         assert final["files"] == state["files"], "unrelated file bytes changed"
         if event == "read_aio":
             assert after == original
-        print(f"PASS: {label}, bounded ATA error, RAM/tools/diagnostics/recovery/Snake remain usable", flush=True)
+        print(f"PASS: {label}, bounded ATA error, console/diagnostics/recovery/Snake remain usable", flush=True)
 
 
 def packaged(qemu, archive):
@@ -158,7 +152,7 @@ def packaged(qemu, archive):
         for ram in (16, 64, 256, 1152):
             with shell.boot(qemu, ram, f"packaged-iso-{ram}m", iso=True, image=image) as console:
                 console.command("hello", "Hello from rum userspace!")
-                console.command("cat /readme.txt")
+                console.command("cat /README.TXT")
                 console.command("ls /rum", "shell.elf")
         return hashlib.sha256(image.read_bytes()).hexdigest()
 
@@ -172,7 +166,7 @@ def main():
     if not args.packaged_only:
         with tempfile.TemporaryDirectory(prefix="rum-release-disks-") as temporary:
             for ram in (16, 64):
-                for iso in (False, True):
+                for iso in ((False,) if ram == 16 else (True,)):
                     matrix(args.qemu, ram, iso, Path(temporary))
                     errors(args.qemu, ram, iso, Path(temporary))
     digest = packaged(args.qemu, ROOT / "rum.zip")

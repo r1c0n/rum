@@ -1,206 +1,108 @@
 # rum
 
-A small hobby operating system written in C and x86 assembly, named after
-the Scottish island of Rùm.
+A small operating system written in C and x86 assembly, named after the
+Scottish island of Rùm.
 
-rum boots through GRUB into a VGA text console with a shell, RAM files, protected
-user programs, and ASCII Snake. It boots with 32-bit x86 BIOS firmware in QEMU,
-VMware Workstation, and VirtualBox.
-
-## Screenshots
-
-| Boot sequence | Shell |
-| --- | --- |
-| ![rum completing its boot sequence](docs/images/boot.png) | ![The rum command shell](docs/images/shell.png) |
-| **RAM filesystem** | **ASCII Snake** |
-| ![Creating and reading a RAM file in rum](docs/images/storage.png) | ![ASCII Snake running in rum](docs/images/snake.png) |
+rum runs protected user programs on 32-bit x86 with BIOS firmware. It includes
+a command shell, persistent FAT16 storage, preemptive multitasking and ASCII
+Snake. QEMU, VMware Workstation and VirtualBox are supported.
 
 ## Getting started
 
-The build environment is Ubuntu 24.04 on WSL 2. For the PowerShell launcher,
-install QEMU on Windows and add it to `PATH`.
-
-From the repository directory, set up the build tools once:
-
-```powershell
-.\rum.ps1 setup
-```
-
-Then check the environment and boot rum:
-
-```powershell
-.\rum.ps1 doctor
-.\rum.ps1 run
-```
-
-The launcher builds in WSL and opens Windows QEMU. To build and run from Ubuntu
-instead, use `make doctor` and `make run`. See [setup](docs/setup.md) for manual
-installation, toolchain options, and troubleshooting.
-
-VMware Workstation and VirtualBox users can follow the
-[virtual-machine setup guide](docs/virtual-machines.md), including prepared
-VMDK/VDI data disks and a VMware preset.
-
-## Using rum
-
-Click inside QEMU and enter `help` at the `/> ` prompt. The prompt shows your
-working directory, such as `/disk/DOCS> `. Input uses a US QWERTY
-layout; Enter runs a command, Backspace edits, and Tab inserts four spaces.
-The bottom row shows uptime.
-
-| Command | Description |
-| --- | --- |
-| `help` | List commands |
-| `clear` | Clear the console |
-| `about` | Show version and kernel information |
-| `echo <text>` | Print text |
-| `ls [path]` | List a directory |
-| `cat <path>` | Read a file |
-| `pwd`, `cd [path]` | Show or change the working directory |
-| `write <path> [text]` | Create or replace a file |
-| `mkdir <path>`, `rm <path>` | Create a disk directory or remove an object |
-| `run <program> [args]` | Run an ELF in the foreground and report its status |
-| `start <program> [args]` | Start a concurrent child without waiting |
-| `ps`, `kill <pid>` | List user processes or request child cancellation |
-| `sleep <milliseconds>` | Wait in the foreground; combine with `start` for a concurrent timer |
-| `snake` | Play ASCII Snake |
-| `recovery` | Enter the kernel shell for `mem`, `diag` and recovery commands |
-
-Snake uses **WASD** to move, **P** to pause, **R** to restart, and **Q** to return
-to the shell. Best scores are saved in `snake.score` for the current boot.
-
-Commands are separate userspace programs in `/rum`, loaded from a system image
-alongside the kernel. Type `ls /rum` to see them, or `hello` to launch an example.
-The shell searches `/rum` first, then your working directory.
-
-Root files are stored in RAM. Rebooting restores files embedded from
-`assets/ramfs/` and discards RAM changes. An optional FAT16 image mounted at
-`/disk` preserves disk files across boots. See the [shell guide](docs/shell.md)
-for paths, disk commands, Ctrl+C and recovery.
-
-Close the QEMU window to exit. The default GTK/SDL interface releases captured
-input with `Ctrl+Alt+G`.
-
-## Kernel features
-
-- GRUB Multiboot v1 boot with VGA text and COM1 output.
-- Writable GDT/TSS, IDT, shared interrupt entry, and CPU exception diagnostics.
-- PIC interrupts, a 100 Hz PIT timer, and PS/2 keyboard input.
-- Cooperative kernel tasks with guarded virtual stacks, event waits, and deferred cleanup.
-- Timer-driven user-process preemption with round-robin scheduling and nominal 50 ms slices.
-- A dedicated double-fault task and emergency stack for controlled overflow reports.
-- A physical allocator for 4 KiB pages below 1 GiB.
-- Supervisor paging with protected kernel pages and private user address spaces.
-- Process records with positive PIDs, trusted user frames, and owned-resource accounting.
-- Production ring-3 entry with isolated user-fault recovery and recorded fault state.
-- An `int 0x80` ABI with process exit, PID lookup, checked console/file I/O and versioned filesystem packets.
-- A page-backed heap with aligned allocation, resizing, and free-block reuse.
-- A flat RAM filesystem with build-time file embedding.
-- An optional secondary IDE raw disk with bounded ATA PIO, sector I/O and cache flushing.
-- A shared path layer and writable FAT16 mount at `/disk`, with checked cluster ownership.
-- A separate freestanding user ELF build, production loader, and public ABI.
-- Foreground user-process launch, waiting, fault reporting, cleanup, and Ctrl+C.
-- Independent child spawn, blocking/nonblocking waits, and authorized termination.
-- Public yield and bounded sleep, with cancellable event/deadline waits.
-
-rum is a single-CPU system. The normal shell and programs started with `run`
-execute in ring 3 using public syscalls. Snake and the recovery shell remain
-kernel applications. Supported FAT16 disks mount at `/disk` with file and
-directory mutations on writable devices. See [filesystem syscalls](docs/filesystem-syscalls.md)
-and [process syscalls](docs/process-syscalls.md) to write a user program.
-
-Create and attach a disposable disk with `make create-disk DISK_IMAGE=build/scratch.raw`
-then `make run DISK_IMAGE=build/scratch.raw`. PowerShell equivalents and the
-kernel API are covered in [Raw disks and block devices](docs/block-devices.md).
-To create a volume containing files, follow [FAT16 disks](docs/fat16.md).
-
-## Building and testing
-
-| PowerShell | Ubuntu | Action |
-| --- | --- | --- |
-| `.\rum.ps1 build` | `make` | Build the kernel ELF and GRUB ISO |
-| `.\rum.ps1 run` | `make run` | Boot the ISO |
-| `.\rum.ps1 run-kernel` | `make run-kernel` | Boot the ELF directly |
-| `.\rum.ps1 test` | `make test` | Run host and QEMU tests |
-| `.\rum.ps1 debug` | `make debug` | Start paused with a GDB server on port 1234 |
-| `.\rum.ps1 panic` | `make panic` | Boot a test kernel that triggers a panic |
-| `.\rum.ps1 clean` | `make clean` | Remove generated build files |
-
-Build outputs are `build/rum.elf`, `build/rum-system.img`, and `build/rum.iso`.
-The ISO contains both the kernel and system image; the direct ELF launcher
-supplies the system image separately. See [the system volume](docs/system-volume.md).
-Tests cover game rules,
-shell input, memory allocation, RAM files, boot checks, CPU faults, ring-3
-syscalls, foreground process outcomes, cleanup, and device interrupts. Storage
-tests also check exact sector bytes, persistence, canaries and injected I/O
-failures with disposable images. Every
-isolated QEMU case runs with 16 and 64 MiB. The suite also boots the GRUB ISO
-and direct ELF at 16, 64, 256, and 1152 MiB. Logs, memory dumps, and screenshots
-are saved in `build/test-artifacts/`.
-
-## Packaging
-
-Build the ISO, then bundle it with the README and documentation. The packaging
-script uses Python 3 and needs no additional packages.
-
-On Windows:
+Build in Ubuntu 24.04 or WSL 2. The PowerShell launcher uses Windows QEMU;
+install it and add it to PATH. Run `.\rum.ps1 setup` once for build dependencies
+and `.\rum.ps1 doctor` to check the environment.
 
 ```powershell
 .\rum.ps1 build
-python scripts/package.py
+.\rum.ps1 prepare-disk -DiskImage .\build\rum-system.raw
+.\rum.ps1 run -DiskImage .\build\rum-system.raw
 ```
 
-On Linux or in WSL:
+Linux/WSL:
 
 ```sh
-make
-python3 scripts/package.py
+make -j4
+make prepare-disk DISK_IMAGE=build/rum-system.raw
+make run DISK_IMAGE=build/rum-system.raw
 ```
 
-Validate the archive and its embedded ISO with `make test-package` on Linux or
-WSL, or `py -3 tests/package-test.py` on Windows.
+Preparation only accepts a new path. It creates FAT16 and installs the shell
+and commands in `/RUM`. Keep the ISO and disk attached: the ISO starts the
+kernel; the disk supplies programs and files. Without a usable system disk,
+rum opens its recovery console. Normal startup never formats an image.
 
-For a clean build, the complete test suite and a boot of the exact packaged ISO,
-run `python3 scripts/release-check.py` from a committed checkout in Ubuntu/WSL.
-See [building a release](docs/release.md) for results, Windows verification and
-persistent-disk checks.
+See [setup](docs/setup.md), [system disk](docs/system-volume.md) and
+[VMware/VirtualBox](docs/virtual-machines.md) for details.
 
-This creates `rum.zip` in the repository directory, replacing an existing
-archive. Its contents are:
+## Using rum
+
+Type `help` for commands. The prompt shows the working directory. Paths are
+case-insensitive and names use 8.3 spelling. Files are saved on disk and survive
+restarts. There is no RAM filesystem.
 
 ```text
-rum.iso
-README.md
-docs/
+ls /
+mkdir /DOCS
+cd /DOCS
+write NOTES.TXT hello from rum
+cat notes.txt
+run hello
+start spin
+ps
+kill <pid>
 ```
 
-After extracting the archive, boot it with:
+`recovery` enters the recovery console, where `mem`, `diag` and Snake remain
+available even without usable storage. `exit` restarts the normal shell.
+Wait for a command to finish before shutting down the VM. FAT16 has no journal;
+an interrupted write may require host repair. See [filesystem behavior](docs/fat16.md).
 
-```sh
-qemu-system-i386 -m 64M -cdrom rum.iso
-```
+## Screenshots
+
+| Startup | Shell |
+| --- | --- |
+| ![rum startup](docs/images/boot.png) | ![rum shell](docs/images/shell.png) |
+| **Files** | **Snake** |
+| ![Working with files](docs/images/storage.png) | ![ASCII Snake](docs/images/snake.png) |
+
+## Build and test
+
+| PowerShell | Linux/WSL | Purpose |
+| --- | --- | --- |
+| `.\rum.ps1 build` | `make -j4` | Build kernel, programs and ISO |
+| `.\rum.ps1 user` | `make user` | Build system programs |
+| `.\rum.ps1 run -DiskImage <image>` | `make run DISK_IMAGE=<image>` | Start with an existing raw disk |
+| `.\rum.ps1 test` | `make test` | Run host and QEMU checks |
+| `.\rum.ps1 debug -DiskImage <image>` | `make debug DISK_IMAGE=<image>` | Start paused with GDB on port 1234 |
+
+`build/rum.elf` is the kernel and `build/rum.iso` is the boot/recovery image.
+System programs are built in `build/user/system/`. Rebuilding programs does
+not update existing disks. Use a new disk for a fresh installation, or back up
+an existing image before deliberately replacing its `/RUM` files with host FAT
+tools. Never run two VMs against the same writable disk.
+
+## Packaging
+
+`python3 scripts/package.py` creates `rum.zip` containing the ISO, this README
+and documentation. The ISO alone provides recovery; normal startup also needs
+a prepared system disk.
+
+After building, run `python3 scripts/prepare-vm-images.py` in Ubuntu/WSL to create
+a separate `rum-vm-images.zip` with a fresh installed system disk in raw, VMDK
+and VDI formats, the ISO and a VMware preset. Existing output directories are
+refused. [Release checks](docs/release.md) cover packaging and recovery.
 
 ## Source
 
 | Directory | Contents |
 | --- | --- |
-| `arch/i386/` | Startup assembly, CPU tables, interrupt stubs, paging, and linker script |
-| `boot/grub/` | GRUB configuration |
-| [`kernel/`](kernel/README.md) | Core, memory, processes, I/O, filesystems, recovery, diagnostics, and private headers |
-| `hal/pc/` | PC interrupt routing, PIC, and PIT |
-| `drivers/` | Display, serial, input, and storage drivers |
-| `assets/ramfs/` | Embedded boot files |
-| [`sdk/`](sdk/README.md) | Public headers, application runtime, linker script, examples, and ELF validator |
-| [`system/`](system/README.md) | Userspace shell and standalone system commands |
-| `apps/` | Application entry points, including Snake |
-| `scripts/` | Toolchain setup, environment checks, embedding, and QEMU tests |
-| `tests/` | Host tests and isolated test kernels |
-| `docs/` | Setup, usage, architecture, and contributor guides |
+| `arch/`, `boot/`, `hal/` | CPU setup, boot and platform code |
+| `kernel/`, `drivers/` | Core services, memory, processes, FAT16 and hardware drivers |
+| `sdk/` | Public ABI, runtime and example applications |
+| `system/`, `apps/` | Shell, command programs and applications |
+| `assets/disk/` | Initial disk documentation |
+| `tests/`, `scripts/` | Regression tests, toolchain, build and packaging tools |
 
-The project follows the boot and toolchain approach in
-[OSDev Bare Bones](https://wiki.osdev.org/Bare_Bones). GRUB loads the kernel;
-`arch/i386/boot.s` sets up its stack and CPU segments before calling C.
-
-See the [documentation](docs/README.md) for subsystem details and debugging.
-The [source layout guide](docs/source-layout.md) explains where new code belongs.
-Multitasking and userspace development plans are in the [roadmap](docs/roadmap.md).
+See the [documentation](docs/README.md), [source layout](docs/source-layout.md)
+and [roadmap](docs/roadmap.md).

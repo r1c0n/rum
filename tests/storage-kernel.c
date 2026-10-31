@@ -50,7 +50,7 @@ void kernel_main(uint32_t magic, uint32_t information)
     storage_check(!heap_initialize() && !heap_stats().mapped_bytes && pmm_stats().free_pages == 1,
                   "heap init table OOM rollback");
     release(taken);
-    storage_check(pmm_stats().free_pages == initial && heap_initialize() && test_files_initialize(),
+    storage_check(pmm_stats().free_pages == initial && heap_initialize(),
                   "heap init recovered");
     initial = pmm_stats().free_pages;
     size_t mapped = heap_stats().mapped_bytes;
@@ -66,7 +66,7 @@ void kernel_main(uint32_t magic, uint32_t information)
     storage_checks();
     storage_check(pmm_stats().free_pages == initial - (HEAP_LIMIT - mapped) / PAGE_SIZE,
                   "heap retained-page physical accounting");
-    terminal_writestring("rum heap and RAM filesystem tests passed.\n");
+    terminal_writestring("rum heap tests passed.\n");
     serial_writestring("rum_storage_test_ok\n");
     cpu_halt();
 }

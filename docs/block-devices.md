@@ -2,10 +2,10 @@
 
 rum can attach one raw disk as the secondary IDE master in QEMU. The kernel
 identifies it at boot and provides sector reads, writes and cache flushing to
-kernel callers. A supported [FAT16 volume](fat16.md) mounts at `/disk`, writable
+kernel callers. A supported [FAT16 volume](fat16.md) mounts at `/`, writable
 when the device supports writes and flushing.
-The userspace shell accesses disk files under `/disk`; `write /disk/NOTE.TXT`
-persists on the attached image. Root RAM files remain temporary.
+The userspace shell accesses disk files under `/`; `write /NOTE.TXT`
+persists on the attached image. The root filesystem and `/RUM` programs are stored on that disk.
 
 Normal boot identifies the disk and attempts a FAT16 mount. It does
 not format, resize, repair or write the image. Without a supported disk, rum

@@ -96,11 +96,11 @@ static void directory_tests(void)
     check(rum_syscall3(RUM_SYS_READDIR, directory, PAGE + 2 * 4096 - 16, 0) == -RUM_EFAULT, 42);
     check(rum_readdir(directory, 0) == -RUM_EFAULT, 49);
     entry.reserved = 0;
-    check(rum_readdir(directory, &entry) == 1 && equal(entry.name, "disk") && entry.kind == RUM_ENTRY_DIRECTORY, 43);
+    check(rum_readdir(directory, &entry) == 1 && equal(entry.name, "DOCS") && entry.kind == RUM_ENTRY_DIRECTORY, 43);
     struct rum_directory_entry *cross = (void *)(PAGE + 4096 - 16);
     *cross = (struct rum_directory_entry){ .version = 1, .size = sizeof *cross };
-    check(rum_readdir(directory, cross) == 1 && cross->kind == RUM_ENTRY_FILE && equal(cross->name, "data.bin"), 44);
-    check(rum_seek(directory, 0, 0, 0) == 0 && rum_readdir(directory, &entry) == 1 && equal(entry.name, "disk"), 45);
+    check(rum_readdir(directory, cross) == 1 && cross->kind == RUM_ENTRY_FILE && equal(cross->name, "ROOT.TXT"), 44);
+    check(rum_seek(directory, 0, 0, 0) == 0 && rum_readdir(directory, &entry) == 1 && equal(entry.name, "DOCS"), 45);
     unsigned count = 0;
     rum_result_t result;
     while ((result = rum_readdir(directory, &entry)) == 1) check(++count < 64, 46);
@@ -125,7 +125,7 @@ int main(int argc, char **argv)
 {
     check(argc == 2, 1);
     char mode = argv[1][0], buffer[32];
-    rum_result_t result = rum_open("/data.bin", 3, 0);
+    rum_result_t result = rum_open("/data.bin", mode == 'r' ? 1 : 3, 0);
     check(result == 3, 2);
     rum_handle_t file = (rum_handle_t)result;
     if (mode == 'F' || mode == 'C') {

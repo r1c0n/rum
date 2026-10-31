@@ -29,10 +29,13 @@ def execute(image, operation, failure=-1, tear=0):
 def canaries(before, after, events):
     written = {int(line.split()[1]) for line in events if line.startswith("W ")}
     assert len(before) == len(after)
-    for sector in range(len(before) // 512):
-        if sector not in written:
-            offset = sector * 512
-            assert before[offset:offset + 512] == after[offset:offset + 512], f"sector {sector} changed without a request"
+    cursor = 0
+    for sector in sorted(written):
+        offset = sector * 512
+        assert cursor <= offset < len(before), "write request outside image"
+        assert before[cursor:offset] == after[cursor:offset], f"unrequested bytes changed before sector {sector}"
+        cursor = offset + 512
+    assert before[cursor:] == after[cursor:], "unrequested trailing bytes changed"
     g = images.fat.geometry(before)
     assert before[:g["reserved"] * 512] == after[:g["reserved"] * 512]
     assert before[g["total"] * 512:] == after[g["total"] * 512:], "write escaped BPB volume"
@@ -218,7 +221,7 @@ def main():
             elif operation == "shrink":
                 assert images.file_bytes(work, "/TARGET.BIN") == baseline["files"]["/TARGET.BIN"][:513]
             for index in range(len(events)):
-                for tear in (0, 16, 30, 256, 512):
+                for tear in ((0,) if events[index] == "F" else (0, 16, 30, 256, 512)):
                     work.write_bytes(original)
                     trace, failed = execute(work, operation, index, tear)
                     assert len(trace) == index + 1

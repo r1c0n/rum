@@ -2,7 +2,7 @@
 
 The source tree separates kernel services, CPU-specific code, PC platform
 support, device drivers, and user programs. Build outputs remain under `build/`;
-the bootable artifacts are still `rum.elf`, `rum.iso`, and `rum-system.img`.
+the kernel is built as `rum.elf` and packaged in `rum.iso`; an explicitly prepared FAT16 disk supplies programs and files.
 
 | Directory | Responsibility |
 | --- | --- |
@@ -12,7 +12,7 @@ the bootable artifacts are still `rum.elf`, `rum.iso`, and `rum-system.img`.
 | `kernel/process/` | Task scheduling, process lifecycle, referenced console sessions, handles, ELF loading, and syscall dispatch |
 | `kernel/mm/` | Physical allocation and kernel heap |
 | `kernel/io/` | Common block-device operations and request serialization |
-| `kernel/fs/` | Paths, mounts, retained objects, RAM/system volumes, and FAT16 |
+| `kernel/fs/` | Paths, mounts, retained objects, the persistent FAT16 root |
 | `kernel/recovery/` | Kernel recovery command loop and current Snake engine |
 | `kernel/debug/` | Ownership snapshots, diagnostics, and panic reports |
 | `kernel/include/rum/` | Private kernel interfaces and architecture/resource contracts |
@@ -24,7 +24,7 @@ the bootable artifacts are still `rum.elf`, `rum.iso`, and `rum-system.img`.
 | `sdk/` | Public headers, application runtime, linker script, examples, and validator |
 | `system/` | Userspace shell and standalone command programs |
 | `apps/` | Application entry points |
-| `assets/ramfs/` | Embedded RAM-file payloads |
+| `assets/disk/` | Initial system-disk documentation |
 | `tests/` | Host checks, test backends, guest fixtures, and QEMU automation |
 | `scripts/` | Toolchain, disk-image, build, packaging, and test orchestration |
 

@@ -1,17 +1,17 @@
 # Files from user programs
 
 Include `<rum/user.h>` and link with the normal rum user runtime. Programs can
-open existing RAM files and files on a mounted FAT16 volume, read or overwrite
+open files on the root FAT16 volume, read or overwrite
 their contents, list directories, change their working directory, create
 directories, remove closed objects, and flush a backend.
 
-The normal [userspace shell](shell.md) uses these calls on RAM, `/rum` and `/disk`. The
+The normal [userspace shell](shell.md) uses these calls on RAM, `/rum` and `/`. The
 kernel recovery shell keeps its original RAM commands.
 
 ## Opening and reading
 
 ```c
-rum_result_t result = rum_open("/disk/DOCS/NOTE.TXT", RUM_OPEN_READ, 0);
+rum_result_t result = rum_open("/DOCS/NOTE.TXT", RUM_OPEN_READ, 0);
 if (result < 0) return 1;
 rum_handle_t file = (rum_handle_t)result;
 char buffer[512];
@@ -90,7 +90,7 @@ supports only `rum_seek(directory, 0, RUM_SEEK_SET, NULL)` to restart iteration.
 ## Directories and paths
 
 ```c
-rum_result_t opened = rum_open("/disk/DOCS", RUM_OPEN_READ, RUM_OPEN_DIRECTORY);
+rum_result_t opened = rum_open("/DOCS", RUM_OPEN_READ, RUM_OPEN_DIRECTORY);
 if (opened < 0) return 1;
 struct rum_directory_entry entry = {
     .version = RUM_FS_ABI_VERSION, .size = sizeof entry
@@ -119,8 +119,8 @@ previous directory. Processes inherit their creator's directory independently.
 The same [path rules](filesystems.md#path-rules) apply to every filesystem call:
 255 path bytes, 63 component bytes and 16 names below a mount root. FAT names
 use uppercase-compatible 8.3 spelling. Repeated separators and `.` are accepted;
-`..` cannot escape `/disk`. Use an absolute `/` path to return to RAM from disk.
-No valid disk means paths inside `/disk` return `-RUM_ENODEV`.
+`..` cannot escape `/`. Use an absolute `/` path to return to RAM from disk.
+No valid disk means paths inside `/` return `-RUM_ENODEV`.
 
 `rum_mkdir(path)` creates one disk directory; missing parents are not created.
 `rum_remove(path)` deletes a regular file or an empty directory. Removal or

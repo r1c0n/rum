@@ -36,7 +36,7 @@ userspace has stopped and recovery has reclaimed its children. See
 | `Processes` | Published user-process records and their private user resources |
 | `Lifecycle` | Created, exited, reaped, and actual context-switch totals |
 | `Heap` | Live payload, mapped capacity, reusable space, and allocation count |
-| `RAM files` | Current file count and total payload bytes |
+| `Filesystem` | Mounted volumes and open references |
 
 Each task entry also shows whether its stack and directory are owned or
 borrowed. Kernel tasks have PID zero. A published process has a positive PID,

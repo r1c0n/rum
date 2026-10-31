@@ -157,10 +157,9 @@ user: $(USER_ASSETS)
 test-user: user
 	python3 tests/user-elf-test.py --cross-prefix $(CROSS_PREFIX)
 
-.PHONY: test-system-volume
-test: test-system-volume
-test-system-volume: iso
-	python3 tests/system-volume-qemu-test.py --qemu $(QEMU)
+.PHONY: test-system-disk
+test-system-disk: iso
+	python3 tests/system-disk-test.py --qemu $(QEMU)
 
 build/arch/i386/gdt.o: arch/i386/gdt.c Makefile
 	@mkdir -p $(@D)
@@ -238,25 +237,19 @@ create-disk:
 panic: build/tests/fault-ud.elf
 	$(QEMU) -m 64M -kernel $< -serial stdio -no-reboot -no-shutdown
 
-test: test-host test-user test-package test-block build/tests/recovery.iso $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PROCESS_FAULT_KERNELS) build/tests/syscall.elf build/tests/elf-loader.elf $(PAGING_KERNELS) build/tests/storage.elf build/tests/fs.elf build/tests/task.elf build/tests/task-fault.elf build/tests/task-double-fault.elf $(ABI_KERNELS)
-	python3 scripts/smoke-test.py --qemu $(QEMU)
 
 .PHONY: test-file-syscalls
-test: test-file-syscalls
 
 .PHONY: test-preemption
-test: test-preemption
 test-preemption: build/tests/preemption.elf build/tests/preemption.iso build/tests/timer-test
 	./build/tests/timer-test
 	python3 tests/preemption-qemu-test.py --qemu $(QEMU)
 
 .PHONY: test-lifecycle
-test: test-lifecycle
 test-lifecycle: build/tests/lifecycle.elf build/tests/lifecycle.iso build/tests/lifecycle-ids.elf build/tests/lifecycle-ids.iso
 	python3 tests/lifecycle-qemu-test.py --qemu $(QEMU)
 
 .PHONY: test-sleep
-test: test-sleep
 test-sleep: build/tests/waits.elf build/tests/waits.iso build/tests/sleep.elf build/tests/sleep.iso build/tests/timer-test
 	./build/tests/timer-test
 	python3 tests/sleep-qemu-test.py --qemu $(QEMU)
@@ -270,7 +263,6 @@ test-host: build/tests/session-test
 .PHONY: test-console-sessions
 .PHONY: test-process-tools
 .PHONY: test-integration-stress
-test: test-integration-stress
 test-integration-stress: build/tests/integration.elf build/tests/integration.iso
 	python3 tests/integration-stress-test.py --qemu $(QEMU)
 
@@ -296,10 +288,8 @@ build/tests/integration.iso: build/tests/integration.elf Makefile
 	printf 'set timeout=0\nmenuentry "rum integration stress" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/integration-isodir/boot/grub/grub.cfg
 	grub-mkrescue -o $@ build/integration-isodir
 
-test: test-process-tools
 test-process-tools: all
 	python3 tests/process-tools-test.py --qemu $(QEMU)
-test: test-console-sessions
 test-console-sessions: all build/tests/console.elf build/tests/console.iso build/tests/console-supervisor.iso
 	python3 tests/console-qemu-test.py --qemu $(QEMU)
 
@@ -436,13 +426,11 @@ build/tests/process-syscall.elf: build/tests/process-syscall-kernel.o build/test
 	grub-file --is-x86-multiboot $@
 
 .PHONY: test-userspace-shell
-test: test-userspace-shell
 test-userspace-shell: all build/tests/process-syscall.elf
 	python3 tests/process-syscall-qemu-test.py --qemu $(QEMU)
 	python3 tests/userspace-shell-test.py --qemu $(QEMU)
 
 .PHONY: test-release-integration
-test: test-release-integration
 test-release-integration: all build/tests/readonly.iso test-package
 	python3 tests/release-integration-test.py --qemu $(QEMU)
 
@@ -706,7 +694,6 @@ test-host: test-fat16-write-host
 .PHONY: test-fat16-write-host
 test-fat16-write-host: build/tests/fat16-write-test
 	python3 tests/fat16-write-host-test.py
-test: test-fat16-write
 .PHONY: test-fat16-write
 test-fat16-write: test-fat16-write-host build/tests/fat16-write.elf
 	python3 tests/fat16-write-qemu-test.py --qemu $(QEMU) --ram 16 --faults
@@ -715,7 +702,6 @@ test-fat16-write: test-fat16-write-host build/tests/fat16-write.elf
 TEST_DEPENDENCIES += build/tests/fat16-write-kernel.d build/tests/fat16-write-checks.d
 build/tests/fat16-write.elf: build/tests/fat16-write-kernel.o build/tests/fat16-write-checks.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
-test: test-fat16
 .PHONY: test-fat16
 test-fat16: test-fat16-host build/tests/fat16.elf iso
 	python3 tests/fat16-qemu-test.py --qemu $(QEMU) --ram 16
@@ -754,6 +740,7 @@ test-host: build/tests/block-test build/tests/console-test build/tests/memory-te
 	./build/tests/layout-test
 	./build/tests/frame-test
 	./build/tests/abi-test
+	python3 tests/test-runner-test.py
 	python3 tests/disk-tools-test.py
 
 doctor:
@@ -777,3 +764,8 @@ prepare-disk: user
 
 .PHONY: test-build
 test-build: user iso build/tests/recovery.iso $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PROCESS_FAULT_KERNELS) build/tests/syscall.elf build/tests/elf-loader.elf $(PAGING_KERNELS) build/tests/storage.elf build/tests/fs.elf build/tests/task.elf build/tests/task-fault.elf build/tests/task-double-fault.elf $(ABI_KERNELS) build/tests/preemption.elf build/tests/preemption.iso build/tests/timer-test build/tests/lifecycle.elf build/tests/lifecycle.iso build/tests/lifecycle-ids.elf build/tests/lifecycle-ids.iso build/tests/waits.elf build/tests/waits.iso build/tests/sleep.elf build/tests/sleep.iso build/tests/session-test build/tests/integration.elf build/tests/integration.iso all build/tests/console.elf build/tests/console.iso build/tests/console-supervisor.iso build/tests/file-syscall.elf build/tests/process-syscall.elf build/tests/readonly.iso build/tests/block-test build/tests/ata-test build/tests/block.elf build/tests/path-test build/tests/fs-test build/tests/fat16-test build/tests/fat16-write-test build/tests/fat16-write.elf build/tests/fat16.elf build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
+
+TEST_JOBS ?= 4
+.PHONY: test
+test: test-build
+	python3 scripts/test.py --qemu $(QEMU) --jobs $(TEST_JOBS) --cross-prefix $(CROSS_PREFIX)

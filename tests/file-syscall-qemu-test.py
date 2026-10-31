@@ -74,6 +74,8 @@ def main():
         source = Path(temporary) / "source"
         source.write_bytes(b"persistent\r\n\0")
         images.command("mcopy", "-i", str(disk), str(source), "::/DOCS/NOTE.TXT")
+        source.write_bytes(bytes((i * 17 + 3) & 255 for i in range(4097)))
+        images.command("mcopy", "-i", str(disk), str(source), "::/DATA.BIN")
         before = disk.read_bytes()
         run(args.qemu, args.ram, "r", disk)
         assert disk.read_bytes() == before

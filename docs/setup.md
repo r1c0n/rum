@@ -13,7 +13,9 @@ From the repository directory:
 ```powershell
 .\rum.ps1 setup
 .\rum.ps1 doctor
-.\rum.ps1 run
+.\rum.ps1 build
+.\rum.ps1 prepare-disk -DiskImage build\rum-system.raw
+.\rum.ps1 run -DiskImage build\rum-system.raw
 ```
 
 Setup installs Ubuntu packages using `sudo`, builds the cross-compiler, and
@@ -25,7 +27,9 @@ If PowerShell blocks script execution, invoke the launcher with a policy
 override for that process:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\rum.ps1 run
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\rum.ps1 build
+.\rum.ps1 prepare-disk -DiskImage build\rum-system.raw
+.\rum.ps1 run -DiskImage build\rum-system.raw
 ```
 
 ## Manual setup in Ubuntu
@@ -97,7 +101,7 @@ for commands, supported sizes and the current read-only IDE limitation.
 Normal builds also produce stripped assets in `build/user/system/` and symbol-rich
 executables/maps in `build/user/debug/`. Use `.\rum.ps1 user` in PowerShell to
 build those separately. See [User ABI and executables](user-abi.md) for the
-runtime and loading contract. These programs live in `build/rum-system.img`,
+runtime and loading contract. These programs live in `build/rum-system.raw`,
 mounted at `/rum`; the ISO includes that image automatically. Launch a program
 by name, or use `run <program> [args]` to report its exit status.
 
@@ -160,3 +164,7 @@ make doctor
 - [OSDev Bare Bones](https://wiki.osdev.org/Bare_Bones)
 - [GCC Cross-Compiler](https://wiki.osdev.org/GCC_Cross-Compiler)
 - [Multiboot v1 specification](https://www.gnu.org/software/grub/manual/multiboot/multiboot.html)
+
+## System disk
+
+A prepared FAT16 disk supplies `/RUM` programs and root files. The ISO alone opens recovery. See [system disk](system-volume.md) for creation, attachment and safe handling of existing images.

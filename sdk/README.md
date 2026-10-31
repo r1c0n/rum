@@ -16,7 +16,8 @@ runtime, and access operating-system services through syscalls.
 From the repository root, run `make user` or `./rum.ps1 user`. This builds the
 SDK runtime and every program in the explicit Makefile manifest. Debug ELFs and
 maps go to `build/user/debug/`; stripped assets go to `build/user/system/` and
-are packed into `build/rum-system.img`.
+are listed in `build/user/programs.txt`. `prepare-disk` installs that manifest
+into `/RUM` on a newly created FAT16 image. Existing disks are not changed by a build.
 
 Add an application at `apps/name/main.c` and add its name to `APP_PROGRAMS`.
 For a small API example, add `sdk/examples/name.c` and list it in `SDK_EXAMPLES`.

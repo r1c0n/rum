@@ -2,7 +2,7 @@
 
 rum builds freestanding i386 user executables with a separate startup, runtime,
 linker script, and public include tree. The kernel validates and maps stripped
-ELF files from the system volume, RAM or FAT16, constructs their initial stacks, enters the
+ELF files from the root FAT16 volume, constructs their initial stacks, enters the
 prepared process in ring 3, recovers user faults, and serves ABI version 1
 through the production syscall dispatcher. The normal shell launches one
 foreground process with `run`, waits for its result, and reclaims its complete
@@ -98,9 +98,9 @@ kernel stack, and task record.
 
 ## Loading an executable
 
-`make user` packs stripped executables into `build/rum-system.img`. GRUB loads
+`make user` packs stripped executables into `build/rum-system.raw`. GRUB loads
 it separately from the kernel and it mounts read-only at `/rum`. No userspace
-ELF is linked into `rum.elf`. Ordinary root files still come from `assets/ramfs/`.
+ELF is linked into `rum.elf`. Ordinary root files still come from `assets/disk/`.
 Symbol-rich ELFs and linker maps stay under `build/user/debug/`.
 
 The common filesystem loader copies a bounded executable image before applying
@@ -240,7 +240,7 @@ nonexecutable GNU-stack descriptor. The loader zeroes BSS, segment padding, and
 unused stack bytes before publication. i386 non-PAE paging has no NX bit, so
 rejecting writable executable input remains a software policy.
 
-Each stripped asset must also fit the RAM filesystem's 64 KiB per-file limit.
+Each stripped executable must fit `RUM_ELF_IMAGE_LIMIT` (64 KiB). This loader bound is independent of FAT16 file sizes.
 The debug and stripped ELFs are compared to ensure stripping did not change the
 load image.
 
@@ -257,7 +257,7 @@ clear.
 ## Troubleshooting
 
 - **`run` cannot find a program:** use `ls` to confirm that `<name>.elf` is in the
-  RAM filesystem, then rebuild with the name in `USER_PROGRAMS`.
+  `/RUM` directory. Rebuild the program and install it on the disk; rebuilding alone does not update existing images.
 - **`run` rejects an existing file:** the file is not a supported static i386 ELF
   or failed the runtime validator. Inspect the symbol-rich build with `readelf`.
 - **A read appears to stop the process:** standard input is blocking. Type a

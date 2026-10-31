@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import socket
 import subprocess
@@ -65,7 +66,7 @@ def run(qemu, ram, label, arguments, marker, case=None):
                     if case and case["phase"] == "valid":
                         symbols = smoke.elf_symbols(ROOT / "build/tests/fat16.elf")
                         data = smoke.dump_ram(stream, symbols["fat16_test_data"], 10037, ARTIFACTS / f"{label}.bytes")
-                        image = ROOT / "build/tests/fat16" / case["image"]
+                        image = Path(os.environ.get("RUM_TEST_FAT_IMAGES", ROOT / "build/tests/fat16")) / case["image"]
                         expected = subprocess.run(["mcopy", "-i", str(image), "::/BINARY.BIN", "-"],
                                                   check=True, capture_output=True).stdout
                         assert data == expected, f"{label}: guest binary bytes differ from host FAT read"
@@ -111,7 +112,7 @@ def main():
     # DrvFs latency can consume a bounded ATA poll even for small reads while
     # parallel builds run. Keep guest I/O on Linux's temporary filesystem and
     # compare both staged and source images; never retry a failed guest check.
-    source = ROOT / "build/tests/fat16"
+    source = Path(os.environ.get("RUM_TEST_FAT_IMAGES", ROOT / "build/tests/fat16"))
     with tempfile.TemporaryDirectory(prefix="rum-fat16-read-volume-") as temporary:
         directory = Path(temporary)
         (directory / "manifest.json").write_bytes((source / "manifest.json").read_bytes())

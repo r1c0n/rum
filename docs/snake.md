@@ -32,33 +32,18 @@ press R to start again or Q to leave.
 
 ## Best score
 
-The best score for the current boot is stored in the RAM file `snake.score`.
-The game saves it when you quit, restart, lose, or win. Read it from the shell:
+Snake saves its best score in `/SNAKE.DAT` on the root disk when you quit,
+restart, lose or win. The file contains decimal digits and a newline. It is
+read again when the next game starts and survives VM restarts.
 
 ```text
-> cat snake.score
+cat /SNAKE.DAT
 ```
 
-The file contains decimal digits and may end with a newline. The largest valid
-score is 637. Invalid existing contents are ignored.
-
-Because the filesystem is RAM-only, the score resets after reboot unless you
-place a valid `snake.score` in `assets/ramfs/` and rebuild the ISO.
-
-If saving fails because the heap or RAM filesystem is full, the in-memory best
-score remains available and a later quit or restart retries the write. The old
-file is preserved by an unsuccessful replacement.
-
-## Troubleshooting
-
-- **Arrow keys do nothing:** use W, A, S, and D.
-- **A turn was ignored:** one turn is accepted per movement step, and direct
-  reversals are rejected.
-- **The score disappeared:** runtime scores do not persist across reboot.
-- **Q does not return immediately after a key burst:** queued keyboard input is
-  processed in order; wait for the foreground loop to consume it.
-- **The game cannot start:** a heap allocation failed. The shell remains usable;
-  remove RAM files or reboot to restore the initial state.
+Without a usable writable disk, Snake remains playable but cannot save a new
+best score. Failed saves leave the current game's best score in memory. Once
+storage is full or faulted, preserve the image and use host FAT tools to inspect
+or repair a copy rather than repeatedly trying writes.
 
 ## Contributor notes
 

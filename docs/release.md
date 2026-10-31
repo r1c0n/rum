@@ -20,7 +20,7 @@ for another installation. `--jobs` controls build parallelism. Tests run
 serially so separate QEMU guests do not compete for shared test artifacts.
 
 Results are saved in `build/release-check/<commit>-<time>/`: `result.json`,
-build/test logs, guest artifacts, `rum.elf`, `rum-system.img`, `rum.iso` and
+build/test logs, guest artifacts, `rum.elf`, `rum-system.raw`, `rum.iso` and
 `rum.zip`. A failed run records `passed: false` and exits unsuccessfully; its
 files are diagnostic artifacts, not a validated release. The source checkout,
 existing `build/` outputs and user disks are left in place.
@@ -31,7 +31,7 @@ For a focused storage/session check during development:
 make test-release-integration
 ```
 
-It boots the ISO and direct ELF with 16 and 64 MiB, writes `/disk/notes.txt`,
+It boots the ISO and direct ELF with 16 and 64 MiB, writes `/notes.txt`,
 quits QEMU and verifies identical bytes in a fresh guest and through `mcopy`.
 It also exercises no disk, rejected geometry, a forced read-only mount, media
 that fills during use, deletion/cluster reuse and disk read/write/flush errors.
@@ -134,8 +134,8 @@ Create and format a **new** image using [FAT16 setup](fat16.md). Attach it with
 `.\rum.ps1 run -DiskImage C:\path\image.raw`. In rum:
 
 ```text
-/> write /disk/notes.txt saved on the island
-/> cat /disk/notes.txt
+/> write /notes.txt saved on the island
+/> cat /notes.txt
 saved on the island
 ```
 
@@ -149,7 +149,7 @@ mdir -i /path/to/image.raw ::/
 
 Never edit or repair an image while it is attached to rum. FAT names use the
 supported uppercase 8.3 spelling; lowercase paths resolve to that spelling.
-RAM edits disappear on reboot, `/rum` stays read-only, and `/disk` is the
+RAM edits disappear on reboot, `/rum` stays read-only, and `/` is the
 persistent mount. See [paths](filesystems.md), [file syscalls](filesystem-syscalls.md)
 and [process syscalls](process-syscalls.md) for their public contracts.
 

@@ -95,7 +95,7 @@ and cancellation during construction and synchronous filesystem work.
 A separate test boots the normal kernel supervisor with a test shell that
 leaves a live sleeping child with open handles before exiting or faulting.
 Three generations must reach recovery with no processes or session references
-left; recovery commands, RAM files and Snake must still work. Tests use a
+left; recovery commands, diagnostics and Snake must still work. Tests use a
 separate boot archive and never attach or modify a developer disk. Logs are
 saved under `build/test-artifacts/console-sessions/`.
 

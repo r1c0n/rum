@@ -38,6 +38,12 @@ static void execute(char *line)
     char *tail = line, *argv[RUM_ABI_ARGUMENT_LIMIT];
     char *command = tool_word(&tail);
     if (!command) return;
+    /* Session controls must remain available if the disk can no longer load
+       a command. Both use the public exit ABI and require no filesystem I/O. */
+    if (equal(command, "exit") || equal(command, "recovery")) {
+        if (*tool_remainder(tail)) { tool_print("Usage: "); tool_print(command); tool_print("\n"); return; }
+        rum_exit(equal(command, "recovery") ? RUM_SHELL_RECOVERY_STATUS : 0);
+    }
     int background = equal(command, "start");
     unsigned slot = 0;
     if (background) {

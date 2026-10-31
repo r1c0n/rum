@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 
@@ -15,7 +16,7 @@ spec.loader.exec_module(images)
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--directory", type=Path, default=ROOT / "build/tests/fat16")
+    parser.add_argument("--directory", type=Path, default=Path(os.environ.get("RUM_TEST_FAT_IMAGES", ROOT / "build/tests/fat16")))
     parser.add_argument("--reuse", action="store_true", help="Use previously generated image fixtures")
     args = parser.parse_args()
     cases = json.loads((args.directory / "manifest.json").read_text()) if args.reuse else images.generate(args.directory)

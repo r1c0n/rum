@@ -219,6 +219,10 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     serial_writestring(" limit="); serial_number(memory.limit);
     serial_writestring(" directory="); serial_number(paging_directory_address(paging_kernel_space()));
     serial_writestring("\n");
+    struct heap_statistics heap = heap_stats();
+    serial_writestring("rum_heap_ok mapped="); serial_number(heap.mapped_bytes);
+    serial_writestring(" used="); serial_number(heap.used_bytes);
+    serial_writestring(" allocations="); serial_number(heap.allocations); serial_writestring("\n");
     terminal_set_color(VGA_LIGHT_CYAN, VGA_BLACK);
     print("  rum\n");
     terminal_set_color(VGA_WHITE, VGA_BLACK);

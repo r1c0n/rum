@@ -54,7 +54,7 @@ must be able to switch stacks while changing CR3. They remain supervisor-only.
 | User stack | 64 KiB plus a 4 KiB guard | User mapping API |
 | Arguments | 32 including `argv[0]` | Public ABI; launch path pending |
 | Argument strings | 4096 bytes including NULs | Public ABI; launch path pending |
-| RAM files | 64 files, 64 KiB each | RAM filesystem |
+| Executable images | 64 KiB | ELF loader |
 | Process handles | 32 including standard streams | Per-process table; files use slots 3–31 |
 
 Physical RAM or kernel metadata can run out before a policy limit is reached.
@@ -75,7 +75,7 @@ Callers must handle allocation failure without changing existing ownership.
 | Idle and double-fault stacks | Task system | Retained for kernel lifetime |
 | Task/process record | Fixed registry | Clear only after every owned resource is detached |
 | Shared kernel-table reference | Borrowing address space | Never frees the referenced kernel table |
-| RAM-file node and payload | RAM filesystem | Release on removal or atomic replacement |
+| FAT caches | FAT16 | Release on unmount |
 | Filesystem reference and backend pin | Open object or working-directory context | Close before removal, replacement, or unmount |
 
 An alias does not transfer ownership. `paging_unmap_page` removes a virtual

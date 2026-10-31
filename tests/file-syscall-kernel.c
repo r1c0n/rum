@@ -68,7 +68,8 @@ static void release_pages(uint32_t head)
 static void exercise(char mode, bool construction)
 {
     bool fault = mode == 'f' || mode == 'F', cancel = mode == 'c' || mode == 'C';
-    check(test_file_put("data.bin", pattern, sizeof pattern), "reset RAM fixture");
+    if (mode != 'd' && mode != 'r' && mode != 'F' && mode != 'C')
+        check(test_file_put("data.bin", pattern, sizeof pattern), "reset mock fixture");
     struct fs_statistics baseline = fs_stats();
     uint32_t pages = pmm_stats().free_pages;
     size_t heap_bytes = heap_stats().used_bytes;
