@@ -25,3 +25,23 @@ for failed in (None, "host", "preemption"):
         assert report["passed"] == (failed is None)
         assert len(report["suites"]) == (1 if failed == "host" else 17)
 print("PASS: runner success, host prerequisite failure and guest failure reports")
+
+# Check the optimized byte-range oracle against an independent sector oracle,
+# including changes immediately before/after a requested write and the BPB edge.
+spec = importlib.util.spec_from_file_location("fat_host", ROOT / "tests/fat16-write-host-test.py")
+fat_host = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fat_host)
+before = bytes(20 * 512)
+written = {1, 7, 8, 15}
+for sector in range(20):
+    for byte in (0, 511):
+        after = bytearray(before)
+        after[sector * 512 + byte] = 1
+        with patch.object(fat_host.images.fat, "geometry", return_value={"reserved": 1, "total": 16}):
+            try:
+                fat_host.canaries(before, after, [f"W {lba}" for lba in written])
+                accepted = True
+            except AssertionError:
+                accepted = False
+        assert accepted == (sector in written), (sector, byte)
+print("PASS: byte-range canaries detect unrequested, reserved and out-of-volume changes")

@@ -207,7 +207,7 @@ another waiter may consume the resource first.
 ## Validation
 
 Run `make test` after changing these contracts. The task fixture in
-`tests/task-kernel.c` runs through the smoke suite at 16 and 64 MiB and covers:
+`tests/task-kernel.c` runs through the smoke suite at 64 MiB and covers:
 
 - Nested switch holds, rejected unmatched releases, and IRQ-context rejection.
 - Attempts to yield and wait inside filesystem and block callbacks.
@@ -222,7 +222,7 @@ validation, cancellation during input and storage work, nested foreground
 children, and repeated exit/fault cleanup.
 
 For a focused preemption check, run `make test-preemption`. It boots the fixture
-through direct ELF and GRUB ISO at 16 and 64 MiB. Two CPU-bound ring-3 programs
+through direct ELF at 16 MiB and GRUB ISO at 64 MiB. Two CPU-bound ring-3 programs
 never yield during their progress loops; a kernel monitor checks that each
 advances during every round and receives a full slice. It checks private
 registers, segments, flags including DF and CF, separate physical pages,

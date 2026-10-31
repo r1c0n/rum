@@ -80,7 +80,7 @@ See [Console sessions](console-sessions.md) for shutdown and input ownership.
 
 ## Tests
 
-`make test-process-tools` boots through direct ELF and GRUB ISO at 16 and 64 MiB.
+`make test-process-tools` boots through direct ELF and GRUB ISO at ELF/16 MiB and ISO/64 MiB.
 It runs CPU-bound children while executing commands, verifies public listing and
 parent relationships, checks scoped cancellation and invalid numeric arguments,
 and tests sleep cancellation. It checks completion without keyboard activity,

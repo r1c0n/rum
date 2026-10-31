@@ -17,7 +17,9 @@ runs the complete host and QEMU suite, validates the ZIP and boots the ISO
 extracted from that ZIP. It uses the repository's cross-compiler by default;
 pass `--cross-prefix /path/to/i686-elf-` or `--qemu /path/to/qemu-system-i386`
 for another installation. `--jobs` controls build parallelism. Tests run
-serially so separate QEMU guests do not compete for shared test artifacts.
+with two bounded workers after shared builds, fixtures and packaging finish.
+Per-suite logs and timings are included in `test-artifacts/suite/`; see
+[testing](testing.md).
 
 Results are saved in `build/release-check/<commit>-<time>/`: `result.json`,
 build/test logs, guest artifacts, `rum.elf`, `rum-system.img`, `rum.iso` and
@@ -60,7 +62,7 @@ make test-integration-stress
 ```
 
 This uses disposable FAT16 images and a test-only kernel/program pair. Each of
-four boot/RAM combinations runs 16 rounds and 80 processes: two CPU workers,
+two representative boot/RAM configurations runs 16 rounds and 80 processes: two CPU workers,
 file writers/readers, a sleeper and a foreground reader. It checks independent
 physical mappings at equal virtual addresses, active CR3/TSS agreement and
 private canaries while scheduling continues. Parent exit, fault and Ctrl+C leave
