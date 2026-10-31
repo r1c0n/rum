@@ -667,10 +667,14 @@ def stop_at_idle(stream):
 
 def guest_keyboard(stream, serial):
     def send(*keys):
-        qmp_command(stream, "send-key", {
-            "keys": [{"type": "qcode", "data": key} for key in keys], "hold-time": 20
-        })
-        time.sleep(0.07)  # Release modifiers before the next input.
+        # Deliver real PS/2 key transitions with explicit releases. send-key's
+        # asynchronous release timer required a 70 ms sleep per character and
+        # could overlap modifiers; this request finishes with all keys up.
+        events = [{"type": "key", "data": {
+            "down": down, "key": {"type": "qcode", "data": key}}}
+            for down, sequence in ((True, keys), (False, reversed(keys)))
+            for key in sequence]
+        qmp_command(stream, "input-send-event", {"events": events})
 
     def expect(suffix):
         deadline = time.monotonic() + 3
@@ -751,7 +755,9 @@ def keyboard_test(stream, symbols, artifacts, mode, serial):
         raise RuntimeError("Keyboard scrolling damaged the prompt or timer status row")
     counts = struct.unpack("<16I", dump_ram(stream, symbols["irq_counts"], 64,
                                           artifacts / f"{mode}-irq-counts.bin"))
-    if counts[0] < 100 or counts[1] < 50 or any(counts[2:]):
+    # PIT progress is measured separately in timer_test; typing no longer
+    # imposes a minimum one-second duration on this keyboard scenario.
+    if counts[0] < 2 or counts[1] < 50 or any(counts[2:]):
         raise RuntimeError(f"Unexpected hardware IRQ delivery: {counts}")
     dropped = struct.unpack("<I", dump_ram(stream, symbols["dropped"], 4,
                                          artifacts / f"{mode}-keyboard-dropped.bin"))[0]

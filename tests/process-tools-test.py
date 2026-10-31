@@ -13,21 +13,7 @@ spec.loader.exec_module(shell)
 shell.ARTIFACTS = ROOT / "build/test-artifacts/process-tools"
 
 
-class Console(shell.Console):
-    def command(self, text, expected=None):
-        start = self.serial.stat().st_size
-        self.type(text + "\n")
-        deadline = time.monotonic() + 20
-        while True:
-            output = self.serial.read_bytes()[start:].decode(errors="replace")
-            if text + "\r\n" in output and output.endswith("> "):
-                break
-            assert "rum kernel panic" not in output and time.monotonic() < deadline, (text, output)
-            time.sleep(0.02)
-        output = re.sub(r"(?:/[^\r\n> ]*)?> $", "> ", output)
-        if expected is not None:
-            assert expected in output, (text, expected, output)
-        return output
+Console = shell.Console
 
 
 def launch(console, text):

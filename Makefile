@@ -257,6 +257,7 @@ panic: build/tests/fault-ud.elf
 
 .PHONY: test-preemption
 test-preemption: build/tests/preemption.elf build/tests/preemption.iso build/tests/timer-test
+	./build/tests/timer-test
 	python3 tests/preemption-qemu-test.py --qemu $(QEMU)
 
 .PHONY: test-lifecycle
@@ -265,6 +266,7 @@ test-lifecycle: build/tests/lifecycle.elf build/tests/lifecycle.iso build/tests/
 
 .PHONY: test-sleep
 test-sleep: build/tests/waits.elf build/tests/waits.iso build/tests/sleep.elf build/tests/sleep.iso build/tests/timer-test
+	./build/tests/timer-test
 	python3 tests/sleep-qemu-test.py --qemu $(QEMU)
 
 build/tests/session-test: tests/session-test.c kernel/process/session.c kernel/include/rum/session.h $(LAYOUT_HEADERS) $(ABI_HEADERS) tests/include/rum/cpu.h Makefile
@@ -460,6 +462,8 @@ test-package: iso
 
 .PHONY: test-block
 test-block: build/tests/block-test build/tests/ata-test build/tests/block.elf iso
+	./build/tests/block-test
+	./build/tests/ata-test
 	python3 tests/disk-tools-test.py --boot-output-checks
 	python3 tests/block-qemu-test.py --qemu $(QEMU) --ram 16
 
