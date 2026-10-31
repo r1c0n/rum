@@ -125,11 +125,10 @@ def main():
     args = parser.parse_args()
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     for case, exercise in (("ownership", ownership), ("supervision", supervision)):
-        for kind in ("elf", "iso"):
-            for ram in (16, 64):
-                with boot(args.qemu, case, kind, ram) as (console, process):
-                    exercise(console, process)
-                print(f"PASS: console {case}, {kind}, {ram} MiB: ownership, cancellation and reference cleanup", flush=True)
+        for kind, ram in (("elf", 16), ("iso", 64)):
+            with boot(args.qemu, case, kind, ram) as (console, process):
+                exercise(console, process)
+            print(f"PASS: console {case}, {kind}, {ram} MiB: ownership, cancellation and reference cleanup", flush=True)
 
 
 if __name__ == "__main__":

@@ -153,7 +153,7 @@ make test
 ```
 
 `test-block` runs API tests, a scripted port model using the production ATA
-driver, image-tool tests and QEMU tests at 16 and 64 MiB. The host creates known
+driver, image-tool tests and QEMU tests at 16 MiB. The host creates known
 sector patterns, compares exact guest memory dumps, writes first/last sectors
 and a 257-sector range, checks every untouched sector, and rereads the result
 after a separate boot. Invalid ranges, zero counts and overflow requests must

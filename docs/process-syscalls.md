@@ -344,10 +344,10 @@ launches, competing readers, child faults, failed loads, cancellation during
 construction and filesystem work, and output from simultaneous writers. It also
 boots the normal supervisor through three shell generations with live children
 and verifies recovery with zero remaining session references. Both boot paths
-and 16/64 MiB are covered; see [Console sessions](console-sessions.md#testing).
+and 16/64 MiB are covered across the suite; see [Console sessions](console-sessions.md#testing).
 
 `make test-sleep` checks the actual PIT deadline scan, kernel event waits and
-public sleep/yield calls through ELF and GRUB ISO boot at 16 and 64 MiB. It covers
+public sleep/yield calls through ELF and GRUB ISO boot at ELF/16 MiB and ISO/64 MiB. It covers
 zero and maximum durations, conversion overflow, clock wrap and a deadline of
 zero, event/timeout races, broadcast waits, unrelated sleepers, slot reuse,
 cancellation before registration and after expiry, and repeated sleep/exit
@@ -356,7 +356,7 @@ must return to baseline; logs are under `build/test-artifacts/sleep/`.
 
 `make test-lifecycle` runs the public SDK calls through real ring-3 programs
 and separately checks identity exhaustion. Both fixtures boot through ELF and
-GRUB ISO at 16 and 64 MiB. Tests cover packet/flag validation, cross-page
+GRUB ISO at ELF/16 MiB and ISO/64 MiB. Tests cover packet/flag validation, cross-page
 structures and buffers, failed loads and construction, nohang and any-child
 waits, retained and stale results, termination permissions, delegated shell
 control, parent exit/fault/cancellation, process-limit pressure and cleanup.

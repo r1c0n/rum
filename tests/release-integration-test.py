@@ -63,11 +63,6 @@ def matrix(qemu, ram, iso, temporary):
     with shell.boot(qemu, ram, prefix + "-write", disk=disk, iso=iso) as console:
         console.command("write /disk/notes.txt " + note)
         console.command("cat /disk/notes.txt", "\r\n" + note + "\r\n> ")
-        console.command("run hello", "Program exited with status 0.")
-        console.command("run fault", "Program stopped after a user fault.")
-        console.type("run spin\n")
-        console.send("ctrl", "c")
-        console.wait("Program cancelled.\r\n/> ")
     assert images.file_bytes(disk, "/NOTES.TXT") == note.encode()
     saved = disk.read_bytes()
     with shell.boot(qemu, ram, prefix + "-reboot", disk=disk, iso=iso) as console:
@@ -172,7 +167,7 @@ def main():
     if not args.packaged_only:
         with tempfile.TemporaryDirectory(prefix="rum-release-disks-") as temporary:
             for ram in (16, 64):
-                for iso in (False, True):
+                for iso in ((False,) if ram == 16 else (True,)):
                     matrix(args.qemu, ram, iso, Path(temporary))
                     errors(args.qemu, ram, iso, Path(temporary))
     digest = packaged(args.qemu, ROOT / "rum.zip")

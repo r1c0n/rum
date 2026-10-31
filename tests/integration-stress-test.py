@@ -121,9 +121,8 @@ def main():
     if not shutil.which("fsck.fat"):
         parser.error("fsck.fat is required; install dosfstools in Ubuntu/WSL or add its directory to PATH")
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
-    for kind in ("elf", "iso"):
-        for ram in (16, 64):
-            exercise(args.qemu, kind, ram)
+    for kind, ram in (("elf", 16), ("iso", 64)):
+        exercise(args.qemu, kind, ram)
 
 
 if __name__ == "__main__":

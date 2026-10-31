@@ -133,9 +133,10 @@ Tests cover game rules,
 shell input, memory allocation, RAM files, boot checks, CPU faults, ring-3
 syscalls, foreground process outcomes, cleanup, and device interrupts. Storage
 tests also check exact sector bytes, persistence, canaries and injected I/O
-failures with disposable images. Every
-isolated QEMU case runs with 16 and 64 MiB. The suite also boots the GRUB ISO
-and direct ELF at 16, 64, 256, and 1152 MiB. Logs, memory dumps, and screenshots
+failures with disposable images. Independent suites run with four workers by
+default; use `make test TEST_JOBS=1` on a constrained host. Duplicate boot/RAM
+combinations are omitted; the suite still boots the GRUB ISO and direct ELF at
+16, 64, 256, and 1152 MiB. See [testing](docs/testing.md) for coverage and timings. Logs, memory dumps, and screenshots
 are saved in `build/test-artifacts/`.
 
 ## Packaging

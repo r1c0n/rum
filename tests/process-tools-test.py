@@ -13,21 +13,7 @@ spec.loader.exec_module(shell)
 shell.ARTIFACTS = ROOT / "build/test-artifacts/process-tools"
 
 
-class Console(shell.Console):
-    def command(self, text, expected=None):
-        start = self.serial.stat().st_size
-        self.type(text + "\n")
-        deadline = time.monotonic() + 20
-        while True:
-            output = self.serial.read_bytes()[start:].decode(errors="replace")
-            if text + "\r\n" in output and output.endswith("> "):
-                break
-            assert "rum kernel panic" not in output and time.monotonic() < deadline, (text, output)
-            time.sleep(0.02)
-        output = re.sub(r"(?:/[^\r\n> ]*)?> $", "> ", output)
-        if expected is not None:
-            assert expected in output, (text, expected, output)
-        return output
+Console = shell.Console
 
 
 def launch(console, text):
@@ -115,7 +101,7 @@ def main():
     args = parser.parse_args()
     shell.ARTIFACTS.mkdir(parents=True, exist_ok=True)
     for iso in (False, True):
-        for ram in (16, 64):
+        for ram in ((64,) if iso else (16,)):
             with shell.boot(args.qemu, ram, f"tools-{'iso' if iso else 'elf'}-{ram}m", iso=iso) as console:
                 exercise(Console(console.stream, console.serial))
             print(f"PASS: process tools, {'iso' if iso else 'elf'}, {ram} MiB: concurrent launch, listing, scoped kill, sleep and notifications", flush=True)

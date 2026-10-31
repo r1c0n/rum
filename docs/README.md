@@ -144,3 +144,5 @@ new commits: `type(scope): description`, for example
 Use `test`, `docs`, `refactor` and `build` for changes in those areas. Commit
 working pieces as they become reviewable; keep each pull request focused on one
 roadmap phase.
+
+See [testing](testing.md) for worker limits, retained coverage and per-suite timings.

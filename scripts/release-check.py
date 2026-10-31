@@ -66,12 +66,8 @@ def main():
             # A new temporary tree has no stale objects, staged user ELFs or disk images.
             make = ["make", f"-j{args.jobs}", f"CROSS_PREFIX={args.cross_prefix}", f"QEMU={args.qemu}"]
             run(make + ["all"], work, output / "build.log")
-            # Serial test order keeps QEMU and shared packaging artifacts independent.
-            run(["make", "-j1", f"CROSS_PREFIX={args.cross_prefix}", f"QEMU={args.qemu}", "test"],
-                work, output / "tests.log")
-            run([sys.executable, "tests/package-test.py"], work, output / "package.log")
-            run([sys.executable, "tests/release-integration-test.py", "--qemu", args.qemu, "--packaged-only"],
-                work, output / "packaged-boot.log")
+            # The suite builds once and bounds independent QEMU workers itself.
+            run(make + ["test"], work, output / "tests.log")
             report["passed"] = True
         finally:
             artifacts = work / "build/test-artifacts"

@@ -177,7 +177,7 @@ releases its temporary directory reference. Filesystem callbacks run in task
 context with interrupts enabled; IRQ handlers only request cancellation or wake
 tasks. Callbacks never run inside handle-publication updates.
 
-Run `make test-file-syscalls` for real ring-3 tests at 16 and 64 MiB, including
+Run `make test-file-syscalls` for real ring-3 tests at 16 MiB, including
 invalid packets, cross-page buffers, 64-bit seek boundaries, partial-error
 delivery, 29-file exhaustion, open-object removal and repeated exit/fault/cancel
 resource baselines. The test also mounts host-built FAT16 images and compares
