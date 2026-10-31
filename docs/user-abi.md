@@ -98,14 +98,13 @@ kernel stack, and task record.
 
 ## Loading an executable
 
-`make user` packs stripped executables into `build/rum-system.raw`. GRUB loads
-it separately from the kernel and it mounts read-only at `/rum`. No userspace
-ELF is linked into `rum.elf`. Ordinary root files still come from `assets/disk/`.
-Symbol-rich ELFs and linker maps stay under `build/user/debug/`.
+`make user` builds stripped executables in `build/user/system/` and writes the
+installation manifest. `prepare-disk` installs them in `/RUM` on the FAT16 root.
+No user ELF is linked into the kernel or loaded as a boot module. Symbol-rich
+ELFs and linker maps stay under `build/user/debug/`.
 
 The common filesystem loader copies a bounded executable image before applying
-`elf_load_process`. The legacy `elf_load_ramfs` helper remains for RAM fixtures
-and recovery files. The loader validates the complete ELF and argument
+`elf_load_process`. Test fixtures load byte buffers through the same validator. The loader validates the complete ELF and argument
 packet before creating an address space. It then allocates distinct zeroed pages
 for each LOAD segment, copies only file-backed bytes, applies final read/write
 permissions, maps the fixed 64 KiB stack, and builds `argc`, `argv`, and an empty

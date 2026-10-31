@@ -4,7 +4,7 @@ Run `make -j4 test` in Ubuntu/WSL, or `.\rum.ps1 test` on Windows. The suite
 builds its kernels and programs once, runs host checks and creates fixtures,
 then runs independent guest suites with four workers. Each worker runs at most
 one QEMU instance. Use `make test TEST_JOBS=2` or `TEST_JOBS=1` on a slower
-machine. The allowed worker range is 1–4. Build parallelism (`-j`)
+machine. The allowed worker range is 1â€“4. Build parallelism (`-j`)
 and guest parallelism (`TEST_JOBS`) are separate settings.
 
 ## Coverage
@@ -28,7 +28,7 @@ changing one subsystem; see the relevant subsystem documentation.
   integration workloads use **ELF at 16 MiB and ISO at 64 MiB**, rather than
   repeating every assertion across a four-way Cartesian product.
 * Block, FAT and file-syscall fixtures run at 16 MiB. Production shell tests
-  cover both mounts, both loaders, child faults/cancellation and recovery.
+  cover the persistent root, installed programs, both loaders, child faults/cancellation and recovery.
 * Storage integration covers persistence across separate boots, malformed,
   missing, read-only and full disks, and injected read/write/flush errors on
   the representative ELF/16 MiB and ISO/64 MiB configurations.

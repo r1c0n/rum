@@ -85,7 +85,7 @@ that frame remains responsible for it.
 ## Process publication and cleanup
 
 A process address space is built while it is inactive and owned by the caller.
-`elf_load_process` or `elf_load_ramfs` validates the complete image and argument
+`elf_load_process` validates the complete image and argument
 packet, maps program and stack pages, and returns that private space with a
 trusted CPU frame. Everything must be complete before `task_create_process` is
 called.

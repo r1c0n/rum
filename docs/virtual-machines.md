@@ -87,7 +87,7 @@ The quickest setup is the generated preset:
 
 Keep `rum.vmx`, `rum.iso`, and `rum-data.vmdk` in the same directory. The preset
 uses one CPU, 64 MiB RAM, BIOS firmware, an IDE optical drive at **IDE 0:0**,
-and the writable data disk at **IDE 1:0**. It also writes COM1 output to
+and the writable system disk at **IDE 1:0**. It also writes COM1 output to
 `vmware-serial.log` for troubleshooting.
 
 For a manually created VM, select **Other / Other (32-bit)** and install the
@@ -163,17 +163,19 @@ At rum's prompt:
 
 ```text
 /> ls /
+RUM/
 README.TXT
+WELCOME.TXT
 /> cat /README.TXT
-Hello from rum's installed system disk!
-This file survives VM restarts.
+rum OS v0.5.0
+...
 /> write /NOTE.TXT hello from rum
 /> cat /NOTE.TXT
 hello from rum
 ```
 
 Wait for the prompt after the write, power off the VM, and start it again with
-the same ISO and data disk attached. `cat /NOTE.TXT` should recover the
+the same ISO and system disk attached. `cat /NOTE.TXT` should recover the
 same text. rum has no guest shutdown command yet; a completed filesystem write
 flushes before returning success. FAT16 is not journaled, so avoid powering off
 while a file operation is active. See [FAT16 write guarantees](fat16.md).
@@ -186,7 +188,7 @@ access use the emulated legacy hardware directly.
 
 - **No bootable medium:** attach the ISO, enable connection at power-on, use
   BIOS, and put the optical drive first. The system disk requires the ISO to start the kernel.
-- **The shell works but `/` is unavailable:** verify IDE **1:0 / Secondary
+- **The filesystem is unavailable in recovery:** verify IDE **1:0 / Secondary
   Master** and use the prepared FAT16 image. A blank disk or an MBR-partitioned
   volume is not the supported disk layout.
 - **Keyboard input is missing:** click the display and use the legacy PS/2
@@ -196,8 +198,7 @@ access use the emulated legacy hardware directly.
 - **Only the recovery shell starts:** check that you attached the complete
   current ISO and a prepared disk containing `/RUM/SHELL.ELF`.
 
-The settings above were boot-tested on Windows with VMware Workstation
-17.5.2 and VirtualBox 7.2.4. VirtualBox additionally passed keyboard-driven
-listing, file creation/readback, and readback after a separate boot. Image
-conversion was checked byte for byte with `qemu-img`; data-disk tests used
-disposable copies, leaving the supplied images unchanged.
+These controller settings were previously tested with VMware Workstation
+17.5.2 and VirtualBox 7.2.4. The current system-disk installer is checked with
+QEMU and host FAT tools; converted images are compared byte for byte with
+`qemu-img`. This does not replace testing a new release in each hypervisor.

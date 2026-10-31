@@ -238,8 +238,8 @@ of the blocked initial shell; nested and ordinary children are denied.
 An exit request is applied after the command ends and its launch syscall has
 reaped the child and freed temporary buffers. Existing restart/recovery rules
 then apply. This interface exposes no parent pointer, arbitrary PID or kernel
-address. `run cd /disk` is denied because `run` launches an ordinary nested child;
-type `cd /disk` directly.
+address. `run cd /DOCS` is denied because `run` launches an ordinary nested child;
+type `cd /DOCS` directly.
 
 ## Yielding and sleeping
 

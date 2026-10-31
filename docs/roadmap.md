@@ -274,7 +274,7 @@ Unix signal model remain later work.
   exit, cancellation, a user fault, or partial setup.
 - [ ] Move the game loop, board, scoring, and rendering into `snake.elf` using
   only public terminal, timing, and process interfaces.
-- [ ] Retain a recovery-shell game path so missing or rejected system images
+- [ ] Retain a recovery-shell game path so missing or rejected system disks
   do not remove diskless recovery functionality.
 
 Test Snake under competing CPU load, invalid terminal packets, background
@@ -300,7 +300,7 @@ supported size and encoding limits.
 - [ ] Redraw the prompt and current line after asynchronous job notifications.
 
 Test quoted paths, empty arguments, escaped separators, unmatched quotes,
-maximum line/argument sizes, history limits, completion on both mounts, and
+maximum line/argument sizes, history limits, completion across the disk root, and
 notifications arriving during editing. Variables, globbing, command substitution,
 and script execution remain outside this release.
 
