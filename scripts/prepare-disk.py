@@ -39,8 +39,12 @@ def prepare(path, size_mib=16, programs=None):
     with path.open("xb") as image:
         image.truncate(size_mib * 1024 * 1024)
     try:
-        # Fixed cluster sizes keep all supported sizes inside FAT16 geometry.
-        run("mformat", "-i", path, "-T", size_mib * 2048, "-c", max(2, size_mib // 8), "-v", "RUM", "::")
+        # FAT requires a power-of-two sector count per cluster, including
+        # disk sizes such as 24 MiB that fall between the usual powers of two.
+        cluster_sectors = 2
+        while cluster_sectors * 8 < size_mib:
+            cluster_sectors *= 2
+        run("mformat", "-i", path, "-T", size_mib * 2048, "-c", cluster_sectors, "-v", "RUM", "::")
         run("mmd", "-i", path, "::/RUM")
         for name in programs:
             run("mcopy", "-i", path, directory / name, "::/RUM/" + name.upper())

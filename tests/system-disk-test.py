@@ -38,7 +38,14 @@ def main():
                 pass
             assert not (Path(temporary) / "invalid.raw").exists()
         subprocess.run(["fsck.fat", "-n", str(disk)], check=True, capture_output=True, timeout=20)
-    print("PASS: FAT16 system disk, exact installed programs, clean FAT, invalid sizes and overwrite refusal")
+        for size in (24, 128):
+            sized = Path(temporary) / f"system-{size}.raw"
+            installer.prepare(sized, size)
+            assert sized.stat().st_size == size * 1024 * 1024
+            subprocess.run(["fsck.fat", "-n", str(sized)], check=True, capture_output=True, timeout=20)
+            data = subprocess.check_output(["mcopy", "-i", str(sized), "::/RUM/SHELL.ELF", "-"])
+            assert data == (ROOT / "build/user/system/shell.elf").read_bytes()
+    print("PASS: FAT16 system disks at 16/24/128 MiB, exact installed programs, clean FAT, invalid sizes and overwrite refusal")
 
 
 if __name__ == "__main__":
