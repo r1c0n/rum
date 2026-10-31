@@ -16,7 +16,7 @@ bool diagnostics_capture(struct kernel_diagnostics *result)
     result->paging = paging_stats();
     result->physical = pmm_stats();
     result->heap = heap_stats();
-    result->files = ramfs_stats();
+    result->filesystem = fs_stats();
     cpu_interrupt_restore(flags);
     return true;
 }

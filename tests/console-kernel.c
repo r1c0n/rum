@@ -10,7 +10,7 @@ static enum fs_error fixture_clone(const struct fs_context *, struct fs_context 
 #include <rum/heap.h>
 #include <rum/multiboot.h>
 #include <rum/pic.h>
-#include <rum/ramfs.h>
+#include "test-files.h"
 #include <rum/serial.h>
 #include <rum/syscall.h>
 #include <rum/terminal.h>
@@ -74,9 +74,9 @@ void kernel_main(uint32_t magic, uint32_t information)
     terminal_initialize(); serial_initialize(); idt_initialize(); pic_initialize(); timer_initialize();
     check(keyboard_initialize() && magic == MULTIBOOT_BOOTLOADER_MAGIC && information &&
           pmm_initialize((const void *)(uintptr_t)information, (uintptr_t)__kernel_start, (uintptr_t)__kernel_end) &&
-          paging_initialize() && heap_initialize() && ramfs_initialize() && task_initialize(), "fixture initialization");
-    check(ramfs_put("console.elf", console_asset_start, console_asset_end - console_asset_start) &&
-          ramfs_put("data.bin", "abc", 3), "RAM fixtures");
+          paging_initialize() && heap_initialize() && test_files_initialize() && task_initialize(), "fixture initialization");
+    check(test_file_put("console.elf", console_asset_start, console_asset_end - console_asset_start) &&
+          test_file_put("data.bin", "abc", 3), "RAM fixtures");
     fs_test_backend_initialize(); operations = *fs_test_backend()->operations;
     operations.read = read_node;
     struct fs_backend backend = *fs_test_backend(); backend.operations = &operations;

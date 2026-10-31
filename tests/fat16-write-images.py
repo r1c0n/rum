@@ -54,6 +54,18 @@ def build(path, cluster=1):
     return g
 
 
+def seed_system(path, extra=None):
+    root = Path(__file__).resolve().parents[1]
+    command("mmd", "-i", str(path), "::/RUM")
+    for name in (root / "build/user/programs.txt").read_text().splitlines():
+        command("mcopy", "-i", str(path), str(root / "build/user/system" / name), "::/RUM/" + name.upper())
+    for name in ("readme.txt", "welcome.txt"):
+        command("mcopy", "-i", str(path), str(root / "assets/disk" / name), "::/" + name.upper())
+    if extra:
+        for name, source in extra.items():
+            command("mcopy", "-o", "-i", str(path), str(source), "::/RUM/" + name.upper())
+
+
 def file_bytes(image, path):
     return command("mcopy", "-i", str(image), "::" + path, "-")
 

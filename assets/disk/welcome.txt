@@ -1,0 +1,5 @@
+Welcome to rum.
+An island of our own.
+
+Type help to see available commands.
+Files are saved on disk. System programs are installed in /RUM.

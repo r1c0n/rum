@@ -29,7 +29,7 @@ DRIVER_SOURCES := drivers/display/terminal.c drivers/serial/serial.c \
 MM_SOURCES := kernel/mm/pmm.c kernel/mm/heap.c
 PROCESS_SOURCES := kernel/process/task.c kernel/process/session.c kernel/process/syscall.c kernel/process/handles.c \
                    kernel/process/elf.c kernel/process/process.c
-FS_SOURCES := kernel/fs/ramfs.c kernel/fs/system.c kernel/fs/path.c kernel/fs/fs-types.c \
+FS_SOURCES := kernel/fs/path.c kernel/fs/fs-types.c \
               kernel/fs/fs.c kernel/fs/fat16.c kernel/fs/fat16-write.c
 IO_SOURCES := kernel/io/block.c
 HAL_SOURCES := hal/pc/pic.c hal/pc/irq.c hal/pc/pit.c
@@ -43,11 +43,11 @@ SOURCES := $(CORE_SOURCES) $(DRIVER_SOURCES) $(MM_SOURCES) \
            $(HAL_SOURCES) $(RECOVERY_SOURCES) \
            $(DEBUG_SOURCES) $(ARCH_SOURCES)
 ASM_SOURCES := arch/i386/boot.s arch/i386/interrupts.s arch/i386/context.s
-OBJECTS := $(ASM_SOURCES:%.s=build/%.o) build/arch/i386/gdt-load.o $(SOURCES:%.c=build/%.o) build/generated/embedded-files.o
-DEPENDENCIES := $(SOURCES:%.c=build/%.d) build/arch/i386/boot.d build/arch/i386/interrupts.d build/arch/i386/gdt-load.d build/generated/embedded-files.d
+OBJECTS := $(ASM_SOURCES:%.s=build/%.o) build/arch/i386/gdt-load.o $(SOURCES:%.c=build/%.o)
+DEPENDENCIES := $(SOURCES:%.c=build/%.d) build/arch/i386/boot.d build/arch/i386/interrupts.d build/arch/i386/gdt-load.d
 FAULT_KERNELS := build/tests/fault-de.elf build/tests/fault-ud.elf build/tests/fault-gp.elf build/tests/fault-pf.elf
 FAULT_OBJECTS := $(FAULT_KERNELS:.elf=.o)
-FAULT_COMMON := $(filter-out build/kernel/core/init.o,$(OBJECTS)) build/tests/fault-trigger.o
+FAULT_COMMON := build/tests/fs-backend.o $(filter-out build/kernel/core/init.o,$(OBJECTS)) build/tests/fault-trigger.o
 PAGING_CASES := ok null text rodata unmapped readonly
 PAGING_KERNELS := $(addprefix build/tests/paging-,$(addsuffix .elf,$(PAGING_CASES)))
 PAGING_OBJECTS := $(PAGING_KERNELS:.elf=.o)
@@ -58,9 +58,9 @@ PROCESS_FAULT_CASES := null kernel readonly ud2 privileged io irq
 PROCESS_FAULT_KERNELS := $(addprefix build/tests/process-fault-,$(addsuffix .elf,$(PROCESS_FAULT_CASES)))
 PROCESS_FAULT_OBJECTS := $(PROCESS_FAULT_KERNELS:.elf=.o)
 TEST_DEPENDENCIES := $(FAULT_OBJECTS:.o=.d) $(PAGING_OBJECTS:.o=.d) $(CPU_OBJECTS:.o=.d) $(PROCESS_FAULT_OBJECTS:.o=.d) build/tests/cpu-probe.d build/tests/process-fault-probe.d build/tests/syscall-kernel.d build/tests/syscall-probe.d build/tests/elf-loader-kernel.d build/tests/elf-loader-image.d build/tests/paging-spaces.d build/tests/user-memory.d build/tests/irq-kernel.d build/tests/storage-kernel.d build/tests/storage-checks.d build/tests/task-kernel.d build/tests/task-fault-kernel.d build/tests/task-double-fault-kernel.d build/tests/task-stack-fault.d
-STORAGE_HOST_SOURCES := kernel/mm/heap.c kernel/fs/ramfs.c kernel/fs/path.c kernel/fs/fs-types.c kernel/core/memory.c tests/page-backend.c build/embedded-files.c
+STORAGE_HOST_SOURCES := kernel/mm/heap.c kernel/fs/path.c kernel/fs/fs-types.c kernel/core/memory.c tests/page-backend.c tests/fs-backend.c kernel/fs/fs.c
 TEST_DEPENDENCIES += build/tests/fs-kernel.d build/tests/fs-checks.d build/tests/fs-backend.d
-STORAGE_HOST_HEADERS := kernel/include/rum/heap.h kernel/include/rum/ramfs.h kernel/include/rum/fs.h kernel/include/rum/path.h kernel/include/rum/fs_types.h kernel/include/rum/fs_limits.h $(ABI_HEADERS) kernel/include/rum/embedded.h kernel/include/rum/paging.h kernel/include/rum/pmm.h kernel/include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
+STORAGE_HOST_HEADERS := kernel/include/rum/heap.h tests/test-files.h kernel/include/rum/fs.h kernel/include/rum/path.h kernel/include/rum/fs_types.h kernel/include/rum/fs_limits.h $(ABI_HEADERS) kernel/include/rum/paging.h kernel/include/rum/pmm.h kernel/include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
 SNAKE_HOST_SOURCES := kernel/recovery/snake.c kernel/recovery/snake_model.c
 SNAKE_HOST_HEADERS := kernel/include/rum/snake.h kernel/include/rum/snake_model.h kernel/include/rum/timer.h
 SYSTEM_COMMANDS := help about echo clear ls cat pwd cd write mkdir rm run exit recovery ps kill sleep
@@ -140,9 +140,9 @@ build/user/debug/%.elf: build/user/objects/%.o $(USER_RUNTIME) build/sdk/linker/
 	    -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 \
 	    -Wl,-Map,$(@:.elf=.map) $(filter %.o,$^) -lgcc -o $@
 
-build/tools/check-user-elf: sdk/tools/check-user-elf.c $(ABI_HEADERS) $(LAYOUT_HEADERS) kernel/include/rum/ramfs.h
+build/tools/check-user-elf: sdk/tools/check-user-elf.c $(ABI_HEADERS) $(LAYOUT_HEADERS) sdk/include/rum/abi/elf.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $< -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 build/user/system/%.elf: build/user/debug/%.elf build/tools/check-user-elf
 	@mkdir -p $(@D)
@@ -150,17 +150,12 @@ build/user/system/%.elf: build/user/debug/%.elf build/tools/check-user-elf
 	build/tools/check-user-elf $@.tmp $<
 	mv -- $@.tmp $@
 
-# Userspace is a separate Multiboot module, never linked into the kernel.
-# Runtime files are stripped; symbols stay in build/user/debug/ only.
-build/rum-system.img: FORCE $(USER_ASSETS) scripts/pack-system.py
-	python3 scripts/pack-system.py build/user/system $@ --files $(notdir $(USER_ASSETS))
-
-user: $(USER_ASSETS) build/rum-system.img
+user: $(USER_ASSETS)
+	printf '%s\n' $(notdir $(USER_ASSETS)) > build/user/programs.txt
 	@$(foreach program,$(USER_PROGRAMS),build/tools/check-user-elf build/user/system/$(program).elf build/user/debug/$(program).elf || exit $$?;)
 
 test-user: user
 	python3 tests/user-elf-test.py --cross-prefix $(CROSS_PREFIX)
-	python3 tests/system-image-test.py
 
 .PHONY: test-system-volume
 test: test-system-volume
@@ -196,16 +191,6 @@ build/%.o: %.c Makefile
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
-# Check both asset directories each build, including removed files. Unchanged C
-# keeps its mtime. Runtime ELFs are stripped; debug symbols and maps stay out.
-FORCE:
-build/embedded-files.c: FORCE scripts/embed-files.py $(wildcard assets/ramfs/*)
-	python3 scripts/embed-files.py assets/ramfs $@
-
-build/generated/embedded-files.o: build/embedded-files.c Makefile
-	@mkdir -p $(@D)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
-
 build/rum.elf: $(OBJECTS) $(LINKER_SCRIPT)
 	$(CC) $(LDFLAGS) $(OBJECTS) -lgcc -o $@
 
@@ -213,21 +198,21 @@ check: build/rum.elf
 	grub-file --is-x86-multiboot $<
 	@echo "rum: Multiboot v1 header verified."
 
-build/rum.iso: build/rum.elf build/rum-system.img boot/grub/grub.cfg | check
+build/rum.iso: build/rum.elf boot/grub/grub.cfg | check
 	@mkdir -p build/isodir/boot/grub
 	cp build/rum.elf build/isodir/boot/rum.elf
-	cp build/rum-system.img build/isodir/boot/rum-system.img
+	rm -f -- build/isodir/boot/rum-system.img
 	cp boot/grub/grub.cfg build/isodir/boot/grub/grub.cfg
 	grub-mkrescue -o $@ build/isodir
 
 iso: build/rum.iso
 
 # Legacy diagnostics exercise the kernel recovery console deliberately.
-build/tests/recovery.iso: build/rum.elf build/rum-system.img Makefile
+build/tests/recovery.iso: build/rum.elf Makefile
 	@mkdir -p build/recovery-isodir/boot/grub
 	cp build/rum.elf build/recovery-isodir/boot/rum.elf
-	cp build/rum-system.img build/recovery-isodir/boot/rum-system.img
-	printf 'set timeout=0\nmenuentry "rum recovery" {\n multiboot /boot/rum.elf rum.recovery\n module /boot/rum-system.img\n boot\n}\n' > build/recovery-isodir/boot/grub/grub.cfg
+	rm -f -- build/recovery-isodir/boot/rum-system.img
+	printf 'set timeout=0\nmenuentry "rum recovery" {\n multiboot /boot/rum.elf rum.recovery\n boot\n}\n' > build/recovery-isodir/boot/grub/grub.cfg
 	grub-mkrescue -o $@ build/recovery-isodir
 
 run:
@@ -278,7 +263,7 @@ test-sleep: build/tests/waits.elf build/tests/waits.iso build/tests/sleep.elf bu
 
 build/tests/session-test: tests/session-test.c kernel/process/session.c kernel/include/rum/session.h $(LAYOUT_HEADERS) $(ABI_HEADERS) tests/include/rum/cpu.h Makefile
 	@mkdir -p $(@D)
-	$(HOST_CC) -Itests/include $(CPPFLAGS) -std=gnu11 -O2 -Wall -Wextra -Werror tests/session-test.c kernel/process/session.c -o $@
+	$(HOST_CC) -Itests/include $(CPPFLAGS) -std=gnu11 -O2 -Wall -Wextra -Werror $(sort $(filter %.c,$^)) -o $@
 
 test-host: build/tests/session-test
 
@@ -339,13 +324,11 @@ build/tests/console.iso: build/tests/console.elf Makefile
 	cp $< build/console-isodir/boot/rum.elf
 	printf 'set timeout=0\nmenuentry "rum console tests" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/console-isodir/boot/grub/grub.cfg
 	grub-mkrescue -o $@ build/console-isodir
-build/tests/console-system.img: build/tests/user/console.elf scripts/pack-system.py
-	python3 scripts/pack-system.py build/tests/user $@ --files console.elf
-build/tests/console-supervisor.iso: build/rum.elf build/tests/console-system.img Makefile
+build/tests/console-supervisor.iso: build/rum.elf build/tests/user/console.elf Makefile
 	@mkdir -p build/console-supervisor-isodir/boot/grub
 	cp build/rum.elf build/console-supervisor-isodir/boot/rum.elf
-	cp build/tests/console-system.img build/console-supervisor-isodir/boot/rum-system.img
-	printf 'set timeout=0\nmenuentry "rum console supervisor tests" {\n multiboot /boot/rum.elf rum.shell=/rum/console.elf\n module /boot/rum-system.img\n boot\n}\n' > build/console-supervisor-isodir/boot/grub/grub.cfg
+	rm -f -- build/console-supervisor-isodir/boot/rum-system.img
+	printf 'set timeout=0\nmenuentry "rum console supervisor tests" {\n multiboot /boot/rum.elf rum.shell=/rum/console.elf\n boot\n}\n' > build/console-supervisor-isodir/boot/grub/grub.cfg
 	grub-mkrescue -o $@ build/console-supervisor-isodir
 
 build/tests/user/sleep.o: tests/sleep-user.c $(USER_INCLUDE_STAMP) Makefile
@@ -400,7 +383,7 @@ build/tests/lifecycle.iso build/tests/lifecycle-ids.iso: build/tests/%.iso: buil
 
 build/tests/timer-test: tests/timer-test.c hal/pc/pit.c kernel/include/rum/timer.h kernel/include/rum/task.h tests/include/rum/io.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -Itests/include $(CPPFLAGS) -std=gnu11 -O2 -Wall -Wextra -Werror $< -o $@
+	$(HOST_CC) -Itests/include $(CPPFLAGS) -std=gnu11 -O2 -Wall -Wextra -Werror tests/timer-test.c -o $@
 
 build/tests/preemption-probe.o: tests/preemption-probe.s $(LAYOUT_HEADERS) $(ABI_HEADERS) Makefile
 	@mkdir -p $(@D)
@@ -463,11 +446,11 @@ test: test-release-integration
 test-release-integration: all build/tests/readonly.iso test-package
 	python3 tests/release-integration-test.py --qemu $(QEMU)
 
-build/tests/readonly.iso: build/rum.elf build/rum-system.img Makefile
+build/tests/readonly.iso: build/rum.elf Makefile
 	@mkdir -p build/readonly-isodir/boot/grub
 	cp build/rum.elf build/readonly-isodir/boot/rum.elf
-	cp build/rum-system.img build/readonly-isodir/boot/rum-system.img
-	printf 'set timeout=0\nmenuentry "rum read-only disk" {\n multiboot /boot/rum.elf rum.disk-readonly\n module /boot/rum-system.img\n boot\n}\n' > build/readonly-isodir/boot/grub/grub.cfg
+	rm -f -- build/readonly-isodir/boot/rum-system.img
+	printf 'set timeout=0\nmenuentry "rum read-only disk" {\n multiboot /boot/rum.elf rum.disk-readonly\n boot\n}\n' > build/readonly-isodir/boot/grub/grub.cfg
 	grub-mkrescue -o $@ build/readonly-isodir
 
 test-package: iso
@@ -653,55 +636,55 @@ build/tests/fault-%.elf: build/tests/fault-%.o $(FAULT_COMMON) $(LINKER_SCRIPT)
 
 build/tests/console-test: tests/console-test.c drivers/display/terminal.c kernel/include/rum/terminal.h tests/include/rum/io.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/include -Ikernel/include -Isdk/include tests/console-test.c drivers/display/terminal.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/include -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 build/tests/memory-test: tests/memory-test.c kernel/core/memory.c kernel/include/rum/memory.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Ikernel/include -Isdk/include tests/memory-test.c kernel/core/memory.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 build/tests/keyboard-test: tests/keyboard-test.c drivers/input/keyboard_decode.c kernel/include/rum/keyboard_decode.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include tests/keyboard-test.c drivers/input/keyboard_decode.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 build/tests/shell-test: tests/shell-test.c kernel/recovery/shell.c kernel/debug/diagnostics-report.c drivers/display/terminal.c kernel/include/rum/shell.h kernel/include/rum/process.h kernel/include/rum/diagnostics.h kernel/include/rum/task.h kernel/include/rum/terminal.h kernel/include/rum/serial.h tests/include/rum/io.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS) $(SNAKE_HOST_SOURCES) $(SNAKE_HOST_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include tests/shell-test.c kernel/recovery/shell.c kernel/debug/diagnostics-report.c drivers/display/terminal.c $(SNAKE_HOST_SOURCES) $(STORAGE_HOST_SOURCES) -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 build/tests/pmm-test: tests/pmm-test.c kernel/mm/pmm.c kernel/include/rum/pmm.h kernel/include/rum/multiboot.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include tests/pmm-test.c kernel/mm/pmm.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 build/tests/storage-test: tests/storage-test.c tests/storage-checks.c tests/storage-checks.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include tests/storage-test.c tests/storage-checks.c $(STORAGE_HOST_SOURCES) -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 build/tests/snake-test: tests/snake-test.c kernel/recovery/snake_model.c kernel/include/rum/snake_model.h kernel/include/rum/memory.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include tests/snake-test.c kernel/recovery/snake_model.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 build/tests/layout-test: tests/layout-test.c $(LAYOUT_HEADERS) $(ABI_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $< -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 build/tests/frame-test: tests/frame-test.c kernel/include/rum/interrupts.h kernel/include/rum/gdt.h kernel/include/rum/cpu_layout.h kernel/include/rum/cpu_policy.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $< -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 build/tests/abi-test: tests/abi-test.c $(ABI_HEADERS) $(LAYOUT_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $< -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 build/tests/block-test: tests/block-test.c kernel/io/block.c kernel/include/rum/block.h tests/include/rum/cpu.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/include -Ikernel/include -Isdk/include tests/block-test.c kernel/io/block.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/include -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 build/tests/path-test: tests/path-test.c kernel/fs/path.c kernel/fs/fs-types.c kernel/include/rum/path.h kernel/include/rum/fs_types.h kernel/include/rum/fs_limits.h $(ABI_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include tests/path-test.c kernel/fs/path.c kernel/fs/fs-types.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 build/tests/fs-test: tests/fs-test.c tests/fs-checks.c tests/fs-checks.h tests/fs-backend.c tests/fs-backend.h kernel/fs/fs.c $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include tests/fs-test.c tests/fs-checks.c tests/fs-backend.c kernel/fs/fs.c $(STORAGE_HOST_SOURCES) -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 test-host: build/tests/path-test build/tests/fs-test
 
@@ -709,10 +692,10 @@ FAT16_HOST_SOURCES := kernel/fs/fat16.c kernel/fs/fat16-write.c kernel/fs/fs.c k
 FAT16_HEADERS := kernel/include/rum/fat16.h kernel/fs/fat16-internal.h
 build/tests/fat16-write-test: tests/fat16-write-test.c tests/fat16-write-checks.c tests/fat16-write-checks.h $(FAT16_HOST_SOURCES) $(FAT16_HEADERS) $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include tests/fat16-write-test.c tests/fat16-write-checks.c $(FAT16_HOST_SOURCES) $(STORAGE_HOST_SOURCES) -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 build/tests/fat16-test: tests/fat16-test.c tests/fat16-checks.c tests/fat16-checks.h $(FAT16_HOST_SOURCES) $(FAT16_HEADERS) $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS)
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include tests/fat16-test.c tests/fat16-checks.c $(FAT16_HOST_SOURCES) $(STORAGE_HOST_SOURCES) -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 .PHONY: test-fat16-host
 test-fat16-host: build/tests/fat16-test
@@ -751,7 +734,7 @@ test-fs: build/tests/path-test build/tests/fs-test build/tests/fs.elf
 
 build/tests/ata-test: tests/ata-test.c drivers/storage/ata.c kernel/io/block.c kernel/include/rum/ata.h kernel/include/rum/block.h tests/ata-include/rum/io.h tests/ata-include/rum/cpu.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/ata-include -Ikernel/include -Isdk/include tests/ata-test.c drivers/storage/ata.c kernel/io/block.c -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/ata-include -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 test-host: build/tests/ata-test
 
@@ -771,7 +754,6 @@ test-host: build/tests/block-test build/tests/console-test build/tests/memory-te
 	./build/tests/layout-test
 	./build/tests/frame-test
 	./build/tests/abi-test
-	python3 tests/embed-test.py
 	python3 tests/disk-tools-test.py
 
 doctor:
@@ -787,3 +769,11 @@ clean:
 $(DEPENDENCIES) $(TEST_DEPENDENCIES) $(USER_DEPENDENCIES): ;
 
 -include $(DEPENDENCIES) $(TEST_DEPENDENCIES) $(USER_DEPENDENCIES)
+
+.PHONY: prepare-disk
+prepare-disk: user
+	@test -n "$$DISK_IMAGE" || (echo 'Set DISK_IMAGE to a NEW system disk image path.' >&2; exit 2)
+	python3 scripts/prepare-disk.py "$$DISK_IMAGE" --size-mib "$$DISK_SIZE_MIB"
+
+.PHONY: test-build
+test-build: user iso build/tests/recovery.iso $(FAULT_KERNELS) build/tests/irq.elf $(CPU_KERNELS) $(PROCESS_FAULT_KERNELS) build/tests/syscall.elf build/tests/elf-loader.elf $(PAGING_KERNELS) build/tests/storage.elf build/tests/fs.elf build/tests/task.elf build/tests/task-fault.elf build/tests/task-double-fault.elf $(ABI_KERNELS) build/tests/preemption.elf build/tests/preemption.iso build/tests/timer-test build/tests/lifecycle.elf build/tests/lifecycle.iso build/tests/lifecycle-ids.elf build/tests/lifecycle-ids.iso build/tests/waits.elf build/tests/waits.iso build/tests/sleep.elf build/tests/sleep.iso build/tests/session-test build/tests/integration.elf build/tests/integration.iso all build/tests/console.elf build/tests/console.iso build/tests/console-supervisor.iso build/tests/file-syscall.elf build/tests/process-syscall.elf build/tests/readonly.iso build/tests/block-test build/tests/ata-test build/tests/block.elf build/tests/path-test build/tests/fs-test build/tests/fat16-test build/tests/fat16-write-test build/tests/fat16-write.elf build/tests/fat16.elf build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test

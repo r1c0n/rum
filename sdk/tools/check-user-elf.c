@@ -6,7 +6,6 @@
 #include <rum/abi/elf.h>
 #include <rum/abi/layout.h>
 #include <rum/process_limits.h>
-#include <rum/ramfs.h>
 
 #if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
 #error "The ELF host checker currently requires a little-endian host"
@@ -32,7 +31,7 @@ static bool read_image(const char *path, struct image *image, bool asset)
     bool ok = fseek(file, 0, SEEK_END) == 0;
     long length = ok ? ftell(file) : -1;
     ok = length >= (long)sizeof(image->header) && length <= 64 * 1024 * 1024 &&
-         (!asset || length <= RAMFS_FILE_LIMIT) && fseek(file, 0, SEEK_SET) == 0;
+         (!asset || length <= RUM_ELF_IMAGE_LIMIT) && fseek(file, 0, SEEK_SET) == 0;
     if (ok) {
         image->bytes = (size_t)length;
         image->data = malloc(image->bytes);

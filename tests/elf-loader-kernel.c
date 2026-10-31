@@ -11,7 +11,7 @@
 #include <rum/paging.h>
 #include <rum/pic.h>
 #include <rum/pmm.h>
-#include <rum/ramfs.h>
+#include "test-files.h"
 #include <rum/serial.h>
 #include <rum/task.h>
 #include <rum/terminal.h>
@@ -231,7 +231,7 @@ static void malformed_images(size_t image_bytes)
     reject(elf_loader_asset_start, sizeof(struct rum_elf_header) - 1, &arguments);
     reject(elf_loader_asset_start,
            header.phoff + header.phnum * sizeof(struct rum_elf_program) - 1, &arguments);
-    reject(elf_loader_asset_start, RAMFS_FILE_LIMIT + 1, &arguments);
+    reject(elf_loader_asset_start, RUM_ELF_IMAGE_LIMIT + 1, &arguments);
     check(kfree(copy), "release malformed image buffer");
 }
 
@@ -285,11 +285,11 @@ void kernel_main(uint32_t magic, uint32_t information)
     check(magic == MULTIBOOT_BOOTLOADER_MAGIC && information, "Multiboot handoff");
     check(pmm_initialize((const void *)(uintptr_t)information,
                          (uintptr_t)__kernel_start, (uintptr_t)__kernel_end) &&
-          paging_initialize() && heap_initialize() && ramfs_initialize() && task_initialize(),
+          paging_initialize() && heap_initialize() && test_files_initialize() && task_initialize(),
           "loader fixture startup");
     size_t image_bytes = (size_t)(elf_loader_asset_end - elf_loader_asset_start);
-    check(image_bytes && image_bytes <= RAMFS_FILE_LIMIT &&
-          ramfs_put("hello.elf", elf_loader_asset_start, image_bytes), "install ELF RAM file");
+    check(image_bytes && image_bytes <= RUM_ELF_IMAGE_LIMIT &&
+          test_file_put("hello.elf", elf_loader_asset_start, image_bytes), "install ELF RAM file");
 
     uint32_t baseline = pmm_stats().free_pages;
     struct rum_arguments bad = arguments;
@@ -304,11 +304,11 @@ void kernel_main(uint32_t magic, uint32_t information)
     bad = arguments; bad.string_bytes = 18; reject(elf_loader_asset_start, image_bytes, &bad);
     malformed_images(image_bytes);
 
-    unsigned char *padded = kcalloc(1, RAMFS_FILE_LIMIT);
+    unsigned char *padded = kcalloc(1, RUM_ELF_IMAGE_LIMIT);
     check(padded != NULL, "64 KiB ELF boundary buffer");
     memcpy(padded, elf_loader_asset_start, image_bytes);
     struct task_process process;
-    check(elf_load_process(padded, RAMFS_FILE_LIMIT, &arguments, &process),
+    check(elf_load_process(padded, RUM_ELF_IMAGE_LIMIT, &arguments, &process),
           "accept exact RAM file size limit");
     inspect_process(&process);
     check(paging_space_destroy(process.space) && kfree(padded), "release boundary image");
@@ -322,8 +322,9 @@ void kernel_main(uint32_t magic, uint32_t information)
     allocation_failures(image_bytes);
 
     baseline = pmm_stats().free_pages;
-    check(elf_load_ramfs("/hello.elf", &arguments, &process), "load ELF from RAM file");
+    check(test_file_load("/hello.elf", &arguments, &process), "load ELF from RAM file");
     inspect_process(&process);
+    check(test_files_mount(), "mount test filesystem");
     cpu_interrupt_enable();
     task_id child = task_create_process(&process);
     check(child && task_yield(), "publish and run loaded process");

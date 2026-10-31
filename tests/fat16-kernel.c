@@ -5,7 +5,7 @@
 #include <rum/memory.h>
 #include <rum/paging.h>
 #include <rum/pic.h>
-#include <rum/ramfs.h>
+#include "test-files.h"
 #include <rum/serial.h>
 #include <rum/terminal.h>
 #include "fat16-checks.h"
@@ -33,8 +33,7 @@ void kernel_main(uint32_t magic, uint32_t information)
     terminal_initialize(); serial_initialize(); idt_initialize(); pic_initialize();
     fat16_check(magic == MULTIBOOT_BOOTLOADER_MAGIC && information &&
         pmm_initialize((const void *)(uintptr_t)information, (uintptr_t)__kernel_start, (uintptr_t)__kernel_end) &&
-        paging_initialize() && heap_initialize() && ramfs_initialize() && fs_initialize() &&
-        ramfs_put("ram.txt", "island", 6), "FAT fixture boot");
+        paging_initialize() && heap_initialize() && fs_initialize(), "FAT fixture boot");
     const struct multiboot_info *info = (const void *)(uintptr_t)information;
     char options[FS_PATH_CAPACITY + 16] = "valid";
     if (info->flags & 4) {

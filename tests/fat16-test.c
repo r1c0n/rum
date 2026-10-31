@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <rum/heap.h>
-#include <rum/ramfs.h>
+#include "test-files.h"
 #include "fat16-checks.h"
 #include "page-backend.h"
 
@@ -47,11 +47,9 @@ static void faults(struct block_device *device)
     failure_after = 2; failure = BLOCK_IO_ERROR;
     assert(fat16_mount(device) == FS_IO_ERROR && heap_stats().allocations == baseline.allocations);
     failure_after = -1;
-    assert(ramfs_put("disk", "old", 3) && fat16_mount(device) == FS_EXISTS &&
-           heap_stats().allocations == baseline.allocations + 2 && ramfs_remove("disk"));
     assert(fat16_mount(device) == FS_OK);
     fs_reference file;
-    assert(fs_open(NULL, "/disk/BINARY.BIN", FS_READ, &file) == FS_OK);
+    assert(fs_open(NULL, "/BINARY.BIN", FS_READ, &file) == FS_OK);
     unsigned char buffer[1024]; memset(buffer, 0xcc, sizeof buffer);
     failure_after = 1; failure = BLOCK_TIMEOUT;
     struct fs_io_result result = fs_read(file, 0, buffer, sizeof buffer);
@@ -74,7 +72,7 @@ int main(int argc, char **argv)
     struct block_device device = { .sector_count = (uint64_t)length / 512, .sector_size = 512,
                                   .online = true, .operations = &operations };
     test_page_budget(-1);
-    assert(heap_initialize() && ramfs_initialize() && fs_initialize() && ramfs_put("ram.txt", "island", 6));
+    assert(heap_initialize() && fs_initialize());
     if (!strcmp(argv[2], "valid")) {
         struct heap_statistics baseline = heap_stats(); test_page_budget(0);
         assert(fat16_mount(&device) == FS_NO_MEMORY && !fat16_info().mounted &&

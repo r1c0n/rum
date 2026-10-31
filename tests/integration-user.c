@@ -63,7 +63,7 @@ static void file(unsigned seed, unsigned iteration, int hold)
     for (unsigned i = 0; i < 3; ++i) check(bytes[i] == pattern(sizeof bytes - 3 + i, seed, iteration), 17);
     check(rum_flush(handle) == 0, 18);
     if (hold) {
-        check(rum_replace("/ready.flag", "1", 1) == 0, 19);
+        check(rum_replace("/ready.FLG", "1", 1) == 0, 19);
         if (hold == 2) __asm__ volatile("ud2");
         check(rum_sleep(RUM_SLEEP_MAX_MS) == 0, 20); rum_exit(21);
     }
@@ -71,7 +71,7 @@ static void file(unsigned seed, unsigned iteration, int hold)
 }
 int main(int argc, char **argv)
 {
-    check(argc == 3 && rum_chdir("/disk/STRESS") == 0, 1);
+    check(argc == 3 && rum_chdir("/STRESS") == 0, 1);
     unsigned seed = (unsigned)(argv[2][0] - '0'); const char *mode = argv[1];
     if (equal(mode, "cpu")) {
         check(seed == 1 || seed == 2, 2);
@@ -93,7 +93,7 @@ int main(int argc, char **argv)
         }
         return 0;
     }
-    check(rum_replace("/ready.flag", "0", 1) == 0, 7);
+    check(rum_replace("/ready.FLG", "0", 1) == 0, 7);
     rum_pid_t a = spawn("cpu", 1), b = spawn("cpu", 2);
     if (equal(mode, "normal")) {
         rum_pid_t ioa = spawn("io", 1), iob = spawn("io", 2), timer = spawn("timer", 0);
@@ -108,7 +108,7 @@ int main(int argc, char **argv)
     }
     (void)spawn("hold", 3);
     for (unsigned tries = 0;; ++tries) {
-        rum_result_t fd = rum_open("/ready.flag", RUM_OPEN_READ, 0); char ready;
+        rum_result_t fd = rum_open("/ready.FLG", RUM_OPEN_READ, 0); char ready;
         check(fd == 3 && rum_read(fd, &ready, 1) == 1 && rum_close(fd) == 0, 26);
         if (ready == '1') break;
         check(tries < 100 && rum_sleep(10) == 0, 27);

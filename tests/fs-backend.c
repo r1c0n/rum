@@ -1,4 +1,6 @@
 #include <rum/memory.h>
+#include <rum/heap.h>
+#include "test-files.h"
 #include "fs-backend.h"
 
 #define NODES 160u
@@ -10,10 +12,13 @@ struct node {
     unsigned pins;
     size_t size;
     unsigned char data[BYTES];
+    unsigned char *large;
+    size_t capacity;
 };
 static struct node nodes[NODES];
 static uint64_t next_id;
 static unsigned calls;
+static bool initialized;
 size_t fs_test_backend_short;
 enum fs_error fs_test_backend_partial_error;
 enum fs_error fs_test_backend_failure;
@@ -85,14 +90,14 @@ static struct fs_io_result transfer(uint64_t id, uint64_t offset, void *data, si
     if (!node) return (struct fs_io_result){ .error = FS_NOT_FOUND };
     if (node->kind != FS_FILE) return (struct fs_io_result){ .error = FS_IS_DIRECTORY };
     if (!write && offset >= node->size) return (struct fs_io_result){0};
-    if (offset > node->size || (write && bytes > BYTES - (size_t)offset))
+    if (offset > node->size || (write && bytes > (node->large ? node->capacity : BYTES) - (size_t)offset))
         return (struct fs_io_result){ .error = FS_RANGE };
     if (!write && bytes > node->size - (size_t)offset) bytes = node->size - (size_t)offset;
     if (fs_test_backend_short && bytes > fs_test_backend_short) bytes = fs_test_backend_short;
     if (write) {
-        memcpy(node->data + (size_t)offset, data, bytes);
+        memcpy((node->large ? node->large : node->data) + (size_t)offset, data, bytes);
         if (offset + bytes > node->size) node->size = (size_t)offset + bytes;
-    } else memcpy(data, node->data + (size_t)offset, bytes);
+    } else memcpy(data, (node->large ? node->large : node->data) + (size_t)offset, bytes);
     return (struct fs_io_result){ .transferred = bytes, .error = fs_test_backend_partial_error };
 }
 static struct fs_io_result read_node(void *context, uint64_t id, uint64_t offset, void *data, size_t bytes)
@@ -108,7 +113,7 @@ static enum fs_error put(uint64_t parent, const char *name, const void *data, si
     struct node *directory = by_id(parent);
     if (!directory) return FS_NOT_FOUND;
     if (directory->kind != FS_DIRECTORY) return FS_NOT_DIRECTORY;
-    if (bytes > BYTES) return FS_NO_SPACE;
+    if (bytes > RUM_ELF_IMAGE_LIMIT) return FS_NO_SPACE;
     struct node *node = by_name(parent, name);
     if (node && node->pins) return FS_BUSY;
     if (node && (node->kind == FS_DIRECTORY || kind == FS_DIRECTORY)) return FS_EXISTS;
@@ -119,7 +124,10 @@ static enum fs_error put(uint64_t parent, const char *name, const void *data, si
         size_t length = 0; while (name[length]) ++length;
         memcpy(node->name, name, length + 1);
     }
-    if (bytes) memcpy(node->data, data, bytes);
+    unsigned char *large = bytes > BYTES ? kmalloc(bytes) : NULL;
+    if (bytes > BYTES && !large) return FS_NO_MEMORY;
+    if (bytes) memcpy(large ? large : node->data, data, bytes);
+    (void)kfree(node->large); node->large = large; node->capacity = bytes;
     node->size = bytes; return FS_OK;
 }
 static enum fs_error replace(void *context, uint64_t parent, const char *name, const void *data, size_t bytes)
@@ -138,7 +146,7 @@ static enum fs_error remove_node(void *context, uint64_t parent, const char *nam
     if (node->pins) return FS_BUSY;
     for (unsigned i = 0; i < NODES; ++i)
         if (nodes[i].id && nodes[i].parent == node->id) return FS_NOT_EMPTY;
-    *node = (struct node){0}; return FS_OK;
+    (void)kfree(node->large); *node = (struct node){0}; return FS_OK;
 }
 static enum fs_error readdir_node(void *context, uint64_t id, uint64_t cursor,
                                   struct fs_entry *entry, uint64_t *next)
@@ -165,6 +173,8 @@ static const struct fs_backend backend = { .operations = &operations, .root = 1,
 
 void fs_test_backend_initialize(void)
 {
+    if (initialized) return;
+    initialized = true;
     memset(nodes, 0, sizeof nodes); calls = 0; next_id = 2;
     fs_test_backend_failure = FS_OK; fs_test_backend_bad_cursor = fs_test_backend_reenter = false;
     fs_test_backend_short = 0; fs_test_backend_partial_error = FS_OK;
@@ -183,4 +193,50 @@ unsigned fs_test_backend_pins(void)
     unsigned pins = 0;
     for (unsigned i = 0; i < NODES; ++i) pins += nodes[i].pins;
     return pins;
+}
+
+/* Fixture files share the mock disk namespace and use FAT-compatible spelling. */
+static bool fixture_name(const char *input, char output[FS_NAME_CAPACITY])
+{
+    if (!input) return false;
+    if (*input == '/') ++input;
+    if (fs_name_check(FS_NAMES_FAT83, input) != FS_OK) return false;
+    unsigned i = 0;
+    for (; input[i]; ++i) output[i] = input[i] >= 'a' && input[i] <= 'z' ? input[i] - ('a' - 'A') : input[i];
+    output[i] = 0; return true;
+}
+bool test_files_initialize(void) { fs_test_backend_initialize(); return fs_initialize(); }
+bool test_files_mount(void) { return fs_mount_disk(&backend) == FS_OK; }
+bool test_file_put(const char *name, const void *data, size_t bytes)
+{
+    char spelling[FS_NAME_CAPACITY];
+    return fixture_name(name, spelling) && put(1, spelling, data, bytes, FS_FILE) == FS_OK;
+}
+bool test_file_read(const char *name, const unsigned char **data, size_t *bytes)
+{
+    char spelling[FS_NAME_CAPACITY];
+    if (!fixture_name(name, spelling)) return false;
+    struct node *node = by_name(1, spelling);
+    if (!node || node->kind != FS_FILE) return false;
+    if (data) *data = node->large ? node->large : node->data;
+    if (bytes) *bytes = node->size;
+    return true;
+}
+bool test_file_remove(const char *name)
+{
+    char spelling[FS_NAME_CAPACITY];
+    return fixture_name(name, spelling) && remove_node(NULL, 1, spelling) == FS_OK;
+}
+struct test_file_statistics test_file_stats(void)
+{
+    struct test_file_statistics result = {0};
+    for (unsigned i = 0; i < NODES; ++i) if (nodes[i].id && nodes[i].kind == FS_FILE) {
+        ++result.files; result.bytes += nodes[i].size;
+    }
+    return result;
+}
+void test_file_list(test_file_visitor visitor, void *context)
+{
+    for (unsigned i = 0; i < NODES; ++i) if (nodes[i].id && nodes[i].kind == FS_FILE &&
+        !visitor(nodes[i].name, nodes[i].size, context)) break;
 }

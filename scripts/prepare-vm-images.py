@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Create new FAT16 data images and a BIOS VMware preset beside a copied ISO."""
+"""Create new FAT16 system images and a BIOS VMware preset beside a copied ISO."""
 import argparse
 import hashlib
+import importlib.util
 from pathlib import Path
 import shutil
 import struct
@@ -41,8 +42,8 @@ bios.bootOrder = "cdrom"
 '''
 README = '''# rum virtual-machine files
 
-Boot from rum.iso. The 16 MiB data images are optional persistent storage,
-already formatted as unpartitioned FAT16 with README.TXT inside. They are not
+Boot from rum.iso. The 16 MiB system images contain FAT16, /RUM programs and README.TXT.
+A system disk is required for normal startup. They are not
 bootable installation disks. Keep the ISO attached for every boot.
 
 Use legacy BIOS, one CPU, 64 MiB RAM, VGA text, and a PS/2 keyboard.
@@ -66,10 +67,10 @@ Set keyboard and pointing device to PS/2. Start the VM and click its display.
 
 ## Try the disk
 
-    ls /disk
-    cat /disk/README.TXT
-    write /disk/NOTE.TXT hello from rum
-    cat /disk/NOTE.TXT
+    ls /
+    cat /README.TXT
+    write /NOTE.TXT hello from rum
+    cat /NOTE.TXT
 
 Wait for the prompt before powering off. Boot the same ISO and disk again and
 read NOTE.TXT. Writes flush before success, but FAT16 has no journal or general
@@ -91,31 +92,17 @@ def prepare(iso, output):
         raise FileExistsError(f"output already exists: {output}; choose a new directory")
     if not iso.is_file() or iso.stat().st_size == 0:
         raise ValueError(f"missing ISO: {iso}; build rum first")
-    for tool in ("qemu-img", "mformat", "mcopy"):
+    for tool in ("qemu-img", "mformat", "mcopy", "mmd"):
         if not shutil.which(tool):
             raise ValueError(f"missing {tool}; run under Ubuntu/WSL with qemu-utils and mtools installed")
     # Exclusively claim the whole destination before any formatter or converter
     # runs. All mutations below operate on newly created files inside it.
     output.mkdir(parents=True, exist_ok=False)
     raw = output / "rum-data.raw"
-    with raw.open("xb") as image:
-        image.truncate(SIZE)
-    run("mformat", "-i", raw, "-T", SIZE // 512, "-c", 2, "-v", "RUMDATA", "::")
-    with raw.open("rb") as image:
-        bpb = image.read(512)
-    sector_size = struct.unpack_from("<H", bpb, 11)[0]
-    sectors = struct.unpack_from("<H", bpb, 19)[0] or struct.unpack_from("<I", bpb, 32)[0]
-    fat_size = struct.unpack_from("<H", bpb, 22)[0]
-    root_sectors = (struct.unpack_from("<H", bpb, 17)[0] * 32 + 511) // 512
-    start = struct.unpack_from("<H", bpb, 14)[0] + bpb[16] * fat_size + root_sectors
-    clusters = (sectors - start) // bpb[13] if bpb[13] else 0
-    if (sector_size != 512 or bpb[16] != 2 or sectors * 512 != SIZE or
-            not 4085 <= clusters < 65525 or bpb[510:512] != b"\x55\xaa"):
-        raise ValueError("formatter did not produce the expected bounded FAT16 volume")
-    with tempfile.TemporaryDirectory(prefix="rum-vm-seed-") as temporary:
-        note = Path(temporary) / "README.TXT"
-        note.write_bytes(SEED)
-        run("mcopy", "-i", raw, note, "::/README.TXT")
+    spec = importlib.util.spec_from_file_location("rum_prepare_disk", ROOT / "scripts/prepare-disk.py")
+    installer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(installer)
+    installer.prepare(raw)
     for kind in ("vmdk", "vdi"):
         target = output / f"rum-data.{kind}"
         arguments = ["qemu-img", "convert", "-f", "raw", "-O", kind]

@@ -5,7 +5,7 @@
 #include <rum/memory.h>
 #include <rum/multiboot.h>
 #include <rum/pic.h>
-#include <rum/ramfs.h>
+#include "test-files.h"
 #include <rum/serial.h>
 #include <rum/task.h>
 #include <rum/terminal.h>
@@ -84,7 +84,7 @@ static void exercise(const char *mode, bool session, bool oom, bool copy)
         do { check(task_yield() && task_query(parent, &info) && info.state != TASK_EXITED, "run parent into WAIT"); }
         while (info.state != TASK_BLOCKED);
         check(paging_user_protect(process.space, PAGE, 1, 0) &&
-              ramfs_put("finish.child", "ready", 5), "inject failed result copy after wait registration");
+              test_file_put("finish.CHD", "ready", 5), "inject failed result copy after wait registration");
     }
     check(task_wait_process(parent, &info), "parent completion");
     if (info.exit_status) { serial_writestring("user status: "); number((uint32_t)info.exit_status); serial_writestring("\n"); }
@@ -102,11 +102,11 @@ static void exercise(const char *mode, bool session, bool oom, bool copy)
     }
     check(task_snapshot_read(&snapshot) && snapshot.count == 2 && !snapshot.processes &&
           snapshot.created == snapshot.exited && snapshot.exited == snapshot.reaped, "all completions and orphans reclaimed");
-    const char *temporary[] = { "leaf.ready", "tree.ready", "cancel.ready", "finish.child" };
+    const char *temporary[] = { "leaf.RDY", "tree.RDY", "cancel.RDY", "finish.CHD" };
     for (unsigned i = 0; i < sizeof temporary / sizeof temporary[0]; ++i) {
         const unsigned char *contents; size_t size;
-        if (ramfs_read(temporary[i], &contents, &size))
-            check(ramfs_remove(temporary[i]), "remove fixture handshake file");
+        if (test_file_read(temporary[i], &contents, &size))
+            check(test_file_remove(temporary[i]), "remove fixture handshake file");
     }
     check(fs_stats().objects == fs.objects && fs_stats().references == fs.references && !fs_test_backend_pins() &&
           heap_stats().allocations == heap.allocations && heap_stats().used_bytes == heap.used_bytes &&
@@ -119,9 +119,9 @@ void kernel_main(uint32_t magic, uint32_t information)
     terminal_initialize(); serial_initialize(); idt_initialize(); pic_initialize(); timer_initialize();
     check(magic == MULTIBOOT_BOOTLOADER_MAGIC && information &&
           pmm_initialize((const void *)(uintptr_t)information, (uintptr_t)__kernel_start, (uintptr_t)__kernel_end) &&
-          paging_initialize() && heap_initialize() && ramfs_initialize() && task_initialize(), "fixture startup");
-    check(ramfs_put("life.elf", lifecycle_asset_start, lifecycle_asset_end - lifecycle_asset_start) &&
-          ramfs_put("data.bin", "abc", 3), "embedded test executable and data");
+          paging_initialize() && heap_initialize() && test_files_initialize() && task_initialize(), "fixture startup");
+    check(test_file_put("life.elf", lifecycle_asset_start, lifecycle_asset_end - lifecycle_asset_start) &&
+          test_file_put("data.bin", "abc", 3), "embedded test executable and data");
     fs_test_backend_initialize(); cpu_interrupt_enable();
     check(fs_mount_disk(fs_test_backend()) == FS_OK, "directory backend");
     pic_unmask(0);

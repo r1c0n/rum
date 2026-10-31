@@ -77,9 +77,9 @@ void diagnostics_render(const struct kernel_diagnostics *snapshot, diagnostics_w
     decimal(write, snapshot->tasks.console.process_references); write(" process refs\n");
     write("Heap: "); decimal(write, snapshot->heap.used_bytes); write(" / ");
     decimal(write, snapshot->heap.mapped_bytes); write(" bytes, ");
-    decimal(write, snapshot->heap.allocations); write(" allocations\nRAM files: ");
-    decimal(write, snapshot->files.files); write(" files, "); decimal(write, snapshot->files.bytes);
-    write(" bytes\n");
+    decimal(write, snapshot->heap.allocations); write(" allocations\nFilesystem: ");
+    decimal(write, snapshot->filesystem.mounts); write(" mounted, ");
+    decimal(write, snapshot->filesystem.references); write(" open references\n");
     static const char *const states[] = {"unused", "runnable", "running", "blocked", "exited"};
     for (uint32_t i = 0; i < snapshot->tasks.count; ++i) {
         const struct task_information *item = &snapshot->tasks.tasks[i];
@@ -172,7 +172,7 @@ void diagnostics_panic(void)
     field(serial_writestring, "diag_switches", snapshot.tasks.switches);
     field(serial_writestring, "diag_heapalloc", snapshot.heap.allocations);
     field(serial_writestring, "diag_heapused", snapshot.heap.used_bytes);
-    field(serial_writestring, "diag_files", snapshot.files.files);
-    field(serial_writestring, "diag_bytes", snapshot.files.bytes);
+    field(serial_writestring, "diag_mounts", snapshot.filesystem.mounts);
+    field(serial_writestring, "diag_fsrefs", snapshot.filesystem.references);
     serial_writestring("\n");
 }

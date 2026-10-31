@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <rum/heap.h>
-#include <rum/ramfs.h>
+#include "test-files.h"
 #include "page-backend.h"
 #include "storage-checks.h"
 
@@ -13,11 +13,11 @@ void storage_check(bool condition, const char *name)
 
 int main(void)
 {
-    assert(!kmalloc(1) && !ramfs_put("unready", NULL, 0) && !ramfs_initialize());
+    assert(!kmalloc(1) && !test_file_put("unready", NULL, 0) && !test_files_initialize());
     test_page_budget(1);
     assert(!heap_initialize() && !test_pages_owned() && !heap_stats().mapped_bytes);
     test_page_budget(-1);
-    assert(heap_initialize() && ramfs_initialize());
+    assert(heap_initialize() && test_files_initialize());
     size_t mapped = heap_stats().mapped_bytes;
     unsigned owned = test_pages_owned();
     test_page_budget(2);

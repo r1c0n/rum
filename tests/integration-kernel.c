@@ -9,7 +9,7 @@
 #include <rum/memory.h>
 #include <rum/multiboot.h>
 #include <rum/pic.h>
-#include <rum/ramfs.h>
+#include "test-files.h"
 #include <rum/serial.h>
 #include <rum/syscall.h>
 #include <rum/task.h>
@@ -103,12 +103,12 @@ void kernel_main(uint32_t magic, uint32_t information)
     terminal_initialize(); serial_initialize(); idt_initialize(); pic_initialize(); timer_initialize();
     check(keyboard_initialize() && magic == MULTIBOOT_BOOTLOADER_MAGIC && information &&
           pmm_initialize((const void *)(uintptr_t)information, (uintptr_t)__kernel_start, (uintptr_t)__kernel_end) &&
-          paging_initialize() && heap_initialize() && ramfs_initialize() && task_initialize(), "fixture startup");
-    check(ramfs_put("stress.elf", integration_asset_start, integration_asset_end - integration_asset_start) &&
-          ramfs_put("ready.flag", "0", 1), "RAM fixtures");
+          paging_initialize() && heap_initialize() && fs_initialize() && task_initialize(), "fixture startup");
     cpu_interrupt_enable(); check(ata_initialize().error == BLOCK_OK && fat16_mount(ata_device()) == FS_OK, "real ATA/FAT16 mount");
-    check(fs_mkdir(NULL, "/disk/STRESS") == FS_OK, "stress directory");
-    const char *names[] = {"/disk/STRESS/IOA.BIN", "/disk/STRESS/IOB.BIN", "/disk/STRESS/HOLD.BIN", "/disk/STRESS/FAULT.BIN"};
+    check(fs_replace(NULL, "/stress.elf", integration_asset_start, integration_asset_end - integration_asset_start) == FS_OK &&
+          fs_replace(NULL, "/ready.FLG", "0", 1) == FS_OK, "disk fixtures");
+    check(fs_mkdir(NULL, "/STRESS") == FS_OK, "stress directory");
+    const char *names[] = {"/STRESS/IOA.BIN", "/STRESS/IOB.BIN", "/STRESS/HOLD.BIN", "/STRESS/FAULT.BIN"};
     for (unsigned i = 0; i < 4; ++i) check(fs_replace(NULL, names[i], NULL, 0) == FS_OK, "warm persistent fixtures");
     pic_unmask(0); pic_unmask(1);
     for (unsigned cycle = 0; cycle < 4; ++cycle) {

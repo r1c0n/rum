@@ -55,7 +55,7 @@ static void invalid(void)
     for (unsigned i = 0; i < 256; ++i) path[i] = 'a';
     p.path = PAGE; check(raw(&p) == -RUM_ENAMETOOLONG, 28);
     check(rum_run("/missing", &a, &r) == -RUM_ENOENT && rum_run("/data.bin", &a, &r) == -RUM_ENOEXEC &&
-          rum_run("/disk/../../probe.elf", &a, &r) == -RUM_EINVAL, 29);
+          rum_run("/bad name", &a, &r) == -RUM_EINVAL, 29);
     struct rum_replace_request replace = {1, sizeof replace, (rum_address_t)(uintptr_t)"/data.bin", PAGE, 1, 0};
     replace.version = 2;
     check(rum_syscall3(RUM_SYS_REPLACE, (rum_address_t)(uintptr_t)&replace, 0, 0) == -RUM_EINVAL, 30);
@@ -94,14 +94,14 @@ int main(int argc, char **argv)
         check(rum_session(0, 0) == -RUM_EINVAL && rum_session(RUM_SESSION_EXIT, "/") == -RUM_EINVAL &&
               rum_syscall3(RUM_SYS_SESSION, RUM_SESSION_CHDIR, (rum_address_t)(uintptr_t)"/", 1) == -RUM_EINVAL &&
               rum_session(RUM_SESSION_CHDIR, (void *)UINT32_MAX) == -RUM_EFAULT, 53);
-        check(rum_session(RUM_SESSION_CHDIR, "/disk/..") == -RUM_EINVAL &&
+        check(rum_session(RUM_SESSION_CHDIR, "/bad name") == -RUM_EINVAL &&
               rum_session(RUM_SESSION_CHDIR, "/") == 0, 54);
         char cwd[256];
-        check(rum_getcwd(cwd, sizeof cwd) > 0 && equal(cwd, "/disk/DOCS"), 55);
+        check(rum_getcwd(cwd, sizeof cwd) > 0 && equal(cwd, "/DOCS"), 55);
         return 0;
     }
     if (equal(argv[1], "session")) {
-        check(rum_chdir("/disk/DOCS") == 0, 60);
+        check(rum_chdir("/DOCS") == 0, 60);
         struct rum_arguments a = args("command"); struct rum_process_result r = result();
         struct rum_command_request p = {2, sizeof p, (rum_address_t)(uintptr_t)"/probe.elf",
             (rum_address_t)(uintptr_t)&a, (rum_address_t)(uintptr_t)&r, 1, PAGE, 0};
@@ -123,14 +123,14 @@ int main(int argc, char **argv)
     }
     if (equal(argv[1], "child") || equal(argv[1], "fault") || equal(argv[1], "blocking")) {
         check(argc == 3 && !argv[2][0] && rum_open("/data.bin", 1, 0) == 3, 2);
-        char cwd[256]; check(rum_getcwd(cwd, sizeof cwd) > 0 && equal(cwd, "/disk/DOCS"), 3);
+        char cwd[256]; check(rum_getcwd(cwd, sizeof cwd) > 0 && equal(cwd, "/DOCS"), 3);
         check(rum_chdir("/") == 0, 4);
         if (equal(argv[1], "fault")) __asm__ volatile("ud2");
         if (equal(argv[1], "blocking")) { char key; rum_read(0, &key, 1); return 99; }
         return -37;
     }
     if (equal(argv[1], "normal")) invalid();
-    check(rum_chdir("/disk/DOCS") == 0, 40);
+    check(rum_chdir("/DOCS") == 0, 40);
     rum_result_t parent_file = rum_open("/data.bin", 1, 0); check(parent_file == 3, 41);
     struct rum_arguments a = args(equal(argv[1], "cancel") ? "blocking" :
                                   equal(argv[1], "normal") ? "nested" : "child");
@@ -150,7 +150,7 @@ int main(int argc, char **argv)
         check(rum_run("/probe.elf", &a, &r) == 0 &&
               (equal(argv[1], "cancel") ? r.termination == RUM_PROCESS_CANCELLED : r.status == -37), 45);
     }
-    char cwd[256]; check(rum_getcwd(cwd, sizeof cwd) > 0 && equal(cwd, "/disk/DOCS"), 46);
+    char cwd[256]; check(rum_getcwd(cwd, sizeof cwd) > 0 && equal(cwd, "/DOCS"), 46);
     check(rum_remove("/data.bin") == -RUM_EBUSY && rum_close((rum_handle_t)parent_file) == 0, 47);
     return 0;
 }

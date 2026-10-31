@@ -7,7 +7,6 @@
 #include <rum/memory_layout.h>
 #include <rum/paging.h>
 #include <rum/process_limits.h>
-#include <rum/ramfs.h>
 
 #define STACK_PAGES (RUM_USER_STACK_SIZE / RUM_PAGE_SIZE)
 
@@ -40,7 +39,7 @@ bool elf_arguments_valid(const struct rum_arguments *arguments)
 
 static bool plan_image(const unsigned char *image, size_t bytes, struct load_plan *plan)
 {
-    if (!image || !plan || bytes < sizeof(struct rum_elf_header) || bytes > RAMFS_FILE_LIMIT)
+    if (!image || !plan || bytes < sizeof(struct rum_elf_header) || bytes > RUM_ELF_IMAGE_LIMIT)
         return false;
 
     struct rum_elf_header header;
@@ -155,12 +154,3 @@ bool elf_load_process(const void *image, size_t image_bytes,
     return true;
 }
 
-bool elf_load_ramfs(const char *name, const struct rum_arguments *arguments,
-                    struct task_process *process)
-{
-    if (process) *process = (struct task_process){0};
-    const unsigned char *image;
-    size_t bytes;
-    return process && ramfs_read(name, &image, &bytes) &&
-           elf_load_process(image, bytes, arguments, process);
-}

@@ -4,7 +4,7 @@
 #include <rum/interrupts.h>
 #include <rum/keyboard.h>
 #include <rum/pic.h>
-#include <rum/ramfs.h>
+#include "test-files.h"
 #include <rum/serial.h>
 #include <rum/task.h>
 #include <rum/terminal.h>
@@ -64,9 +64,9 @@ void kernel_main(uint32_t magic, uint32_t information)
     terminal_initialize(); serial_initialize(); idt_initialize(); pic_initialize(); timer_initialize();
     check(keyboard_initialize() && magic == MULTIBOOT_BOOTLOADER_MAGIC && information &&
         pmm_initialize((const void *)(uintptr_t)information, (uintptr_t)__kernel_start, (uintptr_t)__kernel_end) &&
-        paging_initialize() && heap_initialize() && ramfs_initialize() && task_initialize(), "fixture boot");
-    check(ramfs_put("probe.elf", process_syscall_asset_start, process_syscall_asset_end - process_syscall_asset_start) &&
-          ramfs_put("data.bin", "abc", 4), "fixtures");
+        paging_initialize() && heap_initialize() && test_files_initialize() && task_initialize(), "fixture boot");
+    check(test_file_put("probe.elf", process_syscall_asset_start, process_syscall_asset_end - process_syscall_asset_start) &&
+          test_file_put("data.bin", "abc", 4), "fixtures");
     fs_test_backend_initialize();
     cpu_interrupt_enable();
     check(fs_mount_disk(fs_test_backend()) == FS_OK, "directory fixture mount");

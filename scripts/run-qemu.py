@@ -40,10 +40,6 @@ def boot_arguments(image, kernel=False, disk=None, read_only=False, system_image
     # still supplies its PS/2 controller, PIT and PIC, and callers add serial.
     arguments = ["-nodefaults", "-vga", "std"] + (["-kernel", str(image)] if kernel else
                  ["-boot", "d"] + drive(image, index=0, media="cdrom"))
-    if kernel and system_image:
-        module = image.parent / "rum-system.img" if system_image is True else Path(system_image).resolve(strict=True)
-        if module.is_file():
-            arguments += ["-initrd", str(module)]
     if disk is not None:
         path = validate_disk(disk)
         if path.samefile(image):

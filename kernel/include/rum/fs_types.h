@@ -9,8 +9,8 @@ enum fs_error {
     FS_NO_MEMORY, FS_NO_SPACE, FS_UNSUPPORTED, FS_IO_ERROR, FS_TIMEOUT, FS_DEVICE_FAULT
 };
 enum fs_kind { FS_FILE, FS_DIRECTORY };
-enum fs_naming { FS_NAMES_RAM, FS_NAMES_FAT83 };
-enum fs_mount_id { FS_MOUNT_RAM, FS_MOUNT_DISK, FS_MOUNT_SYSTEM, FS_MOUNT_COUNT };
+enum fs_naming { FS_NAMES_FAT83 };
+enum fs_mount_id { FS_MOUNT_DISK, FS_MOUNT_COUNT };
 enum fs_access { FS_READ = 1, FS_WRITE = 2 };
 
 struct fs_node { uint64_t id, size; enum fs_kind kind; };

@@ -1,5 +1,5 @@
 #include <rum/heap.h>
-#include <rum/ramfs.h>
+#include <rum/fs.h>
 #include <rum/serial.h>
 #include <rum/snake.h>
 #include <rum/snake_model.h>
@@ -35,9 +35,13 @@ static void print(const char *text)
 
 static unsigned load_best(void)
 {
-    const unsigned char *data;
-    size_t size;
-    if (!ramfs_read("snake.score", &data, &size) || !size || size > 4) return 0;
+    unsigned char data[5];
+    fs_reference file;
+    if (fs_open(NULL, "/SNAKE.DAT", FS_READ, &file) != FS_OK) return 0;
+    struct fs_io_result read = fs_read(file, 0, data, sizeof data);
+    enum fs_error closed = fs_close(file);
+    size_t size = read.transferred;
+    if (read.error != FS_OK || closed != FS_OK || !size || size > 4) return 0;
     if (data[size - 1] == '\n') --size;
     if (!size) return 0;
     unsigned value = 0;
@@ -54,7 +58,7 @@ static bool save_best(void)
     char text[12];
     size_t length = decimal(text, best);
     text[length++] = '\n';
-    if (!ramfs_put("snake.score", text, length)) {
+    if (fs_replace(NULL, "/SNAKE.DAT", text, length) != FS_OK) {
         serial_writestring("snake: could not save best score.\n");
         return false;
     }

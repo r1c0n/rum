@@ -10,7 +10,7 @@
 #include <rum/memory.h>
 #include <rum/paging.h>
 #include <rum/pic.h>
-#include <rum/ramfs.h>
+#include "test-files.h"
 #include <rum/serial.h>
 #include <rum/task.h>
 #include <rum/terminal.h>
@@ -46,7 +46,7 @@ static void guards(void)
     process_handles_initialize(&guard_table);
     unsigned calls = fs_test_backend_calls();
     uint32_t flags = cpu_interrupt_save();
-    check(process_handle_open(&guard_table, NULL, "/disk/DOCS", 1, 0) == -RUM_EBUSY &&
+    check(process_handle_open(&guard_table, NULL, "/DOCS", 1, 0) == -RUM_EBUSY &&
           fs_test_backend_calls() == calls, "IF-clear requests never call a backend");
     cpu_interrupt_restore(flags);
     irq_register(0, guarded_irq);
@@ -68,7 +68,7 @@ static void release_pages(uint32_t head)
 static void exercise(char mode, bool construction)
 {
     bool fault = mode == 'f' || mode == 'F', cancel = mode == 'c' || mode == 'C';
-    check(ramfs_put("data.bin", pattern, sizeof pattern), "reset RAM fixture");
+    check(test_file_put("data.bin", pattern, sizeof pattern), "reset RAM fixture");
     struct fs_statistics baseline = fs_stats();
     uint32_t pages = pmm_stats().free_pages;
     size_t heap_bytes = heap_stats().used_bytes;
@@ -97,9 +97,9 @@ static void exercise(char mode, bool construction)
               fs_remove(NULL, "/data.bin") == FS_BUSY && fs_replace(NULL, "/data.bin", NULL, 0) == FS_BUSY,
               "sleeping child retains file identity across removal and replacement");
         if (mode == 'C')
-            check(fs_remove(NULL, "/disk/DOCS/NOTE.TXT") == FS_BUSY &&
-                  fs_replace(NULL, "/disk/DOCS/NOTE.TXT", NULL, 0) == FS_BUSY &&
-                  fs_remove(NULL, "/disk/DOCS") == FS_BUSY,
+            check(fs_remove(NULL, "/DOCS/NOTE.TXT") == FS_BUSY &&
+                  fs_replace(NULL, "/DOCS/NOTE.TXT", NULL, 0) == FS_BUSY &&
+                  fs_remove(NULL, "/DOCS") == FS_BUSY,
                   "sleeping child retains real disk handles and cwd after ATA I/O");
         check(task_cancel_foreground(), "cancel child holding file");
     }
@@ -122,7 +122,7 @@ static void exercise(char mode, bool construction)
     check(heap_stats().used_bytes == heap_bytes, "process exit restores live heap allocation bytes");
     if (mode == 'n') {
         const unsigned char *data; size_t bytes;
-        check(ramfs_read("data.bin", &data, &bytes) && bytes == sizeof pattern, "RAM file retains size");
+        check(test_file_read("data.bin", &data, &bytes) && bytes == sizeof pattern, "RAM file retains size");
         for (unsigned i = 0; i < bytes; ++i)
             check(data[i] == (i < 700 ? (unsigned char)(i ^ 0xa5) : pattern[i]), "exact RAM bytes and write canaries");
     }
@@ -133,7 +133,7 @@ void kernel_main(uint32_t magic, uint32_t information)
     terminal_initialize(); serial_initialize(); idt_initialize(); pic_initialize(); timer_initialize();
     check(keyboard_initialize() && magic == MULTIBOOT_BOOTLOADER_MAGIC && information &&
           pmm_initialize((const void *)(uintptr_t)information, (uintptr_t)__kernel_start, (uintptr_t)__kernel_end) &&
-          paging_initialize() && heap_initialize() && ramfs_initialize() && task_initialize(), "filesystem syscall fixture boot");
+          paging_initialize() && heap_initialize() && test_files_initialize() && task_initialize(), "filesystem syscall fixture boot");
     for (unsigned i = 0; i < sizeof pattern; ++i) pattern[i] = (unsigned char)(i * 17 + 3);
     cpu_interrupt_enable();
     const struct multiboot_info *boot = (const void *)(uintptr_t)information;
@@ -154,7 +154,7 @@ void kernel_main(uint32_t magic, uint32_t information)
     } else {
         fs_test_backend_initialize();
         check(fs_mount_disk(fs_test_backend()) == FS_OK &&
-              fs_replace(NULL, "/disk/DOCS/NOTE.TXT", "short operations", 16) == FS_OK, "short-I/O backend fixture");
+              fs_replace(NULL, "/DOCS/NOTE.TXT", "short operations", 16) == FS_OK, "short-I/O backend fixture");
         guards(); pic_unmask(0); pic_unmask(1);
         for (unsigned i = 0; i < 4; ++i) { exercise('n', i == 0); exercise('f', false); exercise('c', false); }
         fs_test_backend_short = 7; fs_test_backend_partial_error = FS_IO_ERROR;

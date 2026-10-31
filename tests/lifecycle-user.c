@@ -105,7 +105,7 @@ static void invalid(void)
     struct rum_process_list_request *cross = (void *)(PAGE + 4096 - 16); *cross = q;
     check(raw(RUM_SYS_PROCESS_LIST, cross) == 1 && cross->count == 1, 126);
     args("exit", 0, 0);
-    struct rum_spawn_request s = {1, sizeof s, (rum_address_t)(uintptr_t)"/disk/DOCS",
+    struct rum_spawn_request s = {1, sizeof s, (rum_address_t)(uintptr_t)"/DOCS",
         (rum_address_t)(uintptr_t)&arguments, 0, {0, 0, 0}};
     struct rum_process_result out = result();
     struct rum_wait_request w = {1, sizeof w, RUM_WAIT_ANY, (rum_address_t)(uintptr_t)&out, 0, {0, 0, 0}};
@@ -162,7 +162,7 @@ static void exercise(unsigned unrelated)
     check(rum_terminate(self, 0) == -RUM_EACCES && rum_terminate(unrelated, 0) == -RUM_EACCES, 40);
     struct rum_process_result out = result();
     check(rum_wait(unrelated, 0, &out) == -RUM_ECHILD && rum_wait(self, 0, &out) == -RUM_ECHILD, 41);
-    check(rum_chdir("/disk/DOCS") == 0 && rum_open("/data.bin", RUM_OPEN_READ, 0) == 3, 42);
+    check(rum_chdir("/DOCS") == 0 && rum_open("/data.bin", RUM_OPEN_READ, 0) == 3, 42);
     char byte; check(rum_read(3, &byte, 1) == 1 && byte == 'a', 43);
     rum_result_t spin = spawn("spin", 0, 0); check(spin > 0, 44);
     out.status = 123;
@@ -186,7 +186,7 @@ static void exercise(unsigned unrelated)
     rum_result_t probe = spawn("probe", 0, 0); check(probe > 0, 52);
     collect((rum_pid_t)probe, RUM_PROCESS_EXITED, -37);
     char cwd[256];
-    check(rum_getcwd(cwd, sizeof cwd) > 0 && equal(cwd, "/disk/DOCS") &&
+    check(rum_getcwd(cwd, sizeof cwd) > 0 && equal(cwd, "/DOCS") &&
           rum_read(3, &byte, 1) == 1 && byte == 'b', 53);
     rum_result_t fault = spawn("fault", 0, 0); check(fault > 0, 54);
     collect((rum_pid_t)fault, RUM_PROCESS_FAULTED, 0);
@@ -204,7 +204,7 @@ static void exercise(unsigned unrelated)
     collect((rum_pid_t)cross, RUM_PROCESS_EXITED, INT32_MIN);
     check(rum_spawn("/missing", &arguments) == -RUM_ENOENT &&
           rum_spawn("/data.bin", &arguments) == -RUM_ENOEXEC &&
-          rum_spawn("/disk/../../life.elf", &arguments) == -RUM_EINVAL, 59);
+          rum_spawn("/../../life.elf", &arguments) == -RUM_EINVAL, 59);
     /* Fill every remaining slot with non-yielding children, then reclaim all. */
     rum_pid_t children[20]; unsigned count = 0;
     for (;;) {
@@ -220,15 +220,15 @@ static void exercise(unsigned unrelated)
     check(rum_wait(0, RUM_WAIT_NOHANG, &out) == -RUM_ECHILD && rum_close(3) == 0, 63);
     for (unsigned action = 0; action < 3; ++action) {
         rum_result_t leaver = spawn("leaver", action, 0); check(leaver > 0, 64);
-        if (action == 2) { await("/cancel.ready"); check(!rum_terminate((rum_pid_t)leaver, 0), 65); }
+        if (action == 2) { await("/cancel.RDY"); check(!rum_terminate((rum_pid_t)leaver, 0), 65); }
         collect((rum_pid_t)leaver, action == 0 ? RUM_PROCESS_EXITED :
                 action == 1 ? RUM_PROCESS_FAULTED : RUM_PROCESS_CANCELLED, action ? 0 : 77);
         /* A foreground RUN gives the cancelled descendants scheduling turns
            before the next tree is constructed. It uses the unchanged packet. */
         args("return", 0, 0); out = result();
         check(!rum_run("/life.elf", &arguments, &out) && !out.status, 66);
-        check(!rum_remove("/leaf.ready") && !rum_remove("/tree.ready"), 67);
-        if (action == 2) check(!rum_remove("/cancel.ready"), 68);
+        check(!rum_remove("/leaf.RDY") && !rum_remove("/tree.RDY"), 67);
+        if (action == 2) check(!rum_remove("/cancel.RDY"), 68);
     }
 }
 int main(int argc, char **argv)
@@ -250,7 +250,7 @@ int main(int argc, char **argv)
         check(rum_wait((rum_pid_t)child, 0, out) == -RUM_EFAULT && out->status == 123, 83);
         collect((rum_pid_t)child, RUM_PROCESS_EXITED, 0); return 0;
     }
-    if (equal(argv[1], "waitfile")) { await("/finish.child"); return 0; }
+    if (equal(argv[1], "waitfile")) { await("/finish.CHD"); return 0; }
     if (equal(argv[1], "session")) {
         rum_result_t sibling = spawn("spin", 0, 0); check(sibling > 0, 70);
         args("delegate", (unsigned)sibling, first);
@@ -281,30 +281,30 @@ int main(int argc, char **argv)
     if (equal(argv[1], "leaver")) {
         rum_result_t branch = spawn("branch", 0, 0);
         check(branch > 0 && spawn("exit", 0, 0) > 0, 76);
-        await("/tree.ready");
+        await("/tree.RDY");
         if (first == 1) __asm__ volatile ("ud2");
-        if (first == 2) { ready("/cancel.ready"); struct rum_process_result out = result(); rum_wait((rum_pid_t)branch, 0, &out); for (;;) {} }
+        if (first == 2) { ready("/cancel.RDY"); struct rum_process_result out = result(); rum_wait((rum_pid_t)branch, 0, &out); for (;;) {} }
         return 77;
     }
     if (equal(argv[1], "branch")) {
         rum_result_t leaf = spawn("leaf", 0, 0); check(leaf > 0, 77);
-        await("/leaf.ready"); ready("/tree.ready");
+        await("/leaf.RDY"); ready("/tree.RDY");
         struct rum_process_result out = result(); rum_wait((rum_pid_t)leaf, 0, &out); for (;;) {}
     }
     if (equal(argv[1], "orphan")) {
         check(spawn("branch", 0, 0) > 0 && spawn("exit", 0, 0) > 0, 78);
-        await("/tree.ready"); return 0;
+        await("/tree.RDY"); return 0;
     }
     check(rum_open("/data.bin", RUM_OPEN_READ, 0) == 3, 79);
     if (equal(argv[1], "exit")) return INT32_MIN;
     if (equal(argv[1], "fault")) __asm__ volatile ("ud2");
     if (equal(argv[1], "probe")) {
         char cwd[256], bytes[3];
-        check(rum_getcwd(cwd, sizeof cwd) > 0 && equal(cwd, "/disk/DOCS") &&
+        check(rum_getcwd(cwd, sizeof cwd) > 0 && equal(cwd, "/DOCS") &&
               rum_read(3, bytes, 3) == 3 && bytes[0] == 'a' && !rum_chdir("/"), 80);
         return -37;
     }
-    check(!rum_chdir("/disk/DOCS"), 81);
-    if (equal(argv[1], "leaf")) ready("/leaf.ready");
+    check(!rum_chdir("/DOCS"), 81);
+    if (equal(argv[1], "leaf")) ready("/leaf.RDY");
     for (;;) __asm__ volatile ("pause");
 }

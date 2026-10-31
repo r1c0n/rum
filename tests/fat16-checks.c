@@ -1,6 +1,6 @@
 #include <rum/heap.h>
 #include <rum/memory.h>
-#include <rum/ramfs.h>
+#include "test-files.h"
 #include "fat16-checks.h"
 
 unsigned char fat16_test_data[FAT16_TEST_BYTES];
@@ -45,7 +45,7 @@ static void valid_volume(void)
 {
     fs_reference file, empty;
     struct fs_information info;
-    fat16_check(fs_open(NULL, "/disk/binary.bin", FS_READ, &file) == FS_OK &&
+    fat16_check(fs_open(NULL, "/binary.bin", FS_READ, &file) == FS_OK &&
         fs_stat(file, &info) == FS_OK && info.size == FAT16_TEST_BYTES, "open exact binary file");
     struct fs_io_result result = fs_read(file, 0, fat16_test_data, sizeof fat16_test_data);
     fat16_check(result.error == FS_OK && result.transferred == FAT16_TEST_BYTES, "read fragmented binary file");
@@ -69,28 +69,28 @@ static void valid_volume(void)
     fat16_check(fs_read(file, UINT64_MAX, buffer, 1).error == FS_RANGE &&
                  fs_write(file, 0, "x", 1).error == FS_ACCESS && fs_flush(file) == FS_OK,
                  "overflow access and read-only flush");
-    fat16_check(fs_open(NULL, "/disk/EMPTY.BIN", FS_READ, &empty) == FS_OK &&
+    fat16_check(fs_open(NULL, "/EMPTY.BIN", FS_READ, &empty) == FS_OK &&
                  fs_read(empty, 0, buffer, sizeof buffer).transferred == 0 && fs_close(empty) == FS_OK,
                  "empty file uses no cluster");
     fs_reference rejected;
-    fat16_check(fs_open(NULL, "/disk/BINARY.BIN", FS_WRITE, &rejected) == FS_READ_ONLY &&
-        fs_replace(NULL, "/disk/NEW.TXT", "x", 1) == FS_READ_ONLY &&
-        fs_remove(NULL, "/disk/BINARY.BIN") == FS_READ_ONLY &&
-        fs_mkdir(NULL, "/disk/NEW") == FS_READ_ONLY && fat16_unmount() == FS_BUSY,
+    fat16_check(fs_open(NULL, "/BINARY.BIN", FS_WRITE, &rejected) == FS_READ_ONLY &&
+        fs_replace(NULL, "/NEW.TXT", "x", 1) == FS_READ_ONLY &&
+        fs_remove(NULL, "/BINARY.BIN") == FS_READ_ONLY &&
+        fs_mkdir(NULL, "/NEW") == FS_READ_ONLY && fat16_unmount() == FS_BUSY,
         "read-only backend and open-object mount pin");
     struct fs_context cwd = {0};
-    fat16_check(fs_context_initialize(&cwd) == FS_OK && fs_context_chdir(&cwd, "/disk/docs/nest") == FS_OK &&
+    fat16_check(fs_context_initialize(&cwd) == FS_OK && fs_context_chdir(&cwd, "/docs/nest") == FS_OK &&
         fs_open(&cwd, "./NOTE.TXT", FS_READ, &empty) == FS_OK, "nested relative read");
     result = fs_read(empty, 0, buffer, sizeof buffer);
     static const char note[] = "An island within an island.\n";
     fat16_check(result.error == FS_OK && result.transferred == sizeof note - 1 &&
         !memcmp(buffer, note, sizeof note - 1) && fs_close(empty) == FS_OK, "nested file exact bytes");
-    fat16_check(fs_context_chdir(&cwd, "../../../") == FS_MOUNT_ESCAPE &&
-        fs_stat_path(NULL, "/disk/MISSING", &info) == FS_NOT_FOUND &&
-        fs_stat_path(NULL, "/disk/BINARY.BIN/.", &info) == FS_NOT_DIRECTORY &&
+    fat16_check(fs_context_chdir(&cwd, "../../../") == FS_OK &&
+        fs_stat_path(NULL, "/MISSING", &info) == FS_NOT_FOUND &&
+        fs_stat_path(NULL, "/BINARY.BIN/.", &info) == FS_NOT_DIRECTORY &&
         fs_context_chdir(&cwd, "..") == FS_OK && fs_context_destroy(&cwd) == FS_OK,
         "directory traversal and boundary errors");
-    listing("/disk"); listing("/disk/DOCS"); listing("/disk/DOCS/NEST");
+    listing("/"); listing("/DOCS"); listing("/DOCS/NEST");
     fat16_check(fs_close(file) == FS_OK, "close binary reference");
 }
 void fat16_checks(struct block_device *device, const char *phase, const char *path)
@@ -115,8 +115,4 @@ void fat16_checks(struct block_device *device, const char *phase, const char *pa
     fat16_check(heap_stats().used_bytes == baseline.used_bytes && heap_stats().allocations == baseline.allocations &&
         fs_stats().objects == owners.objects && fs_stats().references == owners.references &&
         fs_stats().mounts == owners.mounts, "FAT operation leaves ownership baseline");
-    fs_reference ram; unsigned char data[6];
-    fat16_check(fs_open(NULL, "/ram.txt", FS_READ, &ram) == FS_OK &&
-        fs_read(ram, 0, data, sizeof data).transferred == sizeof data && !memcmp(data, "island", sizeof data) &&
-        fs_close(ram) == FS_OK, "RAM stays usable after disk rejection or cleanup");
 }

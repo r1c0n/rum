@@ -4,7 +4,7 @@
 #include <rum/task.h>
 #include <rum/heap.h>
 #include <rum/pmm.h>
-#include <rum/ramfs.h>
+#include <rum/fs.h>
 
 struct kernel_diagnostics {
     uint32_t cr0, cr3, kernel_esp, esp0, flags;
@@ -13,7 +13,7 @@ struct kernel_diagnostics {
     struct paging_statistics paging;
     struct pmm_statistics physical;
     struct heap_statistics heap;
-    struct ramfs_statistics files;
+    struct fs_statistics filesystem;
 };
 
 /* Foreground or fatal exception only. No allocation, switching or cleanup.

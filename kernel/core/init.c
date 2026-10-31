@@ -11,10 +11,9 @@
 #include <rum/pic.h>
 #include <rum/pmm.h>
 #include <rum/process.h>
-#include <rum/ramfs.h>
+#include <rum/fs.h>
 #include <rum/serial.h>
 #include <rum/shell.h>
-#include <rum/system.h>
 #include <rum/terminal.h>
 #include <rum/timer.h>
 #include <rum/task.h>
@@ -188,24 +187,16 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
         return;
     }
     boot_options(info);
-    enum fs_error system = system_files_prepare(info);
     if (!paging_initialize()) {
         terminal_set_color(VGA_LIGHT_RED, VGA_BLACK);
         print("rum: cannot allocate page tables. Halting.\n");
         return;
     }
-    if (!heap_initialize() || !ramfs_initialize() || !embedded_files_install()) {
+    if (!heap_initialize() || !fs_initialize()) {
         terminal_set_color(VGA_LIGHT_RED, VGA_BLACK);
-        print("rum: cannot initialize heap or RAM files. Halting.\n");
+        print("rum: cannot initialize memory or filesystem services. Halting.\n");
         return;
     }
-    if (!task_initialize()) {
-        terminal_set_color(VGA_LIGHT_RED, VGA_BLACK);
-        print("rum: cannot initialize kernel contexts. Halting.\n");
-        return;
-    }
-    if (system == FS_OK) system = system_files_mount();
-    serial_writestring("rum_system: "); serial_writestring(fs_error_name(system)); serial_writestring("\n");
     struct block_result disk = ata_initialize();
     serial_writestring("rum_disk: ");
     serial_writestring(block_error_name(disk.error));
@@ -215,6 +206,11 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     serial_writestring("\n");
     enum fs_error filesystem = disk_readonly ? fat16_mount_read_only(ata_device()) : fat16_mount(ata_device());
     serial_writestring("rum_fat16: "); serial_writestring(fs_error_name(filesystem)); serial_writestring("\n");
+    if (!task_initialize()) {
+        terminal_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        print("rum: cannot initialize kernel contexts. Halting.\n");
+        return;
+    }
     struct pmm_statistics memory = pmm_stats();
     serial_writestring("rum_memory_ok info="); serial_number(multiboot_info_address);
     serial_writestring(" usable="); serial_number(memory.usable_pages);
@@ -223,15 +219,6 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     serial_writestring(" limit="); serial_number(memory.limit);
     serial_writestring(" directory="); serial_number(paging_directory_address(paging_kernel_space()));
     serial_writestring("\n");
-    struct heap_statistics heap = heap_stats();
-    struct ramfs_statistics files = ramfs_stats();
-    serial_writestring("rum_storage_ok mapped="); serial_number(heap.mapped_bytes);
-    serial_writestring(" used="); serial_number(heap.used_bytes);
-    serial_writestring(" allocations="); serial_number(heap.allocations);
-    serial_writestring(" files="); serial_number(files.files);
-    serial_writestring(" bytes="); serial_number(files.bytes);
-    serial_writestring("\n");
-
     terminal_set_color(VGA_LIGHT_CYAN, VGA_BLACK);
     print("  rum\n");
     terminal_set_color(VGA_WHITE, VGA_BLACK);
@@ -248,10 +235,8 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     print("  [ok] Physical memory\n");
     print("  [ok] Virtual memory\n");
     print("  [ok] Kernel memory\n");
-    print("  [ok] RAM filesystem\n");
-    if (system == FS_OK) print("  [ok] System volume /rum\n");
     if (filesystem == FS_OK) print(fat16_info().writable ?
-        "  [ok] FAT16 /disk (read/write)\n" : "  [ok] FAT16 /disk (read only)\n");
+        "  [ok] FAT16 / (read/write)\n" : "  [ok] FAT16 / (read only)\n");
     print("  [ok] Interrupt controller\n");
     print("  [ok] System timer\n");
     if (keyboard_ready) {
@@ -268,6 +253,10 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     if (recovery) recovery_initialize();
     serial_writestring("rum_boot_ok\n");
     cpu_interrupt_enable();
-    if (!recovery) { userspace_session(); recovery_initialize(); }
+    if (!recovery) {
+        if (filesystem == FS_OK) userspace_session();
+        else print("No usable system disk. Attach a prepared rum disk to start the shell.\n");
+        recovery_initialize();
+    }
     recovery_session();
 }

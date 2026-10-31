@@ -136,7 +136,8 @@ bool task_initialize(void)
         return false;
     }
     struct fs_context filesystem = {0};
-    if (!fs_initialize() || fs_context_initialize(&filesystem) != FS_OK) {
+    enum fs_error filesystem_error = fs_initialize() ? fs_context_initialize(&filesystem) : FS_UNAVAILABLE;
+    if (filesystem_error != FS_OK && filesystem_error != FS_UNAVAILABLE) {
         (void)paging_kernel_stack_release(EMERGENCY_STACK_SLOT);
         (void)paging_kernel_stack_release(0);
         return false;

@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <rum/heap.h>
-#include <rum/ramfs.h>
+#include "test-files.h"
 #include "fat16-write-checks.h"
 #include "page-backend.h"
 
@@ -57,7 +57,7 @@ int main(int argc, char **argv)
     struct block_device device = { .sector_count = (uint64_t)size / 512, .sector_size = 512,
         .online = true, .operations = &operations };
     test_page_budget(-1);
-    assert(heap_initialize() && ramfs_initialize() && fs_initialize() && ramfs_put("ram.txt", "island", 6));
+    assert(heap_initialize() && fs_initialize());
     if (!strcmp(argv[2], "exercise")) fat16_write_checks(&device);
     else {
         struct heap_statistics baseline = heap_stats();
@@ -69,8 +69,8 @@ int main(int argc, char **argv)
         enum fs_error error;
         if (!strcmp(argv[2], "readonly")) {
             fs_reference file;
-            assert(!fat16_info().writable && fs_open(NULL, "/disk/TARGET.BIN", FS_WRITE, &file) == FS_READ_ONLY);
-            error = fs_replace(NULL, "/disk/NEW.BIN", "x", 1);
+            assert(!fat16_info().writable && fs_open(NULL, "/TARGET.BIN", FS_WRITE, &file) == FS_READ_ONLY);
+            error = fs_replace(NULL, "/NEW.BIN", "x", 1);
             assert(error == FS_READ_ONLY && !writes && !events);
         } else {
             error = fat16_write_operation(argv[2], &transferred);
@@ -78,7 +78,7 @@ int main(int argc, char **argv)
                 assert(error == (tear == 1024 ? FS_TIMEOUT : tear == 2048 ? FS_DEVICE_FAULT : FS_IO_ERROR) &&
                     fat16_info().faulted && !fat16_info().writable);
                 unsigned stopped = events;
-                assert(fs_replace(NULL, "/disk/AGAIN.BIN", "x", 1) == FS_IO_ERROR && events == stopped);
+                assert(fs_replace(NULL, "/AGAIN.BIN", "x", 1) == FS_IO_ERROR && events == stopped);
                 fs_reference ram; char data[6];
                 assert(fs_open(NULL, "/ram.txt", FS_READ, &ram) == FS_OK &&
                     fs_read(ram, 0, data, 6).transferred == 6 && !memcmp(data, "island", 6) && fs_close(ram) == FS_OK);

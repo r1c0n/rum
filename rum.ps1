@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('doctor', 'setup', 'build', 'user', 'run', 'run-kernel', 'test', 'debug', 'panic', 'clean', 'create-disk')]
+    [ValidateSet('doctor', 'setup', 'build', 'user', 'run', 'run-kernel', 'test', 'debug', 'panic', 'clean', 'create-disk', 'prepare-disk')]
     [string]$Action = 'run',
     [string]$Distro = 'Ubuntu',
     [string]$DiskImage,
@@ -10,10 +10,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 if ($DiskReadOnly -and -not $DiskImage) { throw '-DiskReadOnly requires -DiskImage.' }
-if ($DiskImage -and $Action -notin @('run', 'run-kernel', 'debug', 'create-disk')) {
-    throw '-DiskImage is supported by run, run-kernel, debug and create-disk.'
+if ($DiskImage -and $Action -notin @('run', 'run-kernel', 'debug', 'create-disk', 'prepare-disk')) {
+    throw '-DiskImage is supported by run, run-kernel, debug, create-disk and prepare-disk.'
 }
-if ($Action -eq 'create-disk') {
+if ($Action -in @('create-disk', 'prepare-disk')) {
     if (-not $DiskImage) { throw 'Supply -DiskImage with a NEW disposable image path.' }
     if ($DiskReadOnly) { throw '-DiskReadOnly applies only when booting.' }
     $imagePath = if ([IO.Path]::IsPathRooted($DiskImage)) { $DiskImage } else {
@@ -21,7 +21,7 @@ if ($Action -eq 'create-disk') {
     }
     $linuxPath = & wsl.exe -d $Distro --exec wslpath -a -u $imagePath
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    & wsl.exe -d $Distro --cd $PSScriptRoot --exec bash scripts/wsl-command.sh create-disk $linuxPath $DiskSizeMiB
+    & wsl.exe -d $Distro --cd $PSScriptRoot --exec bash scripts/wsl-command.sh $Action $linuxPath $DiskSizeMiB
     exit $LASTEXITCODE
 }
 if ($DiskImage) {

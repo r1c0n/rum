@@ -66,12 +66,12 @@ static void alone(void) { check(rum_syscall3(TEST_ALONE, 0, 0, 0) == 1, 98); }
 static int supervised(void)
 {
     char turn = '0', ready = 0;
-    rum_result_t fd = rum_open("/session.turn", RUM_OPEN_READ, 0);
+    rum_result_t fd = rum_open("/session.TRN", RUM_OPEN_READ, 0);
     if (fd >= 0) { check(rum_read(fd, &turn, 1) == 1 && rum_close(fd) == 0, 70); }
-    ++turn; check(turn >= '1' && turn <= '3' && rum_replace("/session.turn", &turn, 1) == 0, 71);
+    ++turn; check(turn >= '1' && turn <= '3' && rum_replace("/session.TRN", &turn, 1) == 0, 71);
     char extra[] = {turn, 0}; (void)spawn("orphan", extra);
     for (unsigned tries = 0; tries < 300 && ready != turn; ++tries) {
-        fd = rum_open("/session.ready", RUM_OPEN_READ, 0);
+        fd = rum_open("/session.RDY", RUM_OPEN_READ, 0);
         if (fd >= 0) { check(rum_read(fd, &ready, 1) == 1 && rum_close(fd) == 0, 72); }
         if (ready != turn) check(rum_sleep(1) == 0, 73);
     }
@@ -87,7 +87,7 @@ int main(int argc, char **argv)
     if (equal(mode, "orphan")) {
         denied();
         check(rum_open("/readme.txt", RUM_OPEN_READ, 0) == 3 &&
-              rum_replace("/session.ready", argv[2], 1) == 0, 2);
+              rum_replace("/session.RDY", argv[2], 1) == 0, 2);
         say("rum_console_orphan_ready\n");
         check(rum_sleep(RUM_SLEEP_MAX_MS) == 0, 3); return 4;
     }
@@ -115,11 +115,11 @@ int main(int argc, char **argv)
         return 0;
     }
     if (equal(mode, "construct")) {
-        check(rum_chdir("/disk/DOCS") == 0 && rum_syscall3(TEST_CONSTRUCT, 0, 0, 0) == 0, 10);
+        check(rum_chdir("/DOCS") == 0 && rum_syscall3(TEST_CONSTRUCT, 0, 0, 0) == 0, 10);
         run("exit", RUM_PROCESS_EXITED, 0); return 11; /* Cancellation must prevent publication. */
     }
     if (equal(mode, "disk-read")) {
-        char data[8]; rum_result_t fd = rum_open("/disk/DOCS/README.TXT", RUM_OPEN_READ, 0);
+        char data[8]; rum_result_t fd = rum_open("/DOCS/README.TXT", RUM_OPEN_READ, 0);
         check(fd == 3 && rum_syscall3(TEST_IO, 0, 0, 0) == 0, 12);
         (void)rum_read(fd, data, sizeof data); return 13; /* Cancel before returning to user mode. */
     }

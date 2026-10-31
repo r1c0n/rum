@@ -5,7 +5,7 @@
 #include <rum/memory.h>
 #include <rum/paging.h>
 #include <rum/pic.h>
-#include <rum/ramfs.h>
+#include "test-files.h"
 #include <rum/serial.h>
 #include <rum/terminal.h>
 #include "fat16-write-checks.h"
@@ -83,8 +83,7 @@ void kernel_main(uint32_t magic, uint32_t information)
     terminal_initialize(); serial_initialize(); idt_initialize(); pic_initialize();
     fat16_write_check(magic == MULTIBOOT_BOOTLOADER_MAGIC && information &&
         pmm_initialize((const void *)(uintptr_t)information, (uintptr_t)__kernel_start, (uintptr_t)__kernel_end) &&
-        paging_initialize() && heap_initialize() && ramfs_initialize() && fs_initialize() &&
-        ramfs_put("ram.txt", "island", 6), "write fixture boot");
+        paging_initialize() && heap_initialize() && fs_initialize(), "write fixture boot");
     const struct multiboot_info *info = (const void *)(uintptr_t)information;
     char options[256] = "exercise -1 0";
     if (info->flags & 4) {
@@ -115,14 +114,14 @@ void kernel_main(uint32_t magic, uint32_t information)
         fat16_write_check(fat16_mount(&device) == FS_OK, "mount for guest mutation");
         enum fs_error error; size_t transferred = 0;
         if (device.read_only) {
-            error = fs_replace(NULL, "/disk/NEW.BIN", "x", 1);
+            error = fs_replace(NULL, "/NEW.BIN", "x", 1);
             fat16_write_check(error == FS_READ_ONLY && !writes && !events, "read-only guest device");
         } else {
             error = fat16_write_operation(mode, &transferred);
             if (fail_at >= 0 && events > (unsigned)fail_at) {
                 fat16_write_check(error == FS_IO_ERROR && fat16_info().faulted, "faulted guest mutation");
                 unsigned stopped = events;
-                fat16_write_check(fs_replace(NULL, "/disk/AGAIN.BIN", "x", 1) == FS_IO_ERROR && events == stopped,
+                fat16_write_check(fs_replace(NULL, "/AGAIN.BIN", "x", 1) == FS_IO_ERROR && events == stopped,
                                   "guest mount stops after uncertain writes");
             } else fat16_write_check(error == FS_OK, "successful guest mutation");
         }

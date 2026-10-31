@@ -9,7 +9,7 @@
 #include <rum/memory.h>
 #include <rum/multiboot.h>
 #include <rum/pic.h>
-#include <rum/ramfs.h>
+#include "test-files.h"
 #include <rum/serial.h>
 #include <rum/syscall.h>
 #include <rum/terminal.h>
@@ -49,6 +49,7 @@ void interrupt_dispatch(struct exception_frame *frame)
     if (frame->vector != RUM_SYSCALL_VECTOR) exception_dispatch(frame);
     if (frame->eax == TEST_CLOCK) { frame->eax = timer_ticks(); return; }
     if (frame->eax != TEST_EVENT) { syscall_dispatch(frame); return; }
+    check(test_files_mount(), "mount test filesystem");
     cpu_interrupt_enable();
     void *temporary = kmalloc(64); check(temporary, "temporary ownership during a cancellable wait");
     if (frame->ebx) check(task_cancel_foreground(), "cancellation before event registration");
@@ -116,9 +117,9 @@ void kernel_main(uint32_t magic, uint32_t information)
     terminal_initialize(); serial_initialize(); idt_initialize(); pic_initialize(); timer_initialize();
     check(keyboard_initialize() && magic == MULTIBOOT_BOOTLOADER_MAGIC && information &&
           pmm_initialize((const void *)(uintptr_t)information, (uintptr_t)__kernel_start, (uintptr_t)__kernel_end) &&
-          paging_initialize() && heap_initialize() && ramfs_initialize() && task_initialize(), "sleep fixture boot");
-    check(ramfs_put("wait.elf", sleep_asset_start, sleep_asset_end - sleep_asset_start) &&
-          ramfs_put("data.bin", "abc", 3), "user fixtures");
+          paging_initialize() && heap_initialize() && test_files_initialize() && task_initialize(), "sleep fixture boot");
+    check(test_file_put("wait.elf", sleep_asset_start, sleep_asset_end - sleep_asset_start) &&
+          test_file_put("data.bin", "abc", 3), "user fixtures");
     irq_register(0, tick); cpu_interrupt_enable(); pic_unmask(0); pic_unmask(1);
     exercise("normal", 0);
     for (unsigned i = 0; i < 8; ++i) {

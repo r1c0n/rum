@@ -2,7 +2,7 @@
 #include <stddef.h>
 #include <rum/heap.h>
 #include <rum/diagnostics.h>
-#include <rum/ramfs.h>
+#include <rum/fs.h>
 #include <rum/serial.h>
 #include <rum/shell.h>
 #include <rum/snake.h>
@@ -70,11 +70,9 @@ static char *take_word(char **arguments)
     return word;
 }
 
-static bool list_file(const char *name, size_t size, void *context)
+static void file_error(const char *operation, enum fs_error error)
 {
-    (void)context;
-    print("  "); print(name); print("  "); number(size); print(" bytes\n");
-    return true;
+    print(operation); print(": "); print(fs_error_name(error)); print(".\n");
 }
 
 static void execute(void)
@@ -102,11 +100,11 @@ static void execute(void)
               "  clear        Clear the console.\n"
               "  about        About rum.\n"
               "  echo <text>  Print text.\n"
-              "  ls           List RAM files.\n"
+              "  ls [path]    List a directory.\n"
               "  cat <name>   Read a file.\n"
               "  write <name> [text]  Create or replace a file.\n"
               "  rm <name>    Remove a file.\n"
-              "  mem          Show heap and file usage.\n"
+              "  mem          Show memory usage.\n"
               "  diag         Show task and memory diagnostics.\n"
               "  run <program> [args]  Run an embedded user program.\n"
               "  snake        Play ASCII Snake.\n");
@@ -129,42 +127,61 @@ static void execute(void)
         print(arguments);
         print("\n");
     } else if (equal(command, "ls")) {
-        if (*arguments) { print("Usage: ls\n"); return; }
-        if (!ramfs_stats().files) print("No files.\n");
-        else ramfs_list(list_file, NULL);
+        char *path = take_word(&arguments);
+        if (*arguments) { print("Usage: ls [path]\n"); return; }
+        fs_reference directory;
+        enum fs_error error = fs_open(NULL, *path ? path : "/", FS_READ, &directory);
+        if (error != FS_OK) { file_error("ls", error); return; }
+        uint64_t cursor = 0;
+        struct fs_entry entry;
+        while ((error = fs_readdir(directory, &cursor, &entry)) == FS_OK) {
+            print("  "); print(entry.name);
+            if (entry.kind == FS_DIRECTORY) print("/");
+            else { print("  "); number((size_t)entry.size); print(" bytes"); }
+            print("\n");
+        }
+        (void)fs_close(directory);
+        if (error != FS_END) file_error("ls", error);
     } else if (equal(command, "cat") || equal(command, "rm")) {
         char *name = take_word(&arguments);
-        if (!*name || *arguments) {
-            print(equal(command, "cat") ? "Usage: cat <name>\n" : "Usage: rm <name>\n");
+        if (!*name || *arguments) { print(equal(command, "cat") ? "Usage: cat <path>\n" : "Usage: rm <path>\n"); return; }
+        if (equal(command, "rm")) {
+            enum fs_error error = fs_remove(NULL, name);
+            if (error != FS_OK) file_error("rm", error);
             return;
         }
-        const unsigned char *data = NULL;
-        size_t size = 0;
-        bool success = equal(command, "cat") ? ramfs_read(name, &data, &size) : ramfs_remove(name);
-        if (!success) { print("File not found: "); print(name); print("\n"); return; }
-        if (equal(command, "cat")) {
-            for (size_t i = 0; i < size; ++i) {
+        fs_reference file;
+        enum fs_error error = fs_open(NULL, name, FS_READ, &file);
+        if (error != FS_OK) { file_error("cat", error); return; }
+        unsigned char data[256];
+        uint64_t offset = 0;
+        bool newline = false;
+        for (;;) {
+            struct fs_io_result read = fs_read(file, offset, data, sizeof data);
+            for (size_t i = 0; i < read.transferred; ++i) {
                 unsigned char c = data[i];
                 char text[2] = { (c == '\n' || c == '\t' || (c >= ' ' && c <= '~')) ? (char)c : '.', 0 };
-                print(text);
+                print(text); newline = c == '\n';
             }
-            if (!size || data[size - 1] != '\n') print("\n");
+            offset += read.transferred;
+            if (read.error != FS_OK || !read.transferred) { error = read.error; break; }
         }
+        enum fs_error closed = fs_close(file);
+        if (!newline) print("\n");
+        if (error != FS_OK) file_error("cat", error);
+        else if (closed != FS_OK) file_error("cat", closed);
     } else if (equal(command, "write")) {
         char *name = take_word(&arguments);
-        if (!*name) { print("Usage: write <name> [text]\n"); return; }
+        if (!*name) { print("Usage: write <path> [text]\n"); return; }
         size_t size = 0;
         while (arguments[size]) ++size;
-        if (!ramfs_put(name, arguments, size)) {
-            print("Cannot write file: invalid name, limit reached, or out of memory.\n");
-        }
+        enum fs_error error = fs_replace(NULL, name, arguments, size);
+        if (error != FS_OK) file_error("write", error);
     } else if (equal(command, "mem")) {
         if (*arguments) { print("Usage: mem\n"); return; }
         struct heap_statistics heap = heap_stats();
-        struct ramfs_statistics files = ramfs_stats();
         print("Heap: "); number(heap.mapped_bytes); print(" bytes mapped, ");
         number(heap.used_bytes); print(" bytes used, "); number(heap.allocations); print(" allocations\n");
-        print("RAM files: "); number(files.files); print(" files, "); number(files.bytes); print(" bytes\n");
     } else if (equal(command, "diag")) {
         if (*arguments) { print("Usage: diag\n"); return; }
         diagnostics_print();

@@ -3,7 +3,7 @@
 #include <rum/heap.h>
 #include <rum/interrupts.h>
 #include <rum/paging.h>
-#include <rum/ramfs.h>
+#include "test-files.h"
 #include <rum/serial.h>
 #include <rum/terminal.h>
 #include "storage-checks.h"
@@ -50,7 +50,7 @@ void kernel_main(uint32_t magic, uint32_t information)
     storage_check(!heap_initialize() && !heap_stats().mapped_bytes && pmm_stats().free_pages == 1,
                   "heap init table OOM rollback");
     release(taken);
-    storage_check(pmm_stats().free_pages == initial && heap_initialize() && ramfs_initialize(),
+    storage_check(pmm_stats().free_pages == initial && heap_initialize() && test_files_initialize(),
                   "heap init recovered");
     initial = pmm_stats().free_pages;
     size_t mapped = heap_stats().mapped_bytes;

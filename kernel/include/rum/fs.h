@@ -38,12 +38,10 @@ typedef uint64_t fs_reference; /* Kernel token, not a public process handle. */
 struct fs_context { fs_reference directory; char path[FS_PATH_CAPACITY]; };
 struct fs_statistics { uint32_t objects, references, mounts; };
 
-/* Idempotent, allocation-free setup of RAM '/' and a reserved '/disk' slot.
+/* Idempotent, allocation-free namespace setup; a disk must be mounted at '/'.
    Foreground/boot only; no IRQ callers. NULL path context means '/'. */
 bool fs_initialize(void);
 enum fs_error fs_mount_disk(const struct fs_backend *backend);
-/* Permanent, read-only boot volume at /rum. */
-enum fs_error fs_mount_system(const struct fs_backend *backend);
 enum fs_error fs_unmount_disk(void);
 struct fs_statistics fs_stats(void);
 /* IRQ-safe observation of a synchronous namespace/backend operation. */
@@ -69,6 +67,4 @@ enum fs_error fs_context_initialize(struct fs_context *);
 enum fs_error fs_context_clone(const struct fs_context *, struct fs_context *);
 enum fs_error fs_context_chdir(struct fs_context *, const char *);
 enum fs_error fs_context_destroy(struct fs_context *);
-/* RAM adapter is owned by ramfs; providers own mounted backend storage. */
-const struct fs_backend *ramfs_backend(void);
 #endif

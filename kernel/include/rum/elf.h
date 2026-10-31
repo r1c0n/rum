@@ -1,5 +1,6 @@
 #ifndef RUM_ELF_H
 #define RUM_ELF_H
+#include <rum/abi/elf.h>
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -13,9 +14,5 @@ bool elf_load_process(const void *image, size_t image_bytes,
                       const struct rum_arguments *arguments,
                       struct task_process *process);
 bool elf_arguments_valid(const struct rum_arguments *);
-
-/* Load borrowed bytes from a RAM file through the same production path. */
-bool elf_load_ramfs(const char *name, const struct rum_arguments *arguments,
-                    struct task_process *process);
 
 #endif

@@ -1,5 +1,0 @@
-Welcome to rum.
-An island of our own.
-Root files live in RAM; /disk files persist on an attached FAT16 image.
-The /rum folder contains system programs.
-Try: ls, cat readme.txt, write notes.txt hello from rum

@@ -1,3 +1,4 @@
+#include "fs-backend.h"
 #include <rum/cpu.h>
 #include <rum/abi/error.h>
 #include <rum/diagnostics.h>
@@ -145,7 +146,7 @@ static enum fs_error guarded_stat(void *context, uint64_t id, struct fs_node *no
 {
     check(fs_operation_active(), "filesystem callback holds namespace ownership");
     refuse_switch();
-    return injected_fs_error ? FS_IO_ERROR : ramfs_backend()->operations->stat(context, id, node);
+    return injected_fs_error ? FS_IO_ERROR : fs_test_backend()->operations->stat(context, id, node);
 }
 
 static void protected_scheduling(void)
@@ -175,9 +176,10 @@ static void protected_scheduling(void)
         check(block_flush(&inner).error == failures[i] && !block_request_active(),
               "flush success/failure releases scheduling protection");
     }
-    struct fs_operations fs_operations = *ramfs_backend()->operations;
+    fs_test_backend_initialize();
+    struct fs_operations fs_operations = *fs_test_backend()->operations;
     fs_operations.stat = guarded_stat;
-    struct fs_backend backend = *ramfs_backend();
+    struct fs_backend backend = *fs_test_backend();
     backend.operations = &fs_operations;
     backend.naming = FS_NAMES_FAT83;
     injected_fs_error = true;
@@ -187,7 +189,7 @@ static void protected_scheduling(void)
     check(fs_mount_disk(&backend) == FS_OK && !fs_operation_active(),
           "successful mount releases scheduling protection");
     struct fs_information information;
-    check(fs_stat_path(NULL, "/disk", &information) == FS_OK && !fs_operation_active(),
+    check(fs_stat_path(NULL, "/", &information) == FS_OK && !fs_operation_active(),
           "path lookup protects backend callbacks");
     check(fs_unmount_disk() == FS_OK && !fs_operation_active(), "remove protected test mount");
     check(task_yield() && protected_runs == 1, "yield resumes after every protection clears");
