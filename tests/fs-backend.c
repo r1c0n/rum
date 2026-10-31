@@ -17,7 +17,7 @@ struct node {
 };
 static struct node nodes[NODES];
 static uint64_t next_id;
-static unsigned calls;
+static unsigned calls, data_calls;
 static bool initialized;
 size_t fs_test_backend_short;
 enum fs_error fs_test_backend_partial_error;
@@ -49,6 +49,7 @@ static struct fs_node describe(const struct node *node)
 }
 static enum fs_error lookup(void *context, uint64_t parent, const char *name, struct fs_node *out)
 {
+    ++data_calls;
     (void)context; ++calls;
     struct node *directory = by_id(parent), *node = by_name(parent, name);
     if (!directory) return FS_NOT_FOUND;
@@ -79,6 +80,7 @@ static void release(void *context, uint64_t id)
 }
 static struct fs_io_result transfer(uint64_t id, uint64_t offset, void *data, size_t bytes, bool write)
 {
+    ++data_calls;
     ++calls;
     if (fs_test_backend_reenter) {
         fs_reference ref;
@@ -132,14 +134,17 @@ static enum fs_error put(uint64_t parent, const char *name, const void *data, si
 }
 static enum fs_error replace(void *context, uint64_t parent, const char *name, const void *data, size_t bytes)
 {
+    ++data_calls;
     (void)context; ++calls; return put(parent, name, data, bytes, FS_FILE);
 }
 static enum fs_error mkdir_node(void *context, uint64_t parent, const char *name)
 {
+    ++data_calls;
     (void)context; ++calls; return put(parent, name, NULL, 0, FS_DIRECTORY);
 }
 static enum fs_error remove_node(void *context, uint64_t parent, const char *name)
 {
+    ++data_calls;
     (void)context; ++calls;
     struct node *node = by_name(parent, name);
     if (!node) return FS_NOT_FOUND;
@@ -151,6 +156,7 @@ static enum fs_error remove_node(void *context, uint64_t parent, const char *nam
 static enum fs_error readdir_node(void *context, uint64_t id, uint64_t cursor,
                                   struct fs_entry *entry, uint64_t *next)
 {
+    ++data_calls;
     (void)context; ++calls;
     struct node *directory = by_id(id);
     if (!directory) return FS_NOT_FOUND;
@@ -165,7 +171,7 @@ static enum fs_error readdir_node(void *context, uint64_t id, uint64_t cursor,
     }
     return FS_END;
 }
-static enum fs_error flush(void *context) { (void)context; ++calls; return fs_test_backend_failure; }
+static enum fs_error flush(void *context) { (void)context; ++calls; ++data_calls; return fs_test_backend_failure; }
 static const struct fs_operations operations = {
     lookup, stat_node, retain, release, read_node, write_node, replace, remove_node, mkdir_node, readdir_node, flush, NULL, NULL
 };
@@ -188,6 +194,7 @@ void fs_test_backend_initialize(void)
 }
 const struct fs_backend *fs_test_backend(void) { return &backend; }
 unsigned fs_test_backend_calls(void) { return calls; }
+unsigned fs_test_backend_data_calls(void) { return data_calls; }
 unsigned fs_test_backend_pins(void)
 {
     unsigned pins = 0;

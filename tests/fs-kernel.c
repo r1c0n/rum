@@ -59,6 +59,7 @@ static void process_test(const char *name, enum task_termination termination, bo
     struct fs_context *cwd = task_current_filesystem();
     fs_check(fs_context_chdir(cwd, "/DOCS") == FS_OK, "set creator process cwd");
     unsigned references = fs_stats().references;
+    unsigned pins = fs_test_backend_pins();
     uint32_t pages = pmm_stats().free_pages;
     fs_check(test_file_load(name, &arguments, &process), "load actual embedded user program");
     /* Stack construction OOM must not publish a cwd or consume caller space. */
@@ -77,7 +78,7 @@ static void process_test(const char *name, enum task_termination termination, bo
              task_working_directory(id, path, sizeof path) && equal(path, "/DOCS") &&
              fs_unmount_disk() == FS_BUSY, "exited process retains cwd until parent reaps");
     fs_check(task_foreground_end(id) && task_reap_process(id) && !task_working_directory(id, path, sizeof path) &&
-             fs_stats().references == references && !fs_test_backend_pins() && pmm_stats().free_pages == pages,
+             fs_stats().references == references && fs_test_backend_pins() == pins && pmm_stats().free_pages == pages,
              "exit fault cancellation restore cwd and page ledgers");
 }
 void kernel_main(uint32_t magic, uint32_t information)

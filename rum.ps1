@@ -67,7 +67,6 @@ if ($Action -in @('run', 'run-kernel', 'debug', 'panic')) {
         $qemuArguments += @('-kernel', (Join-Path $PSScriptRoot 'build\tests\fault-ud.elf'))
     } elseif ($Action -eq 'run-kernel') {
         $qemuArguments += @('-kernel', (Join-Path $PSScriptRoot 'build\rum.elf'))
-        $qemuArguments += @('-initrd', (Join-Path $PSScriptRoot 'build\rum-system.img'))
     } else {
         $isoPath = (Join-Path $PSScriptRoot 'build\rum.iso').Replace(',', ',,')
         $qemuArguments += @('-boot', 'd', '-drive', "file=$isoPath,format=raw,if=ide,index=0,media=cdrom")

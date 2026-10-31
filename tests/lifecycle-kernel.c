@@ -63,9 +63,9 @@ static void exercise(const char *mode, bool session, bool oom, bool copy)
     uint32_t pages = pmm_stats().free_pages;
     struct heap_statistics heap = heap_stats();
     struct fs_statistics fs = fs_stats();
-    unsigned calls = fs_test_backend_calls();
+    unsigned calls = fs_test_backend_data_calls();
     /* A retained, unrelated completion belongs to BOOT, not the user parent. */
-    args = arguments("exit", 0);
+    args = arguments("return", 0);
     struct task_process other;
     check(elf_load_process(lifecycle_asset_start, lifecycle_asset_end - lifecycle_asset_start, &args, &other),
           "load unrelated child");
@@ -91,7 +91,7 @@ static void exercise(const char *mode, bool session, bool oom, bool copy)
     check(info.termination == TASK_TERMINATION_EXIT && !info.exit_status && !task_handle_count(parent),
           "ring-3 lifecycle assertions and handle teardown");
     check(task_foreground_end(parent) && task_reap_process(parent), "collect foreground parent");
-    check(task_wait_process(unrelated, &info) && info.exit_status == INT32_MIN && task_reap_process(unrelated),
+    check(task_wait_process(unrelated, &info) && info.exit_status == 0 && task_reap_process(unrelated),
           "unrelated completion was never stolen");
     if (oom) release(held);
     /* Adopted children cancel on their own stacks; allow their deferred cleanup. */
@@ -112,7 +112,7 @@ static void exercise(const char *mode, bool session, bool oom, bool copy)
           heap_stats().allocations == heap.allocations && heap_stats().used_bytes == heap.used_bytes &&
           pmm_stats().free_pages + (heap_stats().mapped_bytes - heap.mapped_bytes) / RUM_PAGE_SIZE == pages,
           "processes, handles, cwd references, heap and private pages return to baseline");
-    if (mode[0] == 'i') check(fs_test_backend_calls() == calls, "invalid packets never reach disk backend");
+    if (mode[0] == 'i') check(fs_test_backend_data_calls() == calls, "invalid packets never reach disk backend");
 }
 void kernel_main(uint32_t magic, uint32_t information)
 {

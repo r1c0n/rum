@@ -46,6 +46,9 @@ def main():
     digest = hashlib.sha256(iso.read_bytes()).hexdigest()
     if digest != source["iso_sha256"]:
         parser.error("the release ISO no longer matches its validated SHA256")
+    system_disk = release / "rum-system.raw"
+    if not system_disk.is_file() or hashlib.sha256(system_disk.read_bytes()).hexdigest() != source.get("system_disk_sha256"):
+        parser.error("the prepared system disk is missing or differs from the validated SHA256")
     output = release / ("host-" + platform.system().lower())
     output.mkdir(parents=True, exist_ok=True)
     report = {"passed": False, "host": platform.system(), "python": platform.python_version(),
@@ -78,8 +81,10 @@ def main():
                 archive.extract("rum.iso", work / "extracted")
             extracted = work / "extracted/rum.iso"
             assert hashlib.sha256(extracted.read_bytes()).hexdigest() == digest
-            version = (ROOT / "assets/ramfs/readme.txt").read_text().splitlines()[0]
-            with tools.shell.boot(args.qemu, 64, "packaged-iso-64m", iso=True, image=extracted) as console:
+            version = (ROOT / "assets/disk/readme.txt").read_text().splitlines()[0]
+            disk = work / "system.raw"
+            shutil.copy2(system_disk, disk)
+            with tools.shell.boot(args.qemu, 64, "packaged-iso-64m", iso=True, image=extracted, disk=disk) as console:
                 console = tools.Console(console.stream, console.serial)
                 console.command("about", version)
                 pid = tools.launch(console, "spin")

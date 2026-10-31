@@ -15,6 +15,23 @@ TEST_RAM_SIZES = (64,)
 BOOT_RAM_SIZES = (16, 64, 256, 1152)
 
 
+FAULT_CASES = {
+    "de": (0, 0, "Divide error"),
+    "ud": (6, 0, "Invalid opcode"),
+    "gp": (13, 0x30, "General protection fault"),
+    "pf": (14, 0, "Page fault"),
+}
+
+
+PAGING_FAULTS = {
+    "null": (0, 0, "paging_null_instruction"),
+    "text": (3, "__text_start", "paging_text_instruction"),
+    "rodata": (3, "paging_readonly_word", "paging_rodata_instruction"),
+    "unmapped": (0, 0x40000000, "paging_unmapped_instruction"),
+    "readonly": (3, 0x40000000, "paging_readonly_instruction"),
+}
+
+
 def qmp_command(stream, command, arguments=None):
     request = {"execute": command}
     if arguments is not None:
@@ -257,7 +274,7 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
             expected_entry = physical | (1 if readonly else 3) | (0x10 if 0xA0000 <= physical < 0x100000 else 0)
             if entry & ~0x60 != expected_entry:
                 raise RuntimeError(f"Wrong mapping/protection for {physical:#x}: {entry:#x}")
-    # Independently walk real i386 heap headers and RAM file nodes.
+    # Independently walk real i386 heap headers.
     heap_base, offset, previous = 0x40000000, 0, 0
     live_blocks, used = {}, 0
     previous_free = False
@@ -959,7 +976,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
         image_args = (["-boot", "d", "-cdrom", str(project / "build/tests/recovery.iso")]
                       if mode == "iso" or iso else ["-kernel", str(image)])
         if normal and not (mode == "iso" or iso):
-            image_args += ["-initrd", str(project / "build/rum-system.img"), "-append", "rum.recovery"]
+            image_args += ["-append", "rum.recovery"]
         args = [qemu, "-machine", "pc", "-accel", "tcg", "-m", f"{ram}M", "-display", "none",
                 "-serial", f"file:{serial}", "-qmp", monitor_spec,
                 "-no-reboot", "-no-shutdown", *image_args]
@@ -1072,7 +1089,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                    "separate user ELF, real ring-3 startup/int 0x80, arguments/BSS/return, segment permissions" if user_abi else
                    "guarded stacks, atomic process records, exit status, context/CR3 switches, waiting/IRQ cleanup" if tasks else
                    "real ring-3 PIT/IRET, TSS stack, user registers/segments/DF, alignment, integer/I/O policy" if cpu else
-                   "production heap/RAM files, alignment, reuse, realloc, limits, physical OOM rollback" if storage else
+                   "production heap alignment, reuse, realloc, limits and physical OOM rollback" if storage else
                    "owned user pages, checked copies, isolation, rollback, page-table/PMM ledger" if paging == "ok"
                    else "production page tables, real #PF, error/EIP/CR2, PG/WP, panic/halt" if paging
                    else "real exception, saved registers, error code, EIP, stack, VGA/serial panic, halt" if fault

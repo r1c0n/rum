@@ -13,7 +13,7 @@ struct fat16_information {
     uint32_t fat_start, fat_sectors, root_start, root_entries, data_start;
     bool mounted, writable, faulted;
 };
-/* One unpartitioned volume at /disk. Mounting never writes or formats. Writable
+/* One unpartitioned volume at /. Mounting never writes or formats. Writable
    mounting requires a writable device with write and flush operations. External
    edits are forbidden while mounted. An uncertain write faults the mount until
    unmount; host repair may be necessary before mounting again. */

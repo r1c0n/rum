@@ -204,7 +204,7 @@ static void exercise(unsigned unrelated)
     collect((rum_pid_t)cross, RUM_PROCESS_EXITED, INT32_MIN);
     check(rum_spawn("/missing", &arguments) == -RUM_ENOENT &&
           rum_spawn("/data.bin", &arguments) == -RUM_ENOEXEC &&
-          rum_spawn("/../../life.elf", &arguments) == -RUM_EINVAL, 59);
+          rum_spawn("/bad name/life.elf", &arguments) == -RUM_EINVAL, 59);
     /* Fill every remaining slot with non-yielding children, then reclaim all. */
     rum_pid_t children[20]; unsigned count = 0;
     for (;;) {

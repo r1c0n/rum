@@ -146,7 +146,7 @@ void snake_receive(char character, uint32_t now)
         char number[12];
         print("Snake score: "); decimal(number, score); print(number);
         print(" | best: "); decimal(number, best); print(number); print("\n");
-        if (!saved) print("Best score remains in memory; RAM file could not be saved.\n");
+        if (!saved) print("Best score could not be saved to disk.\n");
         serial_writestring("rum_snake_quit\n");
     } else if (character == 'r') {
         (void)save_best();

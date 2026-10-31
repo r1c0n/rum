@@ -148,7 +148,7 @@ def packaged(qemu, archive):
             with shell.boot(qemu, ram, f"packaged-iso-{ram}m", iso=True, image=image) as console:
                 console.command("hello", "Hello from rum userspace!")
                 console.command("cat /README.TXT")
-                console.command("ls /rum", "shell.elf")
+                console.command("ls /rum", "SHELL.ELF")
         return hashlib.sha256(image.read_bytes()).hexdigest()
 
 

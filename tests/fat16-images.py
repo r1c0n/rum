@@ -147,17 +147,17 @@ def generate(directory):
     for name, value in (("self-loop", first), ("reserved", 0xfff0), ("bad-cluster", 0xfff7),
                         ("free-cluster", 0), ("cluster-one", 1), ("out-of-range", g["clusters"] + 2),
                         ("premature-end", 0xffff)):
-        case(name, lambda data, value=value: fat_set(data, first, value), "open", "/disk/BINARY.BIN")
-    case("tail-loop", lambda data: fat_set(data, file_chain[-1], file_chain[1]), "open", "/disk/BINARY.BIN")
-    case("extra-chain", field(file_slot + 28, "<I", 1), "open", "/disk/BINARY.BIN")
-    case("too-large-file", field(file_slot + 28, "<I", 0xffffffff), "open", "/disk/BINARY.BIN")
-    case("file-outside", field(file_slot + 26, "<H", g["clusters"] + 2), "open", "/disk/BINARY.BIN")
-    case("high-word", field(file_slot + 20, "<H", 1), "open", "/disk/BINARY.BIN")
-    case("allocated-empty", field(empty_slot + 26, "<H", first), "open", "/disk/EMPTY.BIN")
-    case("dir-loop", lambda data: fat_set(data, dir_first, dir_first), "open", "/disk/DOCS")
-    case("truncated-dir", lambda data: fat_set(data, dir_first, 0), "open", "/disk/DOCS")
-    case("dir-outside", field(dir_slot + 26, "<H", 0xffef), "open", "/disk/DOCS")
-    case("dir-size", field(dir_slot + 28, "<I", 32), "open", "/disk/DOCS")
+        case(name, lambda data, value=value: fat_set(data, first, value), "open", "/BINARY.BIN")
+    case("tail-loop", lambda data: fat_set(data, file_chain[-1], file_chain[1]), "open", "/BINARY.BIN")
+    case("extra-chain", field(file_slot + 28, "<I", 1), "open", "/BINARY.BIN")
+    case("too-large-file", field(file_slot + 28, "<I", 0xffffffff), "open", "/BINARY.BIN")
+    case("file-outside", field(file_slot + 26, "<H", g["clusters"] + 2), "open", "/BINARY.BIN")
+    case("high-word", field(file_slot + 20, "<H", 1), "open", "/BINARY.BIN")
+    case("allocated-empty", field(empty_slot + 26, "<H", first), "open", "/EMPTY.BIN")
+    case("dir-loop", lambda data: fat_set(data, dir_first, dir_first), "open", "/DOCS")
+    case("truncated-dir", lambda data: fat_set(data, dir_first, 0), "open", "/DOCS")
+    case("dir-outside", field(dir_slot + 26, "<H", 0xffef), "open", "/DOCS")
+    case("dir-size", field(dir_slot + 28, "<I", 32), "open", "/DOCS")
     (directory / "manifest.json").write_text(json.dumps(cases, indent=2) + "\n")
     return cases
 

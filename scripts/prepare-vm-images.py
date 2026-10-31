@@ -5,15 +5,11 @@ import hashlib
 import importlib.util
 from pathlib import Path
 import shutil
-import struct
 import subprocess
 import sys
-import tempfile
 from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
-SIZE = 16 * 1024 * 1024
-SEED = b"Hello from rum's persistent data disk!\nThis file survives VM restarts.\n"
 VMX = '''.encoding = "UTF-8"
 config.version = "8"
 virtualHW.version = "14"

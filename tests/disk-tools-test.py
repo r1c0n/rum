@@ -54,7 +54,7 @@ with tempfile.TemporaryDirectory() as temporary:
     assert "format=raw" in args[8] and "werror=report" in args[8]
     assert launcher.boot_arguments(boot, kernel=True) == ["-nodefaults", "-vga", "std", "-kernel", str(boot)]
     system = directory / "rum-system.img"; system.write_bytes(b"separate module")
-    assert launcher.boot_arguments(boot, kernel=True)[-2:] == ["-initrd", str(system)]
+    assert "-initrd" not in launcher.boot_arguments(boot, kernel=True)
     assert "-initrd" not in launcher.boot_arguments(boot, kernel=True, system_image=False)
     assert "-initrd" not in launcher.boot_arguments(boot)
     system.unlink()

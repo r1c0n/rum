@@ -74,7 +74,7 @@ static void invalid(void)
           rum_run_command("/probe.elf", &a, "", &r) == -RUM_EACCES, 37);
     rum_result_t file = rum_open("/data.bin", 1, 0); char original[4];
     check(file == 3 && rum_read(3, original, 4) == 4 && equal(original, "abc") && rum_close(3) == 0, 34);
-    check(rum_replace("/empty", (void *)UINT32_MAX, 0) == 0 && rum_remove("/empty") == 0, 35);
+    check(rum_replace("/ZERO.BIN", (void *)UINT32_MAX, 0) == 0 && rum_remove("/ZERO.BIN") == 0, 35);
     char *cross = (char *)(PAGE + 4096 - 16);
     for (unsigned i = 0; i < 700; ++i) cross[i] = (char)i;
     check(rum_replace("/copy.bin", cross, 700) == 0 && rum_remove("/copy.bin") == 0, 36);

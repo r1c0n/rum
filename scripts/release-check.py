@@ -68,12 +68,13 @@ def main():
             run(make + ["all"], work, output / "build.log")
             # The suite builds once and bounds independent QEMU workers itself.
             run(make + ["test"], work, output / "tests.log")
+            run([sys.executable, "scripts/prepare-disk.py", "build/rum-system.raw"], work, output / "system-disk.log")
             report["passed"] = True
         finally:
             artifacts = work / "build/test-artifacts"
             if artifacts.exists():
                 shutil.copytree(artifacts, output / "test-artifacts", dirs_exist_ok=True)
-            for name in ("rum.iso", "rum.elf", "rum-system.img"):
+            for name in ("rum.iso", "rum.elf", "rum-system.raw"):
                 source = work / "build" / name
                 if source.is_file():
                     shutil.copy2(source, output / name)
@@ -82,6 +83,8 @@ def main():
             report["elapsed_seconds"] = round(time.monotonic() - started, 1)
             if (output / "rum.iso").is_file():
                 report["iso_sha256"] = hashlib.sha256((output / "rum.iso").read_bytes()).hexdigest()
+            if (output / "rum-system.raw").is_file():
+                report["system_disk_sha256"] = hashlib.sha256((output / "rum-system.raw").read_bytes()).hexdigest()
             (output / "result.json").write_text(json.dumps(report, indent=2) + "\n")
     print(f"PASS: clean build, complete suite and packaged ISO; artifacts in {output}")
     return 0

@@ -128,10 +128,6 @@ void kernel_main(uint32_t magic, uint32_t information)
         fat16_write_check(fat16_unmount() == FS_OK && heap_stats().allocations == baseline.allocations &&
             heap_stats().used_bytes == baseline.used_bytes && !fs_stats().objects && !fs_stats().references,
             "guest failure ownership cleanup");
-        fs_reference ram; char data[6];
-        fat16_write_check(fs_open(NULL, "/ram.txt", FS_READ, &ram) == FS_OK &&
-            fs_read(ram, 0, data, sizeof data).transferred == sizeof data && !memcmp(data, "island", 6) &&
-            fs_close(ram) == FS_OK, "RAM after guest disk errors");
         serial_writestring("rum_fat_write_result: "); serial_writestring(fs_error_name(error));
         serial_writestring(" "); decimal(transferred); serial_writestring("\n");
     }

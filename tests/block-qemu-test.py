@@ -68,7 +68,8 @@ def run(qemu, label, arguments, marker, *, ram=64, dump=False, allow_readonly_re
                 text = serial.read_text(errors="replace") if serial.exists() else ""
                 if "rum_block_failed" in text:
                     raise RuntimeError(f"{label}: {text}")
-                if marker in text:
+                if marker in text and (marker != "rum_boot_ok" or
+                    ("Kernel recovery shell." in text and text.endswith("> "))):
                     break
                 if process.poll() is not None:
                     raise RuntimeError(f"{label}: QEMU exited: {error_log.read_text()}")
@@ -78,7 +79,7 @@ def run(qemu, label, arguments, marker, *, ram=64, dump=False, allow_readonly_re
             if marker == "rum_boot_ok":
                 _, expect, type_text = smoke.guest_keyboard(stream, serial)
                 type_text("echo disk check\n")
-                expect("\r\ndisk check\r\n/> ")
+                expect("\r\ndisk check\r\n> ")
             smoke.qmp_command(stream, "stop")
             data = None
             if dump:

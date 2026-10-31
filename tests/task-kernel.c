@@ -371,11 +371,12 @@ static __attribute__((noinline)) void process_records(uint32_t baseline)
           pmm_stats().free_pages == prepared_free,
           "invalid process definitions remain private");
 
+    struct fs_statistics process_filesystem = fs_stats();
     for (uint32_t remaining = 0; remaining < RUM_KERNEL_STACK_SIZE / RUM_PAGE_SIZE; ++remaining) {
         uint32_t held = consume_until(remaining);
         check(task_snapshot_read(&before), "snapshot before partial process stack");
         check(!task_create_process(&process), "partial process stack cannot publish");
-        check(fs_stats().references == 1 && fs_stats().objects == 1, "partial process stack releases cwd");
+        check(fs_stats().references == process_filesystem.references && fs_stats().objects == process_filesystem.objects, "partial process stack releases cwd");
         check(pmm_stats().free_pages == remaining, "partial process stack restores pages");
         check(paging_directory_address(space) == process_directory,
               "partial process stack retains caller address space");

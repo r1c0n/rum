@@ -39,7 +39,8 @@ def run(qemu, ram, label, arguments, marker, case=None):
                 text = serial.read_text(errors="replace") if serial.exists() else ""
                 if "rum_fat_failed" in text or "rum kernel panic" in text:
                     raise RuntimeError(f"{label}: {text}")
-                if marker in text:
+                if marker in text and (marker != "rum_boot_ok" or
+                    ("Kernel recovery shell." in text and text.endswith("> "))):
                     break
                 if process.poll() is not None:
                     raise RuntimeError(f"{label}: {process.stderr.read().decode(errors='replace')}")
@@ -55,7 +56,7 @@ def run(qemu, ram, label, arguments, marker, case=None):
                     if case is None:
                         _, expect, type_text = smoke.guest_keyboard(stream, serial)
                         type_text("echo disk is usable\n")
-                        expect("\r\ndisk is usable\r\n/> ")
+                        expect("\r\ndisk is usable\r\n> ")
                         if "valid" in label:
                             assert "rum_fat16: ok\n" in text
                         else:
