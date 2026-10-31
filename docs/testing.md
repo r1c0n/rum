@@ -2,9 +2,9 @@
 
 Run `make -j4 test` in Ubuntu/WSL, or `.\rum.ps1 test` on Windows. The suite
 builds its kernels and programs once, runs host checks and creates fixtures,
-then runs independent guest suites with two workers. Each worker runs at most
-one QEMU instance. Use `make test TEST_JOBS=1` on a slower machine, or increase
-`TEST_JOBS` to at most 4 when CPU and memory permit it. Build parallelism (`-j`)
+then runs independent guest suites with four workers. Each worker runs at most
+one QEMU instance. Use `make test TEST_JOBS=2` or `TEST_JOBS=1` on a slower
+machine. The allowed worker range is 1–4. Build parallelism (`-j`)
 and guest parallelism (`TEST_JOBS`) are separate settings.
 
 ## Coverage

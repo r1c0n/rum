@@ -17,7 +17,7 @@ runs the complete host and QEMU suite, validates the ZIP and boots the ISO
 extracted from that ZIP. It uses the repository's cross-compiler by default;
 pass `--cross-prefix /path/to/i686-elf-` or `--qemu /path/to/qemu-system-i386`
 for another installation. `--jobs` controls build parallelism. Tests run
-with two bounded workers after shared builds, fixtures and packaging finish.
+with four bounded workers after shared builds, fixtures and packaging finish.
 Per-suite logs and timings are included in `test-artifacts/suite/`; see
 [testing](testing.md).
 

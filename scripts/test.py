@@ -30,7 +30,7 @@ def run(name, command):
 def suite():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--qemu", default="qemu-system-i386")
-    parser.add_argument("--jobs", type=int, default=2)
+    parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--cross-prefix", default=str(ROOT / ".tools/cross/bin/i686-elf-"))
     args = parser.parse_args()
     if not 1 <= args.jobs <= 4:

@@ -773,7 +773,7 @@ $(DEPENDENCIES) $(TEST_DEPENDENCIES) $(USER_DEPENDENCIES): ;
 -include $(DEPENDENCIES) $(TEST_DEPENDENCIES) $(USER_DEPENDENCIES)
 
 # Build once, then run independent suites with a bounded number of guests.
-TEST_JOBS ?= 2
+TEST_JOBS ?= 4
 .PHONY: test test-build
 test-build: user iso build/tests/recovery.iso $(FAULT_KERNELS) \
     build/tests/irq.elf $(CPU_KERNELS) $(PROCESS_FAULT_KERNELS) build/tests/syscall.elf \

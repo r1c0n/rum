@@ -67,8 +67,7 @@ def main():
             make = ["make", f"-j{args.jobs}", f"CROSS_PREFIX={args.cross_prefix}", f"QEMU={args.qemu}"]
             run(make + ["all"], work, output / "build.log")
             # The suite builds once and bounds independent QEMU workers itself.
-            run(["make", "-j1", f"CROSS_PREFIX={args.cross_prefix}", f"QEMU={args.qemu}", "test"],
-                work, output / "tests.log")
+            run(make + ["test"], work, output / "tests.log")
             report["passed"] = True
         finally:
             artifacts = work / "build/test-artifacts"
