@@ -176,8 +176,8 @@ checks and the evidence saved with each candidate.
 
 The goal is to connect programs through standard streams and make everyday
 file work convenient. Complete shared-handle and pipe semantics before adding
-pipelines or job syntax. Programs remain separate ELFs in the read-only `/rum`
-boot volume; user files and optional applications remain on `/`.
+pipelines or job syntax. Programs remain separate ELFs in `/RUM` on the
+persistent root disk, alongside user files and optional applications.
 
 ### 1. Shared open objects and descriptor inheritance
 

@@ -73,7 +73,7 @@ make run DISK_IMAGE=build/scratch.raw DISK_READ_ONLY=1
 
 The tested QEMU IDE implementation refuses this backend with `Block node is
 read-only` before rum boots. The image remains intact. Boot without the disk
-to use rum in that case. ATA IDENTIFY does not advertise host file permissions;
+to use the recovery console in that case. ATA IDENTIFY does not advertise host file permissions;
 a permission failure during a write is reported as an ATA I/O error rather
 than a guessed read-only capability.
 

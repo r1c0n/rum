@@ -44,10 +44,12 @@ User code links with `-nostdlib`, rum's startup and syscall wrappers, and target
 3. Add `name` to `APP_PROGRAMS` in the Makefile.
 4. Run `make user` and fix any compiler or ELF-validator error.
 5. Debug with the ELF under `build/user/debug/`, not the stripped asset.
+6. Prepare a new system disk to install it, or back up an existing disk and
+   copy the stripped ELF into `/RUM` with host FAT tools while the VM is stopped.
 
 System commands use `system/commands/name.c` and `SYSTEM_COMMANDS`. SDK examples
 use `sdk/examples/name.c` and `SDK_EXAMPLES`. The shell has its own entry at
-`system/shell/main.c`. These lists form the explicit system-image manifest;
+`system/shell/main.c`. These lists form the explicit system-disk program manifest;
 placing a source file in a directory does not install an executable by itself.
 
 A minimal program looks like this:

@@ -1,7 +1,7 @@
 # FAT16 disks
 
 rum mounts a supported FAT16 volume at `/` when an image is attached as the
-secondary IDE master. Embedded files remain at the RAM root. Kernel callers can
+secondary IDE master. The shell, commands and user files share that disk. Kernel callers can
 read and write files, resize them, and create and remove directories. Mounting
 and normal boot never format, repair, or write the image.
 
@@ -9,7 +9,7 @@ The common kernel filesystem API provides these operations and directory iterati
 The normal [userspace shell](shell.md) can list, read, create and replace disk
 files, change directories, make and remove directories, and launch disk ELFs.
 It uses the same [filesystem syscalls](filesystem-syscalls.md) as other user
-programs. The kernel recovery shell retains its RAM-file commands.
+programs. The kernel recovery shell uses the same disk filesystem.
 
 ## Create an image with host files
 
@@ -19,8 +19,8 @@ Install mtools on Ubuntu or WSL if needed:
 sudo apt install mtools
 ```
 
-From the repository, create a new disposable 16 MiB image, format it, and copy
-a file into it:
+For a normal system disk, use [disk preparation](system-volume.md). To create
+a new disposable data-only image for recovery-console experiments:
 
 ```sh
 make create-disk DISK_IMAGE=build/fat16.raw DISK_SIZE_MIB=16
@@ -37,6 +37,9 @@ explicit formatting operation; use it on the new disposable image. The image
 contains FAT16 directly at sector zero, without a partition table. To boot it
 through QEMU's direct ELF loader, use `make run-kernel` with the same
 `DISK_IMAGE` value.
+
+This image has no `/RUM` programs, so startup enters recovery. It does not
+provide the normal shell until programs are deliberately installed.
 
 From PowerShell, use the Windows launcher for creation and boot and run mtools
 inside WSL:
