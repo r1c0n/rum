@@ -16,6 +16,9 @@
 #define RUM_OPEN_READ 1
 #define RUM_OPEN_WRITE 2
 #define RUM_OPEN_DIRECTORY 1 /* Only directories; read access is required. */
+#define RUM_OPEN_CREATE 2u /* Create a missing regular file; requires write. */
+#define RUM_OPEN_TRUNCATE 4u /* Empty an existing unpinned file; requires write. */
+#define RUM_OPEN_APPEND 8u /* Every write selects EOF and writes under one FS operation. */
 #define RUM_SEEK_SET 0
 #define RUM_SEEK_CUR 1
 #define RUM_SEEK_END 2

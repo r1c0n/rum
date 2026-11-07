@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <string.h>
 #include <stdio.h>
 #include <rum/abi/error.h>
 #include <rum/cpu.h>
@@ -177,12 +178,54 @@ static void pipes_test(void)
     for (unsigned i = 0; i < RUM_KERNEL_PIPE_LIMIT; ++i) assert(!process_handles_destroy(&all[i]));
     assert(fs_test_backend_calls() == calls && !pipe_stats().pipes); empty();
 }
+static void open_modes(void)
+{
+    struct process_handles t = {0};
+    assert(!process_handles_initialize(&t));
+    unsigned calls = fs_test_backend_calls();
+    assert(process_handle_open(&t, NULL, "/MODES.TXT", FS_READ, RUM_OPEN_CREATE) == -RUM_EINVAL);
+    assert(process_handle_open(&t, NULL, "/MODES.TXT", FS_WRITE, 16) == -RUM_EINVAL);
+    assert(process_handle_open(&t, NULL, "/MODES.TXT", FS_READ, RUM_OPEN_DIRECTORY | RUM_OPEN_APPEND) == -RUM_EINVAL);
+    assert(fs_test_backend_calls() == calls);
+    assert(process_handle_open(&t, NULL, "/MODES.TXT", FS_WRITE, RUM_OPEN_TRUNCATE) == -RUM_ENOENT);
+    assert(process_handle_open(&t, NULL, "/MISSING/FILE.TXT", FS_WRITE, RUM_OPEN_CREATE) == -RUM_ENOENT);
+    assert(process_handle_open(&t, NULL, "/MODES.TXT", FS_READ | FS_WRITE, RUM_OPEN_CREATE | RUM_OPEN_TRUNCATE) == 3);
+    struct process_handle *a = process_handle_get(&t, 3);
+    assert(process_handle_write(a, "old", 3) == 3);
+    assert(process_handle_open(&t, NULL, "/MODES.TXT", FS_WRITE, RUM_OPEN_TRUNCATE) == -RUM_EBUSY);
+    assert(!process_handle_close(&t, 3));
+    assert(process_handle_open(&t, NULL, "/MODES.TXT", FS_READ | FS_WRITE, RUM_OPEN_TRUNCATE) == 3);
+    a = process_handle_get(&t, 3);
+    char bytes[16]; assert(process_handle_read(a, bytes, sizeof bytes) == 0);
+    assert(!process_handle_close(&t, 3));
+    assert(process_handle_open(&t, NULL, "/MODES.TXT", FS_READ | FS_WRITE, RUM_OPEN_APPEND) == 3);
+    assert(process_handle_open(&t, NULL, "/MODES.TXT", FS_WRITE, RUM_OPEN_APPEND) == 4);
+    a = process_handle_get(&t, 3);
+    struct process_handle *b = process_handle_get(&t, 4);
+    assert(process_handle_write(a, "ab", 2) == 2 && a->offset == 2);
+    assert(process_handle_write(b, "cd", 2) == 2 && b->offset == 4);
+    uint64_t position;
+    assert(!process_handle_seek(a, 0, RUM_SEEK_SET, &position));
+    assert(process_handle_write(a, "ef", 2) == 2 && a->offset == 6);
+    assert(process_handle_duplicate(&t, 3, 5, 0) == 5 && process_handle_get(&t, 5)->append);
+    fs_test_backend_short = 1; fs_test_backend_partial_error = FS_IO_ERROR;
+    assert(process_handle_write(b, "gh", 2) == 1 && b->offset == 7);
+    fs_test_backend_short = 0; fs_test_backend_partial_error = FS_OK;
+    assert(process_handle_write(b, NULL, 0) == 0);
+    assert(process_handle_write(b, "h", 1) == -RUM_EIO && b->offset == 7);
+    assert(process_handle_write(b, "h", 1) == 1 && b->offset == 8);
+    assert(!process_handle_seek(a, 0, RUM_SEEK_SET, &position));
+    assert(process_handle_read(a, bytes, sizeof bytes) == 8 && !memcmp(bytes, "abcdefgh", 8));
+    assert(fs_replace(NULL, "/MODES.TXT", "x", 1) == FS_BUSY);
+    assert(!process_handles_destroy(&t) && fs_remove(NULL, "/MODES.TXT") == FS_OK);
+    empty();
+}
 int main(void)
 {
     test_page_budget(-1);
     assert(heap_initialize() && test_files_initialize() && test_files_mount());
     assert(test_file_put("DATA.BIN", "abcdef", 6));
-    aliases(); validation(); exhaustion(); pipes_test();
+    aliases(); validation(); exhaustion(); pipes_test(); open_modes();
     assert(!fs_stats().references && !fs_test_backend_pins() && fs_unmount_disk() == FS_OK);
     puts("PASS: shared offsets/errors, descriptor mapping, authority, pinning, limits and rollback");
     return 0;

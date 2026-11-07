@@ -9,6 +9,8 @@
 static struct process_handle descriptions[OPEN_DESCRIPTIONS];
 
 _Static_assert(RUM_OPEN_READ == FS_READ && RUM_OPEN_WRITE == FS_WRITE, "access bits");
+_Static_assert(RUM_OPEN_CREATE == FS_OPEN_CREATE && RUM_OPEN_TRUNCATE == FS_OPEN_TRUNCATE &&
+               RUM_OPEN_APPEND == FS_OPEN_APPEND, "open option bits");
 _Static_assert(RUM_ABI_HANDLE_LIMIT == 32 && RUM_SPAWN_MAPPING_LIMIT <= 32,
                "mapping conflict bitmap covers every descriptor");
 
@@ -123,7 +125,9 @@ rum_result_t process_handle_open(struct process_handles *table, const struct fs_
                                  const char *path, unsigned access, unsigned flags)
 {
     if (!table || !path || !access || (access & ~(FS_READ | FS_WRITE)) ||
-        (flags & ~RUM_OPEN_DIRECTORY) || ((flags & RUM_OPEN_DIRECTORY) && access != FS_READ)) return -RUM_EINVAL;
+        (flags & ~(RUM_OPEN_DIRECTORY | RUM_OPEN_CREATE | RUM_OPEN_TRUNCATE | RUM_OPEN_APPEND)) ||
+        ((flags & RUM_OPEN_DIRECTORY) && (access != FS_READ || flags != RUM_OPEN_DIRECTORY)) ||
+        ((flags & ~RUM_OPEN_DIRECTORY) && !(access & FS_WRITE))) return -RUM_EINVAL;
     unsigned slot = 3;
     while (slot < RUM_ABI_HANDLE_LIMIT && table->slots[slot].object) ++slot;
     if (slot == RUM_ABI_HANDLE_LIMIT) return -RUM_EMFILE;
@@ -131,7 +135,7 @@ rum_result_t process_handle_open(struct process_handles *table, const struct fs_
     struct process_handle *object = new_description(HANDLE_FILE, access);
     if (!object) return -RUM_ENOMEM;
     fs_reference reference = 0;
-    enum fs_error error = fs_open(context, path, access, &reference);
+    enum fs_error error = fs_open_flags(context, path, access, flags & ~RUM_OPEN_DIRECTORY, &reference);
     if (error != FS_OK) { (void)release(object); return process_fs_error(error); }
     struct fs_information info;
     error = fs_stat(reference, &info);
@@ -139,6 +143,7 @@ rum_result_t process_handle_open(struct process_handles *table, const struct fs_
     if (error != FS_OK) { (void)fs_close(reference); (void)release(object); return process_fs_error(error); }
     uint32_t saved = cpu_interrupt_save();
     object->reference = reference;
+    object->append = (flags & RUM_OPEN_APPEND) != 0;
     object->kind = info.kind == FS_DIRECTORY ? HANDLE_DIRECTORY : HANDLE_FILE;
     table->slots[slot] = (struct process_descriptor){ .object = object };
     cpu_interrupt_restore(saved);
@@ -295,15 +300,16 @@ static rum_result_t transfer(struct process_handle *handle, void *buffer, size_t
     if (handle->kind == HANDLE_DIRECTORY) return -RUM_EISDIR;
     if (handle->pipe) return write ? pipe_write(handle->pipe, buffer, bytes) : pipe_read(handle->pipe, buffer, bytes);
     if (handle->kind != HANDLE_FILE || (bytes && !buffer)) return -RUM_EINVAL;
-    if (bytes > INT32_MAX || bytes > UINT64_MAX - handle->offset) return -RUM_EOVERFLOW;
+    if (bytes > INT32_MAX || (!(write && handle->append) && bytes > UINT64_MAX - handle->offset)) return -RUM_EOVERFLOW;
     if (!bytes) return 0;
     if (!process_filesystem_context()) return -RUM_EBUSY;
     if (handle->pending_error) {
         rum_result_t error = handle->pending_error; handle->pending_error = 0; return error;
     }
-    struct fs_io_result result = write ? fs_write(handle->reference, handle->offset, buffer, bytes) :
+    struct fs_io_result result = write && handle->append ? fs_append(handle->reference, buffer, bytes, &handle->offset) :
+                                write ? fs_write(handle->reference, handle->offset, buffer, bytes) :
                                        fs_read(handle->reference, handle->offset, buffer, bytes);
-    handle->offset += result.transferred;
+    if (!(write && handle->append)) handle->offset += result.transferred;
     rum_result_t error = process_fs_error(result.error);
     /* A committed prefix wins over the error; report the error on the next
        nonempty transfer so callers never retry bytes already committed. */

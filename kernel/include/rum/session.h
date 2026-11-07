@@ -10,7 +10,7 @@ struct console_member {
     struct console_session *session;
     struct console_member *restore;
     uint32_t id, references;
-    bool live, cancelled, shell, command, foreground_launch;
+    bool live, cancelled, shell, command, foreground_launch, pipeline;
 };
 struct console_statistics {
     uint32_t sessions, closing, members, session_references, process_references;
@@ -29,6 +29,13 @@ bool console_grant_command(struct console_member *shell, struct console_member *
 struct console_member *console_command_shell(const struct console_member *);
 bool console_same_session(const struct console_member *, const struct console_member *);
 bool console_is_root(const struct console_member *);
+bool console_pipeline_begin(struct console_member *shell);
+bool console_pipeline_end(struct console_member *shell);
+bool console_pipeline_active(const struct console_member *shell);
+bool console_pipeline_cancelled(const struct console_member *shell);
+bool console_pipeline_join(struct console_member *shell, struct console_member *child);
+bool console_pipeline_member(const struct console_member *);
+bool console_pipeline_cancel(void); /* IRQ: latch cancellation even during setup. */
 uint32_t console_cancellation_target(void); /* IRQ-safe; shell receives Ctrl+C as input. */
 void console_cancel_member(struct console_member *);
 /* Restore a referenced previous owner or close a root session. True requests

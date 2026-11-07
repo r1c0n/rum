@@ -47,12 +47,19 @@ struct fs_statistics fs_stats(void);
 /* IRQ-safe observation of a synchronous namespace/backend operation. */
 bool fs_operation_active(void);
 enum fs_error fs_open(const struct fs_context *, const char *path, unsigned access, fs_reference *);
+#define FS_OPEN_CREATE 2u
+#define FS_OPEN_TRUNCATE 4u
+#define FS_OPEN_APPEND 8u
+enum fs_error fs_open_flags(const struct fs_context *, const char *, unsigned access, unsigned flags, fs_reference *);
 enum fs_error fs_duplicate(fs_reference, fs_reference *);
 enum fs_error fs_close(fs_reference);
 enum fs_error fs_stat(fs_reference, struct fs_information *);
 enum fs_error fs_stat_path(const struct fs_context *, const char *, struct fs_information *);
 struct fs_io_result fs_read(fs_reference, uint64_t offset, void *, size_t);
 struct fs_io_result fs_write(fs_reference, uint64_t offset, const void *, size_t);
+/* EOF selection and write share the namespace operation. Position changes only
+   after a committed prefix; separate open descriptions cannot overwrite it. */
+struct fs_io_result fs_append(fs_reference, const void *, size_t, uint64_t *position);
 /* Resize through a write handle. Growth fills with zero bytes; no sparse files.
    References keep their identity and observe the new size after success. */
 enum fs_error fs_truncate(fs_reference, uint64_t size);
