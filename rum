@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+# Linux/WSL entry point; paths supplied by the caller retain their meaning.
+exec python3 "$(dirname -- "$0")/scripts/rum.py" "$@"

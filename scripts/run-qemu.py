@@ -23,9 +23,16 @@ def validate_disk(path):
     return path
 
 
-def drive(path, *, index, media, read_only=False):
+def image_path(path, windows_paths=False):
+    path = str(Path(path).resolve())
+    if windows_paths:
+        path = subprocess.check_output(["wslpath", "-a", "-w", path], text=True).strip()
+    return path
+
+
+def drive(path, *, index, media, read_only=False, windows_paths=False):
     # QEMU's keyval parser quotes a literal comma with a doubled comma.
-    filename = str(Path(path).resolve()).replace(",", ",,")
+    filename = image_path(path, windows_paths).replace(",", ",,")
     options = f"file={filename},format=raw,if=ide,index={index},media={media}"
     if media == "disk":
         options += ",cache=writeback,werror=report,rerror=report"
@@ -34,17 +41,17 @@ def drive(path, *, index, media, read_only=False):
     return ["-drive", options]
 
 
-def boot_arguments(image, kernel=False, disk=None, read_only=False, system_image=True):
+def boot_arguments(image, kernel=False, disk=None, read_only=False, system_image=True, windows_paths=False):
     image = Path(image).resolve(strict=True)
     # Suppress QEMU's implicit empty secondary CD-ROM; VGA is explicit. The PC
     # still supplies its PS/2 controller, PIT and PIC, and callers add serial.
-    arguments = ["-nodefaults", "-vga", "std"] + (["-kernel", str(image)] if kernel else
-                 ["-boot", "d"] + drive(image, index=0, media="cdrom"))
+    arguments = ["-nodefaults", "-vga", "std"] + (["-kernel", image_path(image, windows_paths)] if kernel else
+                 ["-boot", "d"] + drive(image, index=0, media="cdrom", windows_paths=windows_paths))
     if disk is not None:
         path = validate_disk(disk)
         if path.samefile(image):
             raise ValueError("boot image and writable disk must be different files")
-        arguments += drive(path, index=2, media="disk", read_only=read_only)
+        arguments += drive(path, index=2, media="disk", read_only=read_only, windows_paths=windows_paths)
     elif read_only:
         raise ValueError("--disk-read-only requires --disk")
     return arguments
@@ -58,6 +65,8 @@ def main():
     parser.add_argument("--disk", type=Path, help="existing raw image; never created or resized")
     parser.add_argument("--disk-read-only", action="store_true")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--memory", type=int, default=64)
+    parser.add_argument("--windows-paths", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--validate-disk-only", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     try:
@@ -67,8 +76,10 @@ def main():
             elif args.disk_read_only:
                 raise ValueError("--disk-read-only requires --disk")
             return 0
-        arguments = boot_arguments(args.image, args.kernel, args.disk, args.disk_read_only)
-        command = [args.qemu, "-name", "rum OS", "-m", "64M", "-serial", "stdio",
+        if not 16 <= args.memory <= 128:
+            raise ValueError("guest memory must be 16 through 128 MiB")
+        arguments = boot_arguments(args.image, args.kernel, args.disk, args.disk_read_only, windows_paths=args.windows_paths)
+        command = [args.qemu, "-name", "rum OS", "-m", f"{args.memory}M", "-serial", "stdio",
                    "-no-reboot", "-no-shutdown"] + arguments
         if args.debug:
             command += ["-S", "-s"]
