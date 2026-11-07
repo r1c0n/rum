@@ -23,10 +23,14 @@ static void completions(int editing)
         struct rum_process_result result = { .version = RUM_PROCESS_ABI_VERSION, .size = sizeof result };
         rum_result_t done = rum_wait(RUM_WAIT_ANY, RUM_WAIT_NOHANG, &result);
         if (done != 1) break;
-        if (editing && !shown) tool_print("\n");
-        shown = 1;
-        completion(&result);
+        int legacy = 0;
+        for (unsigned i = 0; i < RUM_PROCESS_LIST_LIMIT; ++i) legacy |= children[i].pid == result.process_id;
+        if (legacy) {
+            if (editing && !shown) tool_print("\n");
+            shown = 1; completion(&result);
+        }
     }
+    shell_job_notices(editing && !shown);
 }
 
 static void prompt(void)
@@ -39,11 +43,11 @@ static void prompt(void)
 
 static void execute(char *line)
 {
-    for (unsigned i = 0; line[i]; ++i) if (line[i] == '<' || line[i] == '>' || line[i] == '|') {
+    for (unsigned i = 0; line[i]; ++i) if (line[i] == '<' || line[i] == '>' || line[i] == '|' || line[i] == '&') {
         struct shell_pipeline plan;
         rum_result_t result = shell_parse_pipeline(line, &plan);
         if (result < 0) tool_print("shell: invalid or oversized pipeline.\n");
-        else shell_run_pipeline(&plan, completion);
+        else shell_run_pipeline(&plan);
         return;
     }
     char *tail = line, *argv[RUM_ABI_ARGUMENT_LIMIT];

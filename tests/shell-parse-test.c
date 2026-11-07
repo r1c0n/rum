@@ -19,6 +19,12 @@ int main(int argc, char **argv)
     for (unsigned i = 0; i < sizeof invalid / sizeof invalid[0]; ++i)
         assert(shell_parse_pipeline(invalid[i], &plan) == -RUM_EINVAL);
     assert(!shell_parse_pipeline("cat|cat|cat|cat", &plan) && plan.count == SHELL_PIPELINE_LIMIT);
+    assert(!shell_parse_pipeline("cat<IN.BIN|cat>OUT.BIN& ", &plan) && plan.background && plan.count == 2);
+    assert(!shell_parse_pipeline("spin&", &plan) && plan.background && plan.count == 1);
+    assert(!shell_parse_pipeline("echo hi", &plan) && !plan.background);
+    assert(shell_parse_pipeline("spin&echo no", &plan) == -RUM_EINVAL);
+    assert(shell_parse_pipeline("spin&&", &plan) == -RUM_EINVAL);
+    assert(shell_parse_pipeline("&", &plan) == -RUM_EINVAL);
     assert(shell_parse_pipeline("cat|cat|cat|cat|cat", &plan) == -RUM_E2BIG);
     assert(!shell_parse_pipeline("echo >a >b >c >d >e >f >g >h", &plan));
     assert(shell_parse_pipeline("echo >a >b >c >d >e >f >g >h >i", &plan) == -RUM_E2BIG);

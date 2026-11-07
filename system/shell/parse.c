@@ -1,7 +1,7 @@
 #include "shell.h"
 
 static int space(char c) { return c == ' ' || c == '\t'; }
-static int operator(char c) { return c == '<' || c == '>' || c == '|'; }
+static int operator(char c) { return c == '<' || c == '>' || c == '|' || c == '&'; }
 static rum_result_t word(const char **input, struct shell_pipeline *plan, unsigned *used, char **output)
 {
     const char *p = *input;
@@ -30,7 +30,12 @@ rum_result_t shell_parse_pipeline(const char *line, struct shell_pipeline *plan)
         while (space(*p)) ++p;
         if (!*p) break;
         struct shell_stage *stage = &plan->stages[plan->count - 1];
-        if (*p == '|') {
+        if (*p == '&') {
+            if (!stage->argc) return -RUM_EINVAL;
+            ++p; while (space(*p)) ++p;
+            if (*p) return -RUM_EINVAL;
+            plan->background = 1; break;
+        } else if (*p == '|') {
             if (!stage->argc) return -RUM_EINVAL;
             if (plan->count == SHELL_PIPELINE_LIMIT) return -RUM_E2BIG;
             ++plan->count; ++p;
