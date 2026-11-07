@@ -38,6 +38,7 @@ userspace has stopped and recovery has reclaimed its children. See
 | `Heap` | Live payload, mapped capacity, reusable space, and allocation count |
 | `Filesystem` | Mounted volumes and open references |
 | `Handles` | Descriptor references, live open descriptions, and aliases sharing those descriptions |
+| `Pipes` | Live pipes, buffered bytes, endpoint descriptions, active operations and blocked calls |
 
 Each task entry also shows whether its stack and directory are owned or
 borrowed. Kernel tasks have PID zero. A published process has a positive PID,
@@ -61,6 +62,9 @@ In the kernel recovery console:
 - Handle/description/alias counts reach zero after userspace and its children
   are reclaimed. Private tables being prepared for launch are included while
   construction is active. See [shared handles](shared-handles.md).
+- Pipe counts, active operations and waiters also return to zero after process
+  cleanup. Endpoint counts include shared open descriptions once, regardless
+  of descriptor aliases. See [pipes](pipes.md).
 - Free physical pages may decrease when the heap grows, even after individual
   heap allocations are freed. Heap pages stay mapped for reuse.
 

@@ -204,22 +204,26 @@ See [shared handles and child streams](shared-handles.md) for API contracts and
 
 ### 2. Bounded pipes and stream I/O
 
-- [ ] Add a versioned pipe-creation request returning separate read and write
+- [x] Add a versioned pipe-creation request returning separate read and write
   handles with a documented fixed buffer capacity.
-- [ ] Route pipe transfers through the existing read/write interface with
+- [x] Route pipe transfers through the existing read/write interface with
   exact byte counts, partial transfers, and zero-length semantics.
-- [ ] Block readers on an empty pipe while writers remain, and block writers
+- [x] Block readers on an empty pipe while writers remain, and block writers
   on a full pipe while readers remain.
-- [ ] Return EOF only after all writers close and buffered bytes are consumed;
+- [x] Return EOF only after all writers close and buffered bytes are consumed;
   return a public broken-pipe error when no readers remain.
-- [ ] Reject seeking and directory operations on pipes, and define ordering
+- [x] Reject seeking and directory operations on pipes, and define ordering
   and any atomic-write limit for multiple writers.
-- [ ] Wake waiters on transfer, final close, fault, and cancellation without
+- [x] Wake waiters on transfer, final close, fault, and cancellation without
   losing events or releasing a pipe that still has live references.
 
 Compare binary payloads larger than the pipe capacity byte for byte. Cover
 several readers/writers, last-end closure, cancelled blocked tasks, inherited
 aliases, handle exhaustion, and repeated pipelines returning counts to baseline.
+
+See [pipes and stream I/O](pipes.md) for the API, capacity, atomic-write limit
+and endpoint lifetime rules. Run `./rum test --suite pipes -j4` for the focused
+host and ring-3 checks.
 
 ### 3. File redirection and pipeline launch
 
