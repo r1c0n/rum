@@ -83,6 +83,12 @@ void diagnostics_render(const struct kernel_diagnostics *snapshot, diagnostics_w
     write("Handles: "); decimal(write, snapshot->handles.descriptors); write(" descriptors, ");
     decimal(write, snapshot->handles.descriptions); write(" open descriptions, ");
     decimal(write, snapshot->handles.aliases); write(" aliases\n");
+    write("Pipes: "); decimal(write, snapshot->pipes.pipes); write(" live, ");
+    decimal(write, snapshot->pipes.buffered_bytes); write(" buffered bytes | ");
+    decimal(write, snapshot->pipes.readers); write(" read ends, ");
+    decimal(write, snapshot->pipes.writers); write(" write ends, ");
+    decimal(write, snapshot->pipes.operations); write(" active operations, ");
+    decimal(write, snapshot->pipes.read_waiters + snapshot->pipes.write_waiters); write(" waiters\n");
     static const char *const states[] = {"unused", "runnable", "running", "blocked", "exited"};
     for (uint32_t i = 0; i < snapshot->tasks.count; ++i) {
         const struct task_information *item = &snapshot->tasks.tasks[i];
@@ -180,5 +186,8 @@ void diagnostics_panic(void)
     field(serial_writestring, "diag_descriptions", snapshot.handles.descriptions);
     field(serial_writestring, "diag_descriptors", snapshot.handles.descriptors);
     field(serial_writestring, "diag_aliases", snapshot.handles.aliases);
+    field(serial_writestring, "diag_pipes", snapshot.pipes.pipes);
+    field(serial_writestring, "diag_pipeops", snapshot.pipes.operations);
+    field(serial_writestring, "diag_pipewaiters", snapshot.pipes.read_waiters + snapshot.pipes.write_waiters);
     serial_writestring("\n");
 }

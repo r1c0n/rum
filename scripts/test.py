@@ -63,6 +63,7 @@ def suite():
             ("preemption", "tests/preemption-qemu-test.py", []),
             ("file-syscalls", "tests/file-syscall-qemu-test.py", ["--ram", "16"]),
             ("shared-handles", "tests/shared-handles-qemu-test.py", []),
+            ("pipes", "tests/pipes-qemu-test.py", []),
             ("process-syscalls", "tests/process-syscall-qemu-test.py", []),
         ]
         with ThreadPoolExecutor(max_workers=args.jobs) as pool:
@@ -73,7 +74,7 @@ def suite():
         results.append(run("disk-launcher", [sys.executable, "tests/disk-tools-test.py", "--boot-output-checks"]))
         return int(any(result["returncode"] for result in results))
     finally:
-        report = {"passed": len(results) == 18 and all(r["returncode"] == 0 for r in results),
+        report = {"passed": len(results) == 19 and all(r["returncode"] == 0 for r in results),
                   "jobs": args.jobs, "seconds": round(time.monotonic() - started, 2),
                   "suites": sorted(results, key=lambda result: result["seconds"], reverse=True)}
         (OUTPUT / "result.json").write_text(json.dumps(report, indent=2) + "\n")

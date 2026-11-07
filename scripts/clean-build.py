@@ -10,7 +10,7 @@ DISK_SUFFIXES = {".raw", ".img", ".vmdk", ".vdi", ".vhd", ".vhdx", ".qcow", ".qc
 OBJECT_SUFFIXES = {".o", ".d", ".elf", ".map"}
 STAGING = {"isodir", "recovery-isodir", "console-isodir", "console-supervisor-isodir",
            "preemption-isodir", "lifecycle-isodir", "lifecycle-ids-isodir",
-           "sleep-isodir", "integration-isodir", "readonly-isodir", "shared-handles-isodir"}
+           "sleep-isodir", "integration-isodir", "readonly-isodir", "shared-handles-isodir", "pipes-isodir"}
 
 
 def outputs(root):

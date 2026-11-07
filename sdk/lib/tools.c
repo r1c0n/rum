@@ -39,6 +39,8 @@ void tool_error(const char *command, rum_result_t result)
     case RUM_E2BIG: message = "file or argument list is too large"; break;
     case RUM_ETIMEDOUT: message = "disk did not respond"; break;
     case RUM_EIO: message = "I/O failure"; break;
+    case RUM_EPIPE: message = "pipe has no reader"; break;
+    case RUM_ESPIPE: message = "stream does not support seeking"; break;
     case RUM_EINVAL: message = "invalid path, name or arguments"; break;
     case RUM_ECHILD: message = "no matching child process"; break;
     case RUM_ESRCH: message = "process does not exist"; break;

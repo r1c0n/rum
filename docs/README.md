@@ -23,6 +23,7 @@ programs and persistent files. With no usable disk, rum opens recovery.
 - [User ABI](user-abi.md), [filesystem syscalls](filesystem-syscalls.md) and [process syscalls](process-syscalls.md)
 - [Process tools](process-tools.md)
 - [Shared handles and child streams](shared-handles.md)
+- [Pipes and stream I/O](pipes.md)
 - [Block devices](block-devices.md)
 - [Releases](release.md) and [roadmap](roadmap.md)
 

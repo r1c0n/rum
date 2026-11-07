@@ -10,6 +10,7 @@
 #include <rum/memory.h>
 #include <rum/memory_layout.h>
 #include <rum/paging.h>
+#include <rum/pipe.h>
 #include <rum/process.h>
 #include <rum/serial.h>
 #include <rum/snake.h>
@@ -20,6 +21,7 @@
 
 #define CONSOLE_CHUNK 128u
 #define FILE_CHUNK 512u
+_Static_assert(FILE_CHUNK == RUM_PIPE_ATOMIC_WRITE, "pipe syscall chunks retain atomic-write semantics");
 
 static bool accessible(struct paging_space *space, uint32_t address, uint32_t bytes, bool write)
 {
@@ -81,7 +83,7 @@ static rum_result_t transfer(struct paging_space *space, struct process_handles 
         if (!task_switch_release()) cpu_halt();
         return (rum_result_t)chunk;
     }
-    if (bytes > UINT64_MAX - handle->offset) return -RUM_EOVERFLOW;
+    if (!handle->pipe && bytes > UINT64_MAX - handle->offset) return -RUM_EOVERFLOW;
     rum_result_t result = write ? process_handle_write(handle, buffer, chunk) : process_handle_read(handle, buffer, chunk);
     if (!write && result > 0 && !paging_copy_to_user(space, address, buffer, (size_t)result)) cpu_halt();
     return result;
@@ -99,6 +101,21 @@ static rum_result_t open_file(struct paging_space *space, struct process_handles
     char path[RUM_ABI_PATH_CAPACITY];
     rum_result_t error = copy_path(space, request.path, path);
     return error ? error : process_handle_open(table, task_current_filesystem(), path, request.access, request.flags);
+}
+
+static rum_result_t create_pipe(struct paging_space *space, struct process_handles *table, uint32_t address)
+{
+    struct rum_pipe_request request;
+    if (!accessible(space, address, sizeof request, true) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    if (request.version != RUM_PIPE_ABI_VERSION || request.size != sizeof request || request.flags ||
+        request.reserved || request.read_handle || request.write_handle || request.capacity || request.atomic_write)
+        return -RUM_EINVAL;
+    rum_result_t error = process_handles_pipe(table, &request.read_handle, &request.write_handle);
+    if (error) return error;
+    request.capacity = RUM_PIPE_CAPACITY; request.atomic_write = RUM_PIPE_ATOMIC_WRITE;
+    if (!paging_copy_to_user(space, address, &request, sizeof request)) cpu_halt();
+    return 0;
 }
 
 static rum_result_t duplicate_handle(struct paging_space *space, struct process_handles *table, uint32_t address)
@@ -438,6 +455,8 @@ void syscall_dispatch(struct exception_frame *frame)
         result = transfer(space, handles, frame->ebx, frame->ecx, frame->edx, frame->eax == RUM_SYS_WRITE); break;
     case RUM_SYS_OPEN: result = open_file(space, handles, frame->ebx); break;
     case RUM_SYS_CLOSE: result = process_handle_close(handles, frame->ebx); break;
+    case RUM_SYS_PIPE:
+        result = frame->ecx || frame->edx ? -RUM_EINVAL : create_pipe(space, handles, frame->ebx); break;
     case RUM_SYS_DUPLICATE:
         result = frame->ecx || frame->edx ? -RUM_EINVAL : duplicate_handle(space, handles, frame->ebx); break;
     case RUM_SYS_SPAWN_MAPPED:

@@ -42,6 +42,31 @@ TEST_DEPENDENCIES += build/tests/waits-kernel.d build/tests/sleep-kernel.d build
 TEST_DEPENDENCIES += build/tests/console-kernel.d build/tests/user/console.d
 TEST_DEPENDENCIES += build/tests/integration-kernel.d build/tests/user/integration.d
 TEST_DEPENDENCIES += build/tests/shared-handles-kernel.d build/tests/user/shared-handles.d
+TEST_DEPENDENCIES += build/tests/pipes-kernel.d build/tests/user/pipes.d
+
+.PHONY: test-pipes
+test-pipes: test-pipes-host build/tests/pipes.elf build/tests/pipes.iso
+	python3 tests/pipes-qemu-test.py --qemu $(QEMU)
+build/tests/user/pipes.o: tests/pipes-user.c $(USER_INCLUDE_STAMP) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/tests/user/pipes.debug.elf: build/tests/user/pipes.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+build/tests/user/pipes.elf: build/tests/user/pipes.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@.tmp
+	build/tools/check-user-elf $@.tmp $<
+	mv -- $@.tmp $@
+build/tests/pipes-image.o: tests/pipes-image.s build/tests/user/pipes.elf
+	@mkdir -p $(@D)
+	$(AS) $< -o $@
+build/tests/pipes.elf: build/tests/pipes-kernel.o build/tests/pipes-image.o $(filter-out build/tests/fault-trigger.o build/kernel/process/syscall.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
+build/tests/pipes.iso: build/tests/pipes.elf $(TESTS_RULES)
+	@mkdir -p build/pipes-isodir/boot/grub
+	cp $< build/pipes-isodir/boot/rum.elf
+	printf 'set timeout=0\nmenuentry "rum pipes" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/pipes-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/pipes-isodir
 
 build/tests/user/shared-handles.o: tests/shared-handles-user.c $(USER_INCLUDE_STAMP) $(TESTS_RULES)
 	@mkdir -p $(@D)
@@ -64,9 +89,19 @@ build/tests/shared-handles.iso: build/tests/shared-handles.elf $(TESTS_RULES)
 	printf 'set timeout=0\nmenuentry "rum shared handles" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/shared-handles-isodir/boot/grub/grub.cfg
 	grub-mkrescue -o $@ build/shared-handles-isodir
 
-build/tests/handles-test: tests/handles-test.c kernel/process/handles.c kernel/include/rum/handles.h tests/handles-include/rum/cpu.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS) $(TESTS_RULES)
+build/tests/handles-test: tests/handles-test.c kernel/process/handles.c kernel/io/pipe.c tests/pipe-task-backend.c tests/pipe-task-backend.h kernel/include/rum/handles.h kernel/include/rum/pipe.h tests/handles-include/rum/cpu.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS) $(TESTS_RULES)
 	@mkdir -p $(@D)
 	$(HOST_CC) -Itests/handles-include -Itests/include $(CPPFLAGS) -std=gnu11 -O2 -fno-builtin -Wall -Wextra -Werror $(sort $(filter %.c,$^)) -o $@
+
+.PHONY: test-pipes-host
+test-pipes-host: build/tests/pipe-test build/tests/handles-test build/tests/abi-test
+	./build/tests/pipe-test
+	./build/tests/handles-test
+	./build/tests/abi-test
+build/tests/pipe-test: tests/pipe-test.c kernel/io/pipe.c kernel/core/memory.c tests/pipe-task-backend.c tests/pipe-task-backend.h kernel/include/rum/pipe.h tests/handles-include/rum/cpu.h $(ABI_HEADERS) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Itests/handles-include $(CPPFLAGS) -std=gnu11 -O2 -fno-builtin -Wall -Wextra -Werror $(sort $(filter %.c,$^)) -o $@
+test-host: build/tests/pipe-test
 
 .SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) $(PROCESS_FAULT_OBJECTS) build/tests/paging-spaces.o build/tests/user-memory.o
 .SECONDARY: $(USER_DEBUG) $(USER_RUNTIME) $(addprefix build/user/objects/,$(addsuffix .o,$(USER_PROGRAMS)))
@@ -570,6 +605,7 @@ test-host: build/tests/block-test build/tests/console-test build/tests/memory-te
 	./build/tests/session-test
 	./build/tests/handles-test
 	./build/tests/path-test
+	./build/tests/pipe-test
 	./build/tests/fs-test
 	./build/tests/ata-test
 	./build/tests/block-test
@@ -588,7 +624,7 @@ test-host: build/tests/block-test build/tests/console-test build/tests/memory-te
 	python3 tests/disk-tools-test.py
 
 .PHONY: test-build
-test-build: user iso build/tests/handles-test build/tests/shared-handles.elf build/tests/shared-handles.iso build/tests/recovery.iso $(FAULT_KERNELS) \
+test-build: user iso build/tests/pipe-test build/tests/pipes.elf build/tests/pipes.iso build/tests/handles-test build/tests/shared-handles.elf build/tests/shared-handles.iso build/tests/recovery.iso $(FAULT_KERNELS) \
     build/tests/irq.elf $(CPU_KERNELS) $(PROCESS_FAULT_KERNELS) build/tests/syscall.elf \
     build/tests/elf-loader.elf $(PAGING_KERNELS) build/tests/storage.elf build/tests/fs.elf \
     build/tests/task.elf build/tests/task-fault.elf build/tests/task-double-fault.elf $(ABI_KERNELS) \

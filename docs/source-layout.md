@@ -11,7 +11,7 @@ the kernel is built as `rum.elf` and packaged in `rum.iso`; an explicitly prepar
 | `kernel/core/` | Initialization in `init.c` and freestanding memory primitives |
 | `kernel/process/` | Task scheduling, process lifecycle, referenced console sessions, handles, ELF loading, and syscall dispatch |
 | `kernel/mm/` | Physical allocation and kernel heap |
-| `kernel/io/` | Common block-device operations and request serialization |
+| `kernel/io/` | Block-device operations, request serialization and bounded pipe streams |
 | `kernel/fs/` | Paths, mounts, retained objects, the persistent FAT16 root |
 | `kernel/recovery/` | Kernel recovery command loop and current Snake engine |
 | `kernel/debug/` | Ownership snapshots, diagnostics, and panic reports |
