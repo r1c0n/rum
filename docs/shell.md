@@ -23,8 +23,10 @@ Files are persistent on the root FAT16 disk. `/RUM` holds compiled programs
 on the same writable volume. Names use case-insensitive 8.3 spelling and
 listings use uppercase. `..` stops at `/`; there are no separate `/disk` or
 memory-backed mounts. See [paths](filesystems.md) and [system disk](system-volume.md).
-Binary file bytes are escaped by `cat` rather than interpreted as console
-control codes. `write` creates or replaces a file with the supplied text.
+`cat` displays tabs and both LF and Windows CRLF line endings normally. Binary
+bytes and unsupported controls, including a standalone carriage return, are
+escaped; the file stays unchanged. `write` creates or replaces a file with the
+supplied text.
 
 ## Programs and processes
 

@@ -161,7 +161,9 @@ def commands(console):
 def disk_commands(console):
     console.command("ls //DOCS/./", "NOTE.TXT\r\n")
     console.command("cd /docs"); console.wait("/DOCS> ")
-    console.command("cat ./NOTE.TXT", "\r\nA\\x00\\xFF\\x1B\\x0D\r\n> ")
+    console.command("cat ./NOTE.TXT", "\r\nA\\x00\\xFF\\x1B\r\n> ")
+    console.command("cat LINES.TXT", "\r\none\r\ntwo\r\nthree\\x0Dfour\\x0D\r\n> ")
+    console.command("cat BOUNDARY.TXT", "\r\n" + "x" * 511 + "\r\nend\r\n> ")
     console.command("cat EMPTY.TXT", "cat EMPTY.TXT\r\n> ")
     console.command("ls NOTE.TXT", "not a directory.")
     console.command("cat MISSING.TXT", "file or directory not found.")
@@ -183,7 +185,10 @@ def main():
         disk, source = Path(temporary) / "fat16.raw", Path(temporary) / "source"
         images.build(disk); images.seed_system(disk)
         images.command("mmd", "-i", str(disk), "::/DOCS")
-        for name, contents in (("DOCS/NOTE.TXT", b"A\0\xff\x1b\r\n"), ("DOCS/EMPTY.TXT", b"")):
+        fixtures = {"DOCS/NOTE.TXT": b"A\0\xff\x1b\r\n", "DOCS/EMPTY.TXT": b"",
+                    "DOCS/LINES.TXT": b"one\r\ntwo\nthree\rfour\r",
+                    "DOCS/BOUNDARY.TXT": b"x" * 511 + b"\r\nend\r\n"}
+        for name, contents in fixtures.items():
             source.write_bytes(contents); images.command("mcopy", "-i", str(disk), str(source), "::/" + name)
         original = disk.read_bytes()
         for ram, iso in ((16, False), (64, True)):
@@ -192,6 +197,8 @@ def main():
                 commands(console); disk_commands(console)
             assert images.file_bytes(disk, "/DOCS/NEW.TXT") == b"persistent shell bytes"
             assert images.file_bytes(disk, "/LOCAL.TXT") == b"disk file bytes"
+            for name, contents in fixtures.items():
+                assert images.file_bytes(disk, "/" + name) == contents
             images.audit(disk)
             with boot(args.qemu, ram, f"reboot-{ram}m-{iso}", disk=disk, iso=iso) as console:
                 console.command("cat /DOCS/NEW.TXT", "persistent shell bytes")
