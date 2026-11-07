@@ -181,23 +181,26 @@ persistent root disk, alongside user files and optional applications.
 
 ### 1. Shared open objects and descriptor inheritance
 
-- [ ] Separate handle-table entries from referenced open-file descriptions.
+- [x] Separate handle-table entries from referenced open-file descriptions.
   Duplicated handles share offset, access mode, and pending I/O error state;
   separate opens keep independent offsets.
-- [ ] Add descriptor duplication and explicit spawn-time stream mappings.
+- [x] Add descriptor duplication and explicit spawn-time stream mappings.
   Allow files and future pipes to occupy standard handles 0–2.
-- [ ] Define close-on-spawn behavior and inherit only descriptors requested
+- [x] Define close-on-spawn behavior and inherit only descriptors requested
   by a validated launch packet.
-- [ ] Validate source handles, target numbers, modes, reserved fields, and
+- [x] Validate source handles, target numbers, modes, reserved fields, and
   mapping conflicts before publishing a child.
-- [ ] Keep backend objects pinned until the final shared reference closes;
+- [x] Keep backend objects pinned until the final shared reference closes;
   retain the documented busy-object rules for removal and replacement.
-- [ ] Roll back every acquired reference on failed duplication, spawn, exit,
+- [x] Roll back every acquired reference on failed duplication, spawn, exit,
   user fault, and cancellation.
 
 Test shared offsets, independent opens, closing one alias, standard-handle
 replacement, table exhaustion, conflicting mappings, and partial launch
 failure. Extend ownership diagnostics to count open descriptions and aliases.
+
+See [shared handles and child streams](shared-handles.md) for API contracts and
+`./rum test --suite handles` for the focused host and ring-3 checks.
 
 ### 2. Bounded pipes and stream I/O
 

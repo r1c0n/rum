@@ -5,8 +5,8 @@ open files on the root FAT16 volume, read or overwrite
 their contents, list directories, change their working directory, create
 directories, remove closed objects, and flush a backend.
 
-The normal [userspace shell](shell.md) uses these calls on RAM, `/rum` and `/`. The
-kernel recovery shell keeps its original RAM commands.
+The normal [userspace shell](shell.md) and recovery console use the persistent
+root filesystem, including programs in `/RUM`.
 
 ## Opening and reading
 
@@ -34,7 +34,7 @@ Open does not create or truncate a file. `rum_replace(path, data, bytes)` create
 or replaces a whole file, up to 65,536 bytes. Zero bytes creates an empty file
 and ignores the data pointer. An open file identity cannot be replaced. A
 writable handle can overwrite or append to an
-existing file, subject to RAM or FAT limits. A write beyond EOF returns
+existing file, subject to FAT limits. A write beyond EOF returns
 `-RUM_ERANGE`; sparse files are unsupported.
 
 `rum_replace` uses syscall 14 and a 24-byte `rum_replace_request`: version,
@@ -49,14 +49,17 @@ Each process starts with input, output and error at handles 0, 1 and 2.
 File and directory handles occupy 3–31. The first free slot is used; exhausting
 these 29 slots returns `-RUM_EMFILE`. Closing a stream is allowed, but its number
 is never allocated to a file. File handle numbers may be reused after close;
-do not keep using a saved number once you close it. Child processes start with
-fresh streams and do not inherit the parent's open files.
+do not keep using a saved number once you close it. Explicit duplication can
+replace 0–2 with files. Legacy launches give children fresh console streams;
+`rum_spawn_with_handles` supplies explicitly selected shared descriptions.
+See [shared handles and child streams](shared-handles.md) for inheritance
+flags, packet layouts and examples.
 
 ## Transfers, offsets and errors
 
 File I/O transfers at most 512 bytes per syscall; console I/O transfers at most
 128. Callers must loop for longer operations. A positive result is the exact
-number of bytes transferred and advances that handle's offset by that amount.
+number of bytes transferred and advances the open description's offset by that amount.
 A file read at or beyond EOF returns zero. A zero-length operation ignores its
 buffer after validating the handle, direction and object kind.
 
@@ -73,7 +76,7 @@ change. Paths are copied into bounded kernel storage and parsed before lookup.
 No driver receives a user pointer.
 
 If a backend completes a prefix and also reports an error, the syscall returns
-the positive prefix count. The handle remembers the error and returns it on the
+the positive prefix count. The shared description remembers the error and returns it on the
 next otherwise-valid nonempty read or write without doing more I/O. Zero-length
 calls and seeks do not discard that error. This allows callers to account for
 bytes that were already committed before observing the failure. A negative
@@ -84,7 +87,8 @@ displacement. `RUM_SEEK_SET` starts at zero, `RUM_SEEK_CUR` at the current
 offset, and `RUM_SEEK_END` at the current file size. Position is an unsigned
 64-bit result; pass `NULL` if the wrapper need not return it. Underflow, overflow
 and `offset + requested_bytes` overflow return `-RUM_EOVERFLOW`. Seeking beyond
-EOF is allowed, but does not grow the file. Streams cannot seek. A directory
+EOF is allowed, but does not grow the file. Console objects cannot seek; a
+file mapped to a standard descriptor can. A directory
 supports only `rum_seek(directory, 0, RUM_SEEK_SET, NULL)` to restart iteration.
 
 ## Directories and paths
@@ -108,7 +112,7 @@ Initialize the entry packet once with its version, size and a zero reserved
 word. Output fields may be reused between calls. Readdir returns 1 for an entry,
 0 for the end, or a negative error. EOF clears the output fields. Errors leave
 the packet and cursor unchanged. Restart iteration after directory mutation.
-The cursor belongs to the handle and is opaque.
+The cursor belongs to the shared open description and is opaque.
 
 `rum_chdir(path)` changes only the calling process's directory. Relative paths
 start there; absolute paths start at `/`. `rum_getcwd(buffer, capacity)` returns
@@ -164,7 +168,7 @@ Results use rum-specific negative `RUM_E*` codes, without setting `errno`:
 ## Flush and cleanup
 
 `rum_flush(handle)` invokes the backend's flush operation and reports failure.
-RAM needs no physical flush. FAT writes already follow the documented
+FAT writes already follow the documented
 [data/FAT/directory ordering](fat16.md); an explicit flush does not make the
 volume journaled or give general crash recovery. Close releases a reference
 without flushing or retrying an uncertain write. Follow FAT's repair guidance

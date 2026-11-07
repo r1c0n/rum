@@ -15,7 +15,8 @@ occupy separate bounded pools with a one-to-one relationship for now.
 | --- | --- | --- |
 | PID, parent, address space, private tables and user pages | Process resource record | Publication through reaping |
 | Working directory and filesystem references | Process resource record | Cloned before publication, released by reaping |
-| Handle table and backend pins | Process resource record | Initialized before publication, closed before exited state |
+| Descriptor table and per-descriptor flags | Process resource record | Prepared before publication, closed before exited state |
+| Open description, shared offset/error and backend pin | Referenced by descriptor aliases across processes | Final alias releases the backend pin |
 | Termination result, cancellation and console membership | Process resource record | Publication through reaping |
 | Root shell, foreground owner and return references | Referenced console session/member records | Publication through exit; final detach at reaping |
 | Kernel stack, saved kernel context and user CPU frame | Initial thread | Prepared privately, released after switching away |

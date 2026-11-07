@@ -89,8 +89,9 @@ write already in progress can commit. `RUN` returns a cancellation result rather
 than cancelling the waiting parent. The kernel marks only the supervised initial
 shell as interactive: Ctrl+C reaches that shell as a character for line editing.
 
-Open handles are not inherited, and there is no general signal or arbitrary-kill
-interface. The calls below provide bounded child control.
+Legacy launches do not inherit open files. Use
+[`rum_spawn_with_handles`](shared-handles.md) for explicit descriptor mappings
+and shared offsets. This adds no general signal or arbitrary-kill interface.
 
 ## Launching without waiting
 

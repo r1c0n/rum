@@ -158,6 +158,8 @@ callee-saved registers.
 | 21 | `rum_yield()` | All arguments zero | Zero after another scheduling turn |
 | 22 | `rum_sleep(milliseconds)` | Versioned relative-delay packet; zero yields | Zero when the delay expires |
 | 23 | `rum_process_list(entries, capacity, total)` | Bounded user-process snapshot | Copied count and snapshot total |
+| 24 | `rum_duplicate(source, target, flags)` | Versioned duplicate packet | Target descriptor |
+| 25 | `rum_spawn_with_handles(path, args, maps, count, flags)` | Versioned launch packet and explicit mapping array | Positive child PID |
 
 Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
 means success. A negative result is the negation of a `RUM_E*` value from

@@ -37,6 +37,7 @@ userspace has stopped and recovery has reclaimed its children. See
 | `Lifecycle` | Created, exited, reaped, and actual context-switch totals |
 | `Heap` | Live payload, mapped capacity, reusable space, and allocation count |
 | `Filesystem` | Mounted volumes and open references |
+| `Handles` | Descriptor references, live open descriptions, and aliases sharing those descriptions |
 
 Each task entry also shows whether its stack and directory are owned or
 borrowed. Kernel tasks have PID zero. A published process has a positive PID,
@@ -57,6 +58,9 @@ In the kernel recovery console:
 - Recovery has zero published processes and zero task-owned user pages. During
   normal operation, the userspace shell owns a process and private pages;
   foreground command children add their own resources until they are reaped.
+- Handle/description/alias counts reach zero after userspace and its children
+  are reclaimed. Private tables being prepared for launch are included while
+  construction is active. See [shared handles](shared-handles.md).
 - Free physical pages may decrease when the heap grows, even after individual
   heap allocations are freed. Heap pages stay mapped for reuse.
 
