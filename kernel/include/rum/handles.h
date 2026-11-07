@@ -4,7 +4,9 @@
 #include <rum/abi/process.h>
 #include <rum/fs.h>
 
-enum process_handle_kind { HANDLE_UNUSED, HANDLE_INPUT, HANDLE_OUTPUT, HANDLE_FILE, HANDLE_DIRECTORY };
+enum process_handle_kind { HANDLE_UNUSED, HANDLE_INPUT, HANDLE_OUTPUT, HANDLE_FILE, HANDLE_DIRECTORY,
+                           HANDLE_PIPE_READ, HANDLE_PIPE_WRITE };
+struct kernel_pipe;
 /* A bounded, shared open description. Callers retain ownership through a
    descriptor; do not cache a pointer after closing that descriptor. */
 struct process_handle {
@@ -14,6 +16,7 @@ struct process_handle {
     enum process_handle_kind kind;
     rum_result_t pending_error;
     uint32_t references;
+    struct kernel_pipe *pipe;
 };
 /* Entries own references to open descriptions; flags belong to each entry. */
 struct process_descriptor { struct process_handle *object; uint32_t flags; };
@@ -32,6 +35,7 @@ rum_result_t process_handles_destroy(struct process_handles *);
 struct process_handle *process_handle_get(struct process_handles *, rum_handle_t);
 rum_result_t process_handle_open(struct process_handles *, const struct fs_context *, const char *, unsigned, unsigned);
 rum_result_t process_handle_close(struct process_handles *, rum_handle_t);
+rum_result_t process_handles_pipe(struct process_handles *, rum_handle_t *reader, rum_handle_t *writer);
 rum_result_t process_handle_seek(struct process_handle *, uint64_t displacement, unsigned whence, uint64_t *position);
 rum_result_t process_handle_read(struct process_handle *, void *, size_t);
 rum_result_t process_handle_write(struct process_handle *, const void *, size_t);

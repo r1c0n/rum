@@ -205,6 +205,16 @@ the waiter with IF clear only if that sequence is unchanged. An early signal
 therefore avoids sleeping. A resumed waiter must recheck its predicate because
 another waiter may consume the resource first.
 
+Pipe reads and writes use separate per-pipe events with the same sequence
+protocol. Each blocked call retains an active-operation reference, so closing
+both endpoints cannot reclaim its queue or event storage before it resumes.
+Cancellation removes the wait registration and releases that reference before
+the ordinary syscall-return boundary closes descriptors and ends the process.
+Transfers and final endpoint closure wake the affected pipe waiters; timer
+ticks do not wake them. Queue copies are bounded to 512 bytes with IF clear,
+and waiting occurs after restoring IF without filesystem or block ownership.
+See [pipes and stream I/O](pipes.md) for public transfer and lifetime rules.
+
 ## Validation
 
 Run `make test` after changing these contracts. The task fixture in
@@ -240,6 +250,12 @@ reused slots, protected-context rejection, public packet validation and real
 PS/2 cancellation. It checks idle wakeups after the slice budget has saturated
 and waits that hold temporary kernel allocations until cancellation returns.
 See [process syscalls](process-syscalls.md#tests) for the fixtures and artifacts.
+
+`make test-pipes` checks bounded FIFO ordering, multiple readers and writers,
+endpoint aliases, atomic chunks, event races and blocked-call cancellation.
+Repeated exit, user fault and parent exit must restore pipe, operation, waiter,
+descriptor, process, page and heap counts. Both direct ELF/16 MiB and GRUB
+ISO/64 MiB fixtures run without a disk image.
 
 `make test-integration-stress` combines those scheduling paths with real ATA
 and FAT16 work. CPU workers validate private data while file workers retain

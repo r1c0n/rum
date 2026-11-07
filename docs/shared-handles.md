@@ -83,8 +83,8 @@ use the file backend even at slot 1. Console-input aliases still enforce
 foreground ownership; inheritance grants no keyboard or shell-session authority.
 
 Legacy `rum_spawn`, `rum_run` and `rum_run_command` keep their fresh console
-streams and do not inherit files. Pipe creation, shell redirection syntax and
-pipeline ownership are separate roadmap steps.
+streams and do not inherit files. [Pipes](pipes.md) can use these mappings too.
+Shell redirection syntax and pipeline ownership are later roadmap steps.
 
 ## Public ABI
 

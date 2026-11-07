@@ -18,6 +18,7 @@ bool diagnostics_capture(struct kernel_diagnostics *result)
     result->heap = heap_stats();
     result->filesystem = fs_stats();
     result->handles = process_handles_stats();
+    result->pipes = pipe_stats();
     cpu_interrupt_restore(flags);
     return true;
 }

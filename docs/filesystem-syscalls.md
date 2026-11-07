@@ -63,6 +63,11 @@ number of bytes transferred and advances the open description's offset by that a
 A file read at or beyond EOF returns zero. A zero-length operation ignores its
 buffer after validating the handle, direction and object kind.
 
+[Pipe descriptors](pipes.md) use the same read/write calls with a 512-byte
+transfer limit and a bounded buffer. They block on empty/full conditions,
+report EOF after the last writer closes and return `EPIPE` when no reader
+remains. Pipe positions are not seekable and their data never reaches FAT.
+
 Standard input belongs to the foreground owner; positive-length reads by a
 nonforeground process return `-RUM_EACCES` without consuming queued keys.
 Output/error streams accept writes from all processes. Each console chunk

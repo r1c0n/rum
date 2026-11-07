@@ -7,9 +7,11 @@
 #include <rum/abi/filesystem.h>
 #include <rum/abi/console.h>
 #include <rum/abi/time.h>
+#include <rum/abi/pipe.h>
 
 rum_result_t rum_open(const char *path, uint32_t access, uint32_t flags);
 rum_result_t rum_close(rum_handle_t);
+rum_result_t rum_pipe(struct rum_pipe_request *);
 rum_result_t rum_duplicate(rum_handle_t source, rum_handle_t target, uint32_t flags);
 rum_result_t rum_seek(rum_handle_t, int64_t displacement, uint32_t whence, uint64_t *position);
 rum_result_t rum_readdir(rum_handle_t, struct rum_directory_entry *);
