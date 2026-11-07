@@ -7,6 +7,7 @@
 #include <rum/fs.h>
 #include <rum/handles.h>
 #include <rum/pipe.h>
+#include <rum/jobs.h>
 
 struct kernel_diagnostics {
     uint32_t cr0, cr3, kernel_esp, esp0, flags;
@@ -18,6 +19,7 @@ struct kernel_diagnostics {
     struct fs_statistics filesystem;
     struct process_handle_statistics handles;
     struct pipe_statistics pipes;
+    struct job_statistics jobs;
 };
 
 /* Foreground or fatal exception only. No allocation, switching or cleanup.

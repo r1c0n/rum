@@ -8,10 +8,19 @@
 #include <rum/abi/console.h>
 #include <rum/abi/time.h>
 #include <rum/abi/pipe.h>
+#include <rum/abi/job.h>
 
 rum_result_t rum_open(const char *path, uint32_t access, uint32_t flags);
 rum_result_t rum_close(rum_handle_t);
 rum_result_t rum_isatty(rum_handle_t);
+rum_result_t rum_job_create(const char *, uint32_t flags);
+rum_result_t rum_job_commit(uint32_t);
+rum_result_t rum_job_cancel(uint32_t);
+rum_result_t rum_job_list(struct rum_job_entry *, uint32_t capacity, uint32_t *total);
+rum_result_t rum_job_wait(uint32_t, uint32_t flags, struct rum_job_entry *);
+rum_result_t rum_job_foreground(uint32_t);
+rum_result_t rum_job_release(uint32_t);
+rum_result_t rum_job_ack(uint32_t);
 rum_result_t rum_pipe(struct rum_pipe_request *);
 rum_result_t rum_duplicate(rum_handle_t source, rum_handle_t target, uint32_t flags);
 rum_result_t rum_seek(rum_handle_t, int64_t displacement, uint32_t whence, uint64_t *position);

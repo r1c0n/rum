@@ -10,6 +10,8 @@ struct console_session {
     int32_t exit_status;
     struct console_member *root, *owner;
     struct console_member *pipeline_input;
+    struct console_member *job_input;
+    uint32_t foreground_job;
     bool pipeline_active, pipeline_started, pipeline_cancelled;
     struct console_member *members[RUM_PROCESS_LIMIT];
 };
@@ -52,7 +54,7 @@ bool console_can_launch(const struct console_member *parent, bool foreground)
     uint32_t saved = cpu_interrupt_save();
     bool valid = parent ? parent->live && !parent->cancelled &&
         (!parent->session || !parent->session->closing) && (!foreground || (owns(parent) &&
-        (!parent->session || !parent->session->pipeline_active))) :
+        (!parent->session || (!parent->session->pipeline_active && !parent->session->foreground_job)))) :
         !foreground || (!active && available());
     if (valid && parent && parent->session) {
         unsigned i = 0;
@@ -105,8 +107,9 @@ bool console_is_shell(const struct console_member *member)
 bool console_owns_input(const struct console_member *member)
 {
     uint32_t saved = cpu_interrupt_save();
-    bool valid = active && active->pipeline_active ? member && member->live && !member->cancelled &&
-        !active->closing && active->pipeline_input == member : owns(member);
+    bool valid = active && (active->foreground_job || active->pipeline_active) ?
+        member && member->live && !member->cancelled && !active->closing &&
+        (active->foreground_job ? active->job_input == member : active->pipeline_input == member) : owns(member);
     cpu_interrupt_restore(saved); return valid;
 }
 bool console_grant_command(struct console_member *shell, struct console_member *child)
@@ -162,7 +165,7 @@ bool console_pipeline_cancelled(const struct console_member *shell)
 bool console_pipeline_begin(struct console_member *shell)
 {
     uint32_t saved = cpu_interrupt_save();
-    bool valid = console_is_shell(shell) && owns(shell) && !shell->session->pipeline_active;
+    bool valid = console_is_shell(shell) && owns(shell) && !shell->session->pipeline_active && !shell->session->foreground_job;
     if (valid) shell->session->pipeline_active = true;
     cpu_interrupt_restore(saved); return valid;
 }
@@ -211,6 +214,40 @@ void console_cancel_member(struct console_member *member)
     uint32_t saved = cpu_interrupt_save(); member->cancelled = true;
     cpu_interrupt_restore(saved);
 }
+uint32_t console_job_target(void)
+{
+    return active && !active->closing ? active->foreground_job : 0;
+}
+bool console_job_focus(struct console_member *controller, uint32_t job, struct console_member *input)
+{
+    uint32_t saved = cpu_interrupt_save();
+    bool valid = job && owns(controller) && (console_is_shell(controller) || console_command_shell(controller)) &&
+        !controller->session->foreground_job && !controller->session->pipeline_active &&
+        (!input || (input->live && input->session == controller->session && input->job_id == job));
+    if (valid) {
+        controller->session->foreground_job = job;
+        controller->session->job_input = input;
+        if (input) ++input->references;
+    }
+    cpu_interrupt_restore(saved); return valid;
+}
+bool console_job_input(struct console_member *shell, uint32_t job, struct console_member *input)
+{
+    uint32_t saved = cpu_interrupt_save();
+    bool valid = console_is_shell(shell) && owns(shell) && shell->session->foreground_job == job &&
+        !shell->session->job_input && input && input->live && input->session == shell->session && input->job_id == job;
+    if (valid) { shell->session->job_input = input; ++input->references; }
+    cpu_interrupt_restore(saved); return valid;
+}
+void console_job_end(struct console_member *member, uint32_t job)
+{
+    uint32_t saved = cpu_interrupt_save();
+    if (member && member->session && member->session->foreground_job == job) {
+        if (member->session->job_input) --member->session->job_input->references;
+        member->session->job_input = 0; member->session->foreground_job = 0;
+    }
+    cpu_interrupt_restore(saved);
+}
 bool console_member_exit(struct console_member *member)
 {
     uint32_t saved = cpu_interrupt_save();
@@ -218,10 +255,13 @@ bool console_member_exit(struct console_member *member)
     if (!member || !member->live) { cpu_interrupt_restore(saved); return false; }
     struct console_session *session = member->session;
     member->live = false; member->command = false;
+    if (session && session->job_input == member) { --member->references; session->job_input = 0; }
     if (session && session->pipeline_input == member) {
         --member->references; session->pipeline_input = 0;
     }
     if (session && session->root == member) {
+        if (session->job_input) { --session->job_input->references; session->job_input = 0; }
+        session->foreground_job = 0;
         if (session->pipeline_input) { --session->pipeline_input->references; session->pipeline_input = 0; }
         session->pipeline_active = session->pipeline_started = session->pipeline_cancelled = false;
         discard = member->shell;

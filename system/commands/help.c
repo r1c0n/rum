@@ -12,11 +12,14 @@ int main(int argc, char **argv)
         "run <program> [arguments] Run a program; Ctrl+C cancels\n"
         "start <program> [arguments] Start without waiting\n"
         "ps                List processes\nkill <pid>        Request cancellation\n"
+        "jobs              List session jobs\nfg <job>          Bring a job to the foreground\n"
+        "wait [job]        Wait and collect one or all jobs\n"
         "sleep <milliseconds> Wait for the specified time\n"
         "snake             Play Snake (WASD, P, R, Q)\n"
         "exit              Restart the shell\nrecovery          Open the recovery shell\n"
         "Pipes: cat IN.BIN | cat > OUT.BIN\n"
         "Redirect with <, > (replace), or >> (append).\n"
+        "End a command or pipeline with & to run it as a background job.\n"
         "Programs are available in /rum.\n");
     return 0;
 }

@@ -39,8 +39,9 @@ being edited, the shell prints a new prompt and redraws that line intact.
 Program output may interleave with the prompt or other programs: individual
 console chunks of up to 128 bytes are serialized, not whole lines or messages.
 
-There are no background job numbers, `&` syntax, pipelines, redirection, history
-or job-control signals. The bracketed number is the process's PID.
+For `start`, the bracketed number remains the process's PID. [`&`, `jobs`, `fg`
+and `wait`](jobs.md) provide separate session job numbers and pipeline control.
+History, stop/resume and general job-control signals remain unsupported.
 
 ## Process tools
 

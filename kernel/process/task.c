@@ -11,6 +11,7 @@
 #include <rum/process_limits.h>
 #include <rum/task.h>
 #include <rum/session.h>
+#include <rum/jobs.h>
 #include <rum/keyboard.h>
 #include <rum/timer.h>
 
@@ -392,6 +393,48 @@ bool task_join_pipeline(task_id id)
     cpu_interrupt_restore(saved); return joined;
 }
 
+rum_result_t task_job_spawn_status(void)
+{
+    if (!task_current_is_shell()) return -RUM_EACCES;
+    struct kernel_job *job = jobs_building(current->id);
+    if (!job) return -RUM_EACCES;
+    return job->cancelled ? -RUM_EINTR : job->entry.stage_count == RUM_JOB_STAGE_LIMIT ? -RUM_E2BIG : 0;
+}
+bool task_join_job(task_id id)
+{
+    if (!task_current_is_shell()) return false;
+    uint32_t saved = cpu_interrupt_save();
+    struct kernel_job *job = jobs_building(current->id);
+    bool joined = false;
+    for (unsigned i = 2; job && i < TASK_SLOTS; ++i) if (tasks[i].id == id && tasks[i].state == TASK_RUNNABLE &&
+        tasks[i].process->kind == TASK_PROCESS && tasks[i].process->parent == current->id) {
+        joined = jobs_join(job, id, tasks[i].process->process_id);
+        if (!joined) break;
+        tasks[i].process->console.job_id = job->entry.job_id;
+        if (job->entry.stage_count == 1 && (job->entry.flags & RUM_JOB_FOREGROUND) &&
+            !console_job_input(&current->process->console, job->entry.job_id, &tasks[i].process->console)) cpu_halt();
+        if (job->cancelled) {
+            tasks[i].process->cancellation_requested = true;
+            console_cancel_member(&tasks[i].process->console);
+        }
+        break;
+    }
+    cpu_interrupt_restore(saved); return joined;
+}
+
+/* IF clear, fixed registry scan; requests never reap an active continuation. */
+static void cancel_job_members(struct kernel_job *job)
+{
+    jobs_cancel(job);
+    for (unsigned i = 2; i < TASK_SLOTS; ++i) {
+        struct task *t = &tasks[i];
+        if (t->state == TASK_UNUSED || t->state == TASK_EXITED || t->process->kind != TASK_PROCESS ||
+            t->process->console.job_id != job->entry.job_id || t->process->parent != job->owner) continue;
+        t->process->cancellation_requested = true; console_cancel_member(&t->process->console);
+        if (t->state == TASK_BLOCKED) wake_task(t, TASK_WAIT_CANCELLED);
+    }
+}
+
 bool task_mark_shell_command(task_id id, const char *text)
 {
     if (!task_current_is_shell() || !id || !text || irq_in_handler()) return false;
@@ -431,10 +474,11 @@ rum_result_t task_session_control(unsigned action, const char *path)
     struct task *parent = NULL;
     for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].state != TASK_UNUSED &&
         &tasks[i].process->console == shell && tasks[i].id == current->process->parent) parent = &tasks[i];
-    if (!parent || !console_is_shell(&parent->process->console) || parent->state != TASK_BLOCKED ||
-        parent->waiting != &parent->process->children_event) return -RUM_EACCES;
-    /* The parent cannot run or be reaped until this direct child ends. Disk
-       traversal runs with interrupts enabled, outside any registry update. */
+    if (!parent || !console_is_shell(&parent->process->console) ||
+        (parent->state != TASK_BLOCKED && parent->state != TASK_RUNNABLE)) return -RUM_EACCES;
+    /* A different child's completion may make the synchronous RUN continuation
+       runnable. The command grant, not that transient wait registration, proves
+       the shell cannot return to user mode until this direct child ends. */
     if (action == RUM_SESSION_CHDIR) return process_fs_error(fs_context_chdir(&parent->process->filesystem, path));
     return console_request_exit(&current->process->console,
         action == RUM_SESSION_RECOVERY ? RUM_SHELL_RECOVERY_STATUS : 0) ? 0 : -RUM_EACCES;
@@ -640,6 +684,88 @@ static bool reap_slot(struct task *task)
     return true;
 }
 
+static struct task *job_authority(void)
+{
+    if (!task_current_is_process()) return NULL;
+    if (task_current_is_shell()) return current;
+    struct console_member *shell = console_command_shell(&current->process->console);
+    for (unsigned i = 2; shell && i < TASK_SLOTS; ++i)
+        if ((tasks[i].state == TASK_BLOCKED || tasks[i].state == TASK_RUNNABLE) &&
+            tasks[i].id == current->process->parent && &tasks[i].process->console == shell) return &tasks[i];
+    return NULL;
+}
+rum_result_t task_job_operation(struct rum_job_request *request, const char *name, struct rum_job_entry *entries)
+{
+    if (!process_filesystem_context()) return -RUM_EBUSY;
+    struct task *shell = job_authority();
+    if (!shell) return -RUM_EACCES;
+    unsigned action = request->operation;
+    if ((action == RUM_JOB_CREATE || action == RUM_JOB_COMMIT || action == RUM_JOB_ACK) && shell != current)
+        return -RUM_EACCES;
+    if (action == RUM_JOB_LIST) {
+        request->count = jobs_list(shell->id, entries, request->capacity, &request->total);
+        return (rum_result_t)request->count;
+    }
+    uint32_t saved = cpu_interrupt_save();
+    struct kernel_job *job;
+    if (action == RUM_JOB_CREATE) {
+        rum_result_t error = jobs_create(shell->id, name, request->flags, &job);
+        if (!error && (request->flags & RUM_JOB_FOREGROUND) &&
+            !console_job_focus(&current->process->console, job->entry.job_id, NULL)) {
+            jobs_commit(job); (void)jobs_release(job); error = -RUM_EBUSY;
+        }
+        if (!error) request->job_id = job->entry.job_id;
+        cpu_interrupt_restore(saved); return error ? error : (rum_result_t)request->job_id;
+    }
+    job = jobs_find(shell->id, request->job_id);
+    if (!job) { cpu_interrupt_restore(saved); return -RUM_ESRCH; }
+    rum_result_t result = 0;
+    if (action == RUM_JOB_COMMIT) {
+        if (!job->building || !job->entry.stage_count) result = -RUM_EINVAL;
+        else jobs_commit(job);
+    } else if (action == RUM_JOB_CANCEL) {
+        cancel_job_members(job); jobs_commit(job);
+    } else if (action == RUM_JOB_FOCUS) {
+        struct console_member *input = NULL;
+        for (unsigned i = 2; i < TASK_SLOTS; ++i) if (job->tasks[0] && tasks[i].id == job->tasks[0]) input = &tasks[i].process->console;
+        if (job->building) result = -RUM_EBUSY;
+        else if (job->entry.state != RUM_JOB_DONE) {
+            if (!console_job_focus(&current->process->console, job->entry.job_id, input)) result = -RUM_EBUSY;
+            else job->entry.flags |= RUM_JOB_FOREGROUND;
+        }
+    } else if (action == RUM_JOB_ACK) {
+        if (job->entry.state != RUM_JOB_DONE) result = -RUM_EBUSY;
+        else job->entry.flags |= RUM_JOB_NOTIFIED;
+    } else if (action == RUM_JOB_RELEASE) {
+        if (job->entry.state != RUM_JOB_DONE || job->operations) result = -RUM_EBUSY;
+        for (unsigned i = 2; !result && i < TASK_SLOTS; ++i) if (tasks[i].state != TASK_UNUSED &&
+            tasks[i].process->parent == shell->id && tasks[i].process->console.job_id == job->entry.job_id &&
+            !reap_slot(&tasks[i])) result = -RUM_EBUSY;
+        if (!result && !jobs_release(job)) result = -RUM_EBUSY;
+    } else if (action == RUM_JOB_WAIT) {
+        if (job->building) { cpu_interrupt_restore(saved); return -RUM_EBUSY; }
+        ++job->operations;
+        cpu_interrupt_restore(saved);
+        for (;;) {
+            if (task_current_cancelled() || job->abandoned) { result = -RUM_EINTR; break; }
+            uint32_t observed = task_event_sequence(&job->event);
+            saved = cpu_interrupt_save();
+            bool done = job->entry.state == RUM_JOB_DONE;
+            if (done) { *entries = job->entry; request->count = 1; result = 1; }
+            cpu_interrupt_restore(saved);
+            if (done) break;
+            if (request->flags & RUM_JOB_WAIT_NOHANG) break;
+            if (!task_wait(&job->event, observed)) { result = -RUM_EBUSY; break; }
+        }
+        saved = cpu_interrupt_save(); --job->operations; jobs_reclaim(job);
+    } else result = -RUM_EINVAL;
+    if (job->owner && job->entry.state == RUM_JOB_DONE) {
+        console_job_end(&shell->process->console, job->entry.job_id);
+        job->entry.flags &= ~RUM_JOB_FOREGROUND;
+    }
+    cpu_interrupt_restore(saved); return result;
+}
+
 static uint32_t reap_exited(bool include_processes)
 {
     if (!ready || irq_in_handler()) return 0;
@@ -815,6 +941,20 @@ static _Noreturn void terminate_current(enum task_termination termination,
             wake_task(child, TASK_WAIT_CANCELLED);
         }
     }
+    struct kernel_job *job = jobs_for_task(current->id);
+    if (job) {
+        struct rum_process_result result = { .version = RUM_PROCESS_ABI_VERSION, .size = sizeof result,
+            .process_id = current->process->process_id, .termination = current->process->termination,
+            .status = current->process->exit_status, .fault_vector = current->process->termination == TASK_TERMINATION_FAULT ? current->process->fault.vector : 0 };
+        jobs_exit(job, current->id, &result);
+        if (job->cancelled) cancel_job_members(job);
+        if (job->entry.state == RUM_JOB_DONE) {
+            console_job_end(&current->process->console, job->entry.job_id);
+            job->entry.flags &= ~RUM_JOB_FOREGROUND;
+        }
+        jobs_reclaim(job);
+    }
+    jobs_abandon(current->id);
     if (console_member_exit(&current->process->console)) keyboard_discard_input();
     current->state = TASK_EXITED;
     ++exited;
@@ -869,6 +1009,8 @@ bool task_cancel_foreground(void)
 {
     uint32_t saved = cpu_interrupt_save();
     bool requested = false;
+    struct kernel_job *job = ready ? jobs_by_id(console_job_target()) : NULL;
+    if (job) { cancel_job_members(job); cpu_interrupt_restore(saved); return true; }
     task_id foreground = console_cancellation_target();
     bool pipeline = ready && console_pipeline_cancel();
     if (pipeline) requested = true;

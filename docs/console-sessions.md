@@ -60,14 +60,15 @@ failure window. A missing or invalid initial executable enters recovery
 immediately. `recovery` requests recovery directly. The new shell starts at `/`;
 Flushed disk edits retain their normal persistence guarantees.
 
-Foreground pipelines use a bounded scope owned by the initial shell. Its
-first stage receives an input-only lease; the shell retains control ownership
-and cannot read input until the scope ends. Later stages cannot take console
-input or nested foreground-command authority. Ctrl+C latches scope cancellation
-and wakes/cancels all joined stages, including a child completing publication
-after that IRQ. Unrelated background children are excluded. The scope can end
-only after all stages exit; collection releases the input reference and restores
-the shell. Shell exit tears down the scope with the rest of its session.
+Foreground workflows use [session jobs](jobs.md). The first stage receives an
+input-only lease while the shell or controlling `fg` command retains control
+ownership. Later stages cannot take console input or nested foreground-command
+authority. Ctrl+C latches cancellation and wakes/cancels all joined stages,
+including a child completing publication after that IRQ. Unrelated background
+jobs are excluded. When all stages exit, input returns to the controller and
+then to the prompt. Shell exit tears down its jobs with the rest of the session.
+The earlier foreground-only pipeline scope remains compatible with its public
+API; it cannot overlap a foreground job.
 
 ## Kernel ownership
 

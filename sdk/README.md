@@ -41,6 +41,11 @@ to choose console display or byte-preserving stream output. The shell's
 [workflow guide](../docs/shell-workflows.md) documents these contracts and its
 foreground pipeline scope.
 
+The [job API](../docs/jobs.md) exposes session-scoped result snapshots, waits,
+foreground transfer and collection. Only the initial shell creates and joins
+jobs; marked foreground command programs may manage that shell's jobs. All
+operations use versioned fixed-width packets and public identifiers.
+
 User programs compile against this public tree and generated ABI copies only.
 The kernel uses the same canonical ABI definitions alongside its private
 `kernel/include/rum/` headers. Never copy kernel-private structures into the SDK

@@ -9,7 +9,7 @@ struct console_session;
 struct console_member {
     struct console_session *session;
     struct console_member *restore;
-    uint32_t id, references;
+    uint32_t id, references, job_id;
     bool live, cancelled, shell, command, foreground_launch, pipeline;
 };
 struct console_statistics {
@@ -36,6 +36,10 @@ bool console_pipeline_cancelled(const struct console_member *shell);
 bool console_pipeline_join(struct console_member *shell, struct console_member *child);
 bool console_pipeline_member(const struct console_member *);
 bool console_pipeline_cancel(void); /* IRQ: latch cancellation even during setup. */
+bool console_job_focus(struct console_member *controller, uint32_t job, struct console_member *input);
+bool console_job_input(struct console_member *shell, uint32_t job, struct console_member *input);
+void console_job_end(struct console_member *member, uint32_t job);
+uint32_t console_job_target(void); /* IRQ-safe foreground job, zero if none. */
 /* IRQ-safe legacy target. task cancellation handles a pipeline scope first;
    otherwise an interactive shell receives Ctrl+C as queued input. */
 uint32_t console_cancellation_target(void);

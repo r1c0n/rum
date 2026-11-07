@@ -39,6 +39,7 @@ userspace has stopped and recovery has reclaimed its children. See
 | `Filesystem` | Mounted volumes and open references |
 | `Handles` | Descriptor references, live open descriptions, and aliases sharing those descriptions |
 | `Pipes` | Live pipes, buffered bytes, endpoint descriptions, active operations and blocked calls |
+| `Jobs` | Session job records, running/building and completed records, and active waits |
 
 Each task entry also shows whether its stack and directory are owned or
 borrowed. Kernel tasks have PID zero. A published process has a positive PID,
@@ -65,6 +66,8 @@ In the kernel recovery console:
 - Pipe counts, active operations and waiters also return to zero after process
   cleanup. Endpoint counts include shared open descriptions once, regardless
   of descriptor aliases. See [pipes](pipes.md).
+- Job records include completed results awaiting `wait` or `fg`. All job and
+  active-wait counts return to zero after shell teardown. See [jobs](jobs.md).
 - Free physical pages may decrease when the heap grows, even after individual
   heap allocations are freed. Heap pages stay mapped for reuse.
 

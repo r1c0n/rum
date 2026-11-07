@@ -4,6 +4,7 @@
 
 #define SHELL_PIPELINE_LIMIT 4u
 #define SHELL_REDIRECTION_LIMIT 8u
+_Static_assert(SHELL_PIPELINE_LIMIT == RUM_JOB_STAGE_LIMIT, "shell and kernel stage limits agree");
 enum shell_redirect_kind { SHELL_INPUT, SHELL_OUTPUT, SHELL_APPEND };
 struct shell_redirect { enum shell_redirect_kind kind; char *path; };
 struct shell_stage {
@@ -12,11 +13,12 @@ struct shell_stage {
     struct shell_redirect redirects[SHELL_REDIRECTION_LIMIT];
 };
 struct shell_pipeline {
-    unsigned count;
+    unsigned count, background;
     char text[RUM_COMMAND_TEXT_CAPACITY];
     struct shell_stage stages[SHELL_PIPELINE_LIMIT];
 };
 /* No mutations or syscalls until the complete bounded grammar is accepted. */
 rum_result_t shell_parse_pipeline(const char *, struct shell_pipeline *);
-void shell_run_pipeline(struct shell_pipeline *, void (*completion)(const struct rum_process_result *));
+void shell_run_pipeline(struct shell_pipeline *);
+void shell_job_notices(int editing);
 #endif

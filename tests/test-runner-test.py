@@ -23,7 +23,7 @@ for failed in (None, "host", "preemption"):
         report = json.loads((Path(directory) / "result.json").read_text())
         assert bool(status) == (failed is not None)
         assert report["passed"] == (failed is None)
-        assert len(report["suites"]) == (1 if failed == "host" else 20)
+        assert len(report["suites"]) == (1 if failed == "host" else 21)
 print("PASS: runner success, host prerequisite failure and guest failure reports")
 
 # Check the optimized byte-range oracle against an independent sector oracle,

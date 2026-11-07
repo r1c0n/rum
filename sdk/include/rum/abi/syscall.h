@@ -37,7 +37,8 @@
 #define RUM_SYS_SPAWN_MAPPED 25 /* ebx: rum_spawn_mapped_request; returns child PID */
 #define RUM_SYS_PIPE 26 /* ebx: in/out rum_pipe_request; zero on success */
 #define RUM_SYS_ISATTY 27 /* ebx: descriptor; 1 console, 0 other, or negative error */
-#define RUM_SYS_COUNT  28
+#define RUM_SYS_JOB 28 /* ebx: in/out rum_job_request; other arguments zero */
+#define RUM_SYS_COUNT  29
 #define RUM_ABI_PID_MAX 0x7FFFFFFF /* Positive IDs fit the signed result type. */
 
 #define RUM_STDIN  0

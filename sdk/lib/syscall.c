@@ -73,6 +73,38 @@ rum_result_t rum_terminate(rum_pid_t id, uint32_t flags)
     return rum_syscall3(RUM_SYS_TERMINATE, (rum_address_t)(uintptr_t)&request, 0, 0);
 }
 rum_result_t rum_isatty(rum_handle_t handle) { return rum_syscall3(RUM_SYS_ISATTY, handle, 0, 0); }
+static rum_result_t job_call(unsigned operation, uint32_t id)
+{
+    struct rum_job_request request = { .version = RUM_JOB_ABI_VERSION, .size = sizeof request,
+        .operation = operation, .job_id = id };
+    return rum_syscall3(RUM_SYS_JOB, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
+rum_result_t rum_job_commit(uint32_t id) { return job_call(RUM_JOB_COMMIT, id); }
+rum_result_t rum_job_cancel(uint32_t id) { return job_call(RUM_JOB_CANCEL, id); }
+rum_result_t rum_job_foreground(uint32_t id) { return job_call(RUM_JOB_FOCUS, id); }
+rum_result_t rum_job_release(uint32_t id) { return job_call(RUM_JOB_RELEASE, id); }
+rum_result_t rum_job_ack(uint32_t id) { return job_call(RUM_JOB_ACK, id); }
+rum_result_t rum_job_create(const char *name, uint32_t flags)
+{
+    struct rum_job_request request = { .version = RUM_JOB_ABI_VERSION, .size = sizeof request,
+        .operation = RUM_JOB_CREATE, .name = (rum_address_t)(uintptr_t)name, .flags = flags };
+    return rum_syscall3(RUM_SYS_JOB, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
+rum_result_t rum_job_list(struct rum_job_entry *entries, uint32_t capacity, uint32_t *total)
+{
+    struct rum_job_request request = { .version = RUM_JOB_ABI_VERSION, .size = sizeof request,
+        .operation = RUM_JOB_LIST, .entries = (rum_address_t)(uintptr_t)entries, .capacity = capacity };
+    rum_result_t result = rum_syscall3(RUM_SYS_JOB, (rum_address_t)(uintptr_t)&request, 0, 0);
+    if (result >= 0 && total) *total = request.total;
+    return result;
+}
+rum_result_t rum_job_wait(uint32_t id, uint32_t flags, struct rum_job_entry *entry)
+{
+    struct rum_job_request request = { .version = RUM_JOB_ABI_VERSION, .size = sizeof request,
+        .operation = RUM_JOB_WAIT, .job_id = id, .flags = flags,
+        .entries = (rum_address_t)(uintptr_t)entry, .capacity = 1 };
+    return rum_syscall3(RUM_SYS_JOB, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
 rum_result_t rum_yield(void) { return rum_syscall3(RUM_SYS_YIELD, 0, 0, 0); }
 rum_result_t rum_process_list(struct rum_process_entry *entries, uint32_t capacity, uint32_t *total)
 {

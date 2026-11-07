@@ -1,4 +1,20 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
+.PHONY: test-jobs-host test-jobs
+build/tests/jobs-test: tests/jobs-test.c kernel/process/jobs.c kernel/include/rum/jobs.h $(ABI_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Itests/include -Ikernel/include -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror tests/jobs-test.c kernel/process/jobs.c -o $@
+
+test-jobs-host: build/tests/jobs-test build/tests/session-test build/tests/shell-parse-test build/tests/abi-test
+	./build/tests/jobs-test
+	./build/tests/session-test
+	./build/tests/shell-parse-test
+	./build/tests/abi-test
+
+test-jobs: all test-jobs-host build/tests/user/workflow.elf
+	python3 tests/jobs-qemu-test.py --qemu $(QEMU)
+
+test-host: build/tests/jobs-test
+test-build: build/tests/jobs-test
 .PHONY: test-workflows-host test-workflows
 build/tests/shell-parse-test: tests/shell-parse-test.c system/shell/parse.c system/shell/shell.h $(ABI_HEADERS)
 	@mkdir -p $(@D)
@@ -630,6 +646,7 @@ test-host: build/tests/block-test build/tests/console-test build/tests/memory-te
 	./build/tests/timer-test
 	./build/tests/session-test
 	./build/tests/handles-test
+	./build/tests/jobs-test
 	./build/tests/path-test
 	./build/tests/shell-parse-test
 	./build/tests/pipe-test

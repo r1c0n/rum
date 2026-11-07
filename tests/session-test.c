@@ -117,11 +117,33 @@ static void pipeline(void)
     assert(!console_member_exit(&a) && console_detach(&a));
     assert(!console_member_exit(&bg) && console_detach(&bg)); empty();
 }
+static void job_focus(void)
+{
+    struct console_member shell = {0}, first = {0}, second = {0}, command = {0};
+    assert(console_attach(&shell, 4000, NULL, true) && console_mark_shell(&shell));
+    assert(console_attach(&first, 4001, &shell, false) && console_attach(&second, 4002, &shell, false));
+    first.job_id = second.job_id = 42;
+    assert(!console_job_focus(&first, 42, &first) && !console_job_target());
+    assert(console_job_focus(&shell, 42, NULL) && console_job_input(&shell, 42, &first));
+    assert(console_job_target() == 42 && console_owns_input(&first) && !console_owns_input(&shell));
+    assert(!console_owns_input(&second) && !console_pipeline_begin(&shell));
+    assert(!console_member_exit(&first) && console_detach(&first) && !console_owns_input(&second));
+    assert(console_job_target() == 42); console_job_end(&second, 42);
+    assert(console_owns_input(&shell) && !console_job_target());
+    assert(console_attach(&command, 4003, &shell, true) && console_grant_command(&shell, &command));
+    assert(console_job_focus(&command, 42, &second) && console_owns_input(&second) && !console_owns_input(&command));
+    assert(console_command_shell(&command) == &shell);
+    console_job_end(&command, 42);
+    assert(console_owns_input(&command) && !console_member_exit(&command) && console_detach(&command));
+    assert(console_job_focus(&shell, 42, &second));
+    assert(console_member_exit(&shell) && !second.references && !console_job_target() && console_detach(&shell));
+    assert(!console_member_exit(&second) && console_detach(&second)); empty();
+}
 int main(void)
 {
     empty();
     for (unsigned i = 0; i < 64; ++i) { nested(); exiting_parent(); cancelled_publication(); }
-    bounds(); pipeline();
+    bounds(); pipeline(); job_focus();
     puts("PASS: console session references, nested ownership, cancellation, closing sessions and bounded reuse");
     return 0;
 }

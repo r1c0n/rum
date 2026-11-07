@@ -25,6 +25,7 @@ programs and persistent files. With no usable disk, rum opens recovery.
 - [Shared handles and child streams](shared-handles.md)
 - [Pipes and stream I/O](pipes.md)
 - [Redirection and pipelines](shell-workflows.md)
+- [Background jobs](jobs.md)
 - [Block devices](block-devices.md)
 - [Releases](release.md) and [roadmap](roadmap.md)
 

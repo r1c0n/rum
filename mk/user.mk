@@ -1,7 +1,7 @@
 USER_RULES := Makefile mk/config.mk mk/user.mk
 .PHONY: user test-user
 
-SYSTEM_COMMANDS := help about echo clear ls cat pwd cd write mkdir rm run exit recovery ps kill sleep
+SYSTEM_COMMANDS := help about echo clear ls cat pwd cd write mkdir rm run exit recovery ps kill sleep jobs fg wait
 SDK_EXAMPLES := hello nonzero fault spin readline
 APP_PROGRAMS := snake
 USER_PROGRAMS := shell $(SYSTEM_COMMANDS) $(APP_PROGRAMS) $(SDK_EXAMPLES)
