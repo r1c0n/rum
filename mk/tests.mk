@@ -7,6 +7,10 @@ test-shared-handles-host: build/tests/handles-test build/tests/abi-test
 
 test-host: build/tests/handles-test
 
+.PHONY: test-shared-handles
+test-shared-handles: test-shared-handles-host build/tests/shared-handles.elf build/tests/shared-handles.iso
+	python3 tests/shared-handles-qemu-test.py --qemu $(QEMU)
+
 FAULT_KERNELS := build/tests/fault-de.elf build/tests/fault-ud.elf build/tests/fault-gp.elf build/tests/fault-pf.elf
 FAULT_OBJECTS := $(FAULT_KERNELS:.elf=.o)
 FAULT_COMMON := build/tests/fs-backend.o $(filter-out build/kernel/core/init.o,$(OBJECTS)) build/tests/fault-trigger.o
@@ -37,6 +41,28 @@ TEST_DEPENDENCIES += build/tests/lifecycle-kernel.d build/tests/lifecycle-ids-ke
 TEST_DEPENDENCIES += build/tests/waits-kernel.d build/tests/sleep-kernel.d build/tests/user/sleep.d
 TEST_DEPENDENCIES += build/tests/console-kernel.d build/tests/user/console.d
 TEST_DEPENDENCIES += build/tests/integration-kernel.d build/tests/user/integration.d
+TEST_DEPENDENCIES += build/tests/shared-handles-kernel.d build/tests/user/shared-handles.d
+
+build/tests/user/shared-handles.o: tests/shared-handles-user.c $(USER_INCLUDE_STAMP) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/tests/user/shared-handles.debug.elf: build/tests/user/shared-handles.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+build/tests/user/shared-handles.elf: build/tests/user/shared-handles.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@.tmp
+	build/tools/check-user-elf $@.tmp $<
+	mv -- $@.tmp $@
+build/tests/shared-handles-image.o: tests/shared-handles-image.s build/tests/user/shared-handles.elf
+	@mkdir -p $(@D)
+	$(AS) $< -o $@
+build/tests/shared-handles.elf: build/tests/shared-handles-kernel.o build/tests/shared-handles-image.o $(filter-out build/tests/fault-trigger.o build/kernel/process/syscall.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
+build/tests/shared-handles.iso: build/tests/shared-handles.elf $(TESTS_RULES)
+	@mkdir -p build/shared-handles-isodir/boot/grub
+	cp $< build/shared-handles-isodir/boot/rum.elf
+	printf 'set timeout=0\nmenuentry "rum shared handles" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/shared-handles-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/shared-handles-isodir
 
 build/tests/handles-test: tests/handles-test.c kernel/process/handles.c kernel/include/rum/handles.h tests/handles-include/rum/cpu.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS) $(TESTS_RULES)
 	@mkdir -p $(@D)
@@ -542,6 +568,7 @@ test-host: build/tests/ata-test
 test-host: build/tests/block-test build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
 	./build/tests/timer-test
 	./build/tests/session-test
+	./build/tests/handles-test
 	./build/tests/path-test
 	./build/tests/fs-test
 	./build/tests/ata-test
@@ -561,7 +588,7 @@ test-host: build/tests/block-test build/tests/console-test build/tests/memory-te
 	python3 tests/disk-tools-test.py
 
 .PHONY: test-build
-test-build: user iso build/tests/recovery.iso $(FAULT_KERNELS) \
+test-build: user iso build/tests/handles-test build/tests/shared-handles.elf build/tests/shared-handles.iso build/tests/recovery.iso $(FAULT_KERNELS) \
     build/tests/irq.elf $(CPU_KERNELS) $(PROCESS_FAULT_KERNELS) build/tests/syscall.elf \
     build/tests/elf-loader.elf $(PAGING_KERNELS) build/tests/storage.elf build/tests/fs.elf \
     build/tests/task.elf build/tests/task-fault.elf build/tests/task-double-fault.elf $(ABI_KERNELS) \
