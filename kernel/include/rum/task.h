@@ -136,6 +136,11 @@ bool task_current_cancelled(void);
 bool task_current_owns_console(void);
 rum_result_t task_pipeline_status(void);
 bool task_join_pipeline(task_id);
+struct rum_job_request;
+struct rum_job_entry;
+rum_result_t task_job_spawn_status(void);
+bool task_join_job(task_id);
+rum_result_t task_job_operation(struct rum_job_request *, const char *, struct rum_job_entry *);
 rum_result_t task_request_termination(rum_pid_t id, bool session);
 void task_cancel_current_if_requested(void);
 /* PIT handler: mark due sleepers runnable and account a slice. Bounded scan,

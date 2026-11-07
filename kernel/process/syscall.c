@@ -16,6 +16,7 @@
 #include <rum/snake.h>
 #include <rum/syscall.h>
 #include <rum/task.h>
+#include <rum/abi/job.h>
 #include <rum/terminal.h>
 #include <rum/timer.h>
 
@@ -273,7 +274,8 @@ static rum_result_t spawn_mapped_child(struct paging_space *space, uint32_t addr
     if (!accessible(space, address, sizeof request, false) ||
         !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
     if (request.version != RUM_SPAWN_MAPPED_VERSION || request.size != sizeof request || request.reserved ||
-        (request.flags & ~(RUM_SPAWN_NO_DEFAULT_STREAMS | RUM_SPAWN_PIPELINE)) || request.mapping_count > RUM_SPAWN_MAPPING_LIMIT ||
+        (request.flags & ~(RUM_SPAWN_NO_DEFAULT_STREAMS | RUM_SPAWN_PIPELINE | RUM_SPAWN_JOB)) ||
+        ((request.flags & RUM_SPAWN_JOB) && (request.flags & RUM_SPAWN_PIPELINE)) || request.mapping_count > RUM_SPAWN_MAPPING_LIMIT ||
         (!request.mapping_count && request.mappings)) return -RUM_EINVAL;
     struct rum_handle_mapping mappings[RUM_SPAWN_MAPPING_LIMIT];
     uint32_t bytes = request.mapping_count * sizeof mappings[0];
@@ -377,6 +379,48 @@ static rum_result_t command_text(struct paging_space *space, uint32_t address, u
     return paging_copy_to_user(space, address, text, bytes) ? (rum_result_t)bytes : -RUM_EFAULT;
 }
 
+static rum_result_t job_control(struct paging_space *space, uint32_t address)
+{
+    struct rum_job_request request;
+    if (!accessible(space, address, sizeof request, true) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    unsigned op = request.operation;
+    if (request.version != RUM_JOB_ABI_VERSION || request.size != sizeof request ||
+        op < RUM_JOB_CREATE || op > RUM_JOB_ACK || request.count || request.total ||
+        request.reserved[0] || request.reserved[1] || request.job_id > RUM_ABI_PID_MAX) return -RUM_EINVAL;
+    if (op == RUM_JOB_CREATE) {
+        if (request.job_id || request.entries || request.capacity || (request.flags & ~RUM_JOB_FOREGROUND) || !request.name)
+            return -RUM_EINVAL;
+    } else if (request.name || (op != RUM_JOB_LIST && !request.job_id)) return -RUM_EINVAL;
+    if (op == RUM_JOB_LIST) {
+        if (request.job_id || request.flags || request.capacity > RUM_JOB_LIMIT || (!request.capacity && request.entries))
+            return -RUM_EINVAL;
+    } else if (op == RUM_JOB_WAIT) {
+        if (request.capacity != 1 || (request.flags & ~RUM_JOB_WAIT_NOHANG)) return -RUM_EINVAL;
+    } else if (op != RUM_JOB_CREATE && (request.flags || request.entries || request.capacity)) return -RUM_EINVAL;
+    uint32_t bytes = request.capacity * sizeof(struct rum_job_entry);
+    if (bytes && (!accessible(space, request.entries, bytes, true) ||
+        ((uint64_t)request.entries < (uint64_t)address + sizeof request &&
+         (uint64_t)address < (uint64_t)request.entries + bytes))) return -RUM_EFAULT;
+    char name[RUM_JOB_NAME_CAPACITY] = {0};
+    if (op == RUM_JOB_CREATE) {
+        unsigned i = 0;
+        for (; i < sizeof name; ++i) {
+            if (i > UINT32_MAX - request.name || !accessible(space, request.name + i, 1, false) ||
+                !paging_copy_from_user(space, name + i, request.name + i, 1)) return -RUM_EFAULT;
+            if (!name[i]) break;
+            if ((unsigned char)name[i] < 32 || (unsigned char)name[i] > 126) return -RUM_EINVAL;
+        }
+        if (!i || i == sizeof name) return -RUM_EINVAL;
+    }
+    struct rum_job_entry entries[RUM_JOB_LIMIT];
+    rum_result_t result = task_job_operation(&request, name, entries);
+    if (result < 0) return result;
+    if ((request.count && !paging_copy_to_user(space, request.entries, entries, request.count * sizeof entries[0])) ||
+        !paging_copy_to_user(space, address, &request, sizeof request)) cpu_halt();
+    return result;
+}
+
 static rum_result_t session_control(struct paging_space *space, uint32_t action, uint32_t address, uint32_t reserved)
 {
     if (reserved || action < RUM_SESSION_CHDIR || action > RUM_SESSION_PIPELINE_END ||
@@ -456,6 +500,8 @@ void syscall_dispatch(struct exception_frame *frame)
         result = transfer(space, handles, frame->ebx, frame->ecx, frame->edx, frame->eax == RUM_SYS_WRITE); break;
     case RUM_SYS_OPEN: result = open_file(space, handles, frame->ebx); break;
     case RUM_SYS_CLOSE: result = process_handle_close(handles, frame->ebx); break;
+    case RUM_SYS_JOB:
+        result = frame->ecx || frame->edx ? -RUM_EINVAL : job_control(space, frame->ebx); break;
     case RUM_SYS_ISATTY: {
         struct process_handle *handle = process_handle_get(handles, frame->ebx);
         result = frame->ecx || frame->edx ? -RUM_EINVAL : !handle ? -RUM_EBADF :

@@ -83,6 +83,10 @@ void diagnostics_render(const struct kernel_diagnostics *snapshot, diagnostics_w
     write("Handles: "); decimal(write, snapshot->handles.descriptors); write(" descriptors, ");
     decimal(write, snapshot->handles.descriptions); write(" open descriptions, ");
     decimal(write, snapshot->handles.aliases); write(" aliases\n");
+    write("Jobs: "); decimal(write, snapshot->jobs.jobs); write(" live, ");
+    decimal(write, snapshot->jobs.running); write(" running, ");
+    decimal(write, snapshot->jobs.completed); write(" completed, ");
+    decimal(write, snapshot->jobs.operations); write(" active waits\n");
     write("Pipes: "); decimal(write, snapshot->pipes.pipes); write(" live, ");
     decimal(write, snapshot->pipes.buffered_bytes); write(" buffered bytes | ");
     decimal(write, snapshot->pipes.readers); write(" read ends, ");

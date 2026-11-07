@@ -13,6 +13,7 @@
 #define RUM_SPAWN_MAPPING_LIMIT RUM_ABI_HANDLE_LIMIT
 #define RUM_SPAWN_NO_DEFAULT_STREAMS 1u
 #define RUM_SPAWN_PIPELINE 2u /* Shell only, inside a foreground pipeline scope. */
+#define RUM_SPAWN_JOB 4u /* Shell only, joins its currently building session job. */
 #define RUM_PROCESS_LIST_VERSION 1
 #define RUM_PROCESS_LIST_LIMIT 16
 #define RUM_PROCESS_NAME_CAPACITY 64

@@ -31,5 +31,6 @@
 #define RUM_ESRCH 26 /* No process with that PID remains. */
 #define RUM_EPIPE 27 /* A nonempty pipe write has no remaining reader. */
 #define RUM_ESPIPE 28 /* This object does not support seeking. */
+#define RUM_EJOBFULL 29 /* Collect completed jobs before creating more. */
 
 #endif

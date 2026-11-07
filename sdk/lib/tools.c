@@ -43,6 +43,7 @@ void tool_error(const char *command, rum_result_t result)
     case RUM_EIO: message = "I/O failure"; break;
     case RUM_EPIPE: message = "pipe has no reader"; break;
     case RUM_ESPIPE: message = "stream does not support seeking"; break;
+    case RUM_EJOBFULL: message = "job table is full; use wait to collect completed jobs"; break;
     case RUM_EINVAL: message = "invalid path, name or arguments"; break;
     case RUM_ECHILD: message = "no matching child process"; break;
     case RUM_ESRCH: message = "process does not exist"; break;
@@ -72,6 +73,18 @@ char *tool_remainder(char *text)
 {
     while (*text == ' ' || *text == '\t') ++text;
     return text;
+}
+rum_result_t tool_job_id(const char *text, uint32_t *result)
+{
+    uint32_t id = 0;
+    if (*text == '%') ++text;
+    if (!*text) return -RUM_EINVAL;
+    for (; *text; ++text) {
+        if (*text < '0' || *text > '9' || id > (RUM_ABI_PID_MAX - (uint32_t)(*text - '0')) / 10u) return -RUM_EINVAL;
+        id = id * 10u + (uint32_t)(*text - '0');
+    }
+    if (!id) return -RUM_EINVAL;
+    *result = id; return 0;
 }
 rum_result_t tool_arguments(struct rum_arguments *arguments, int argc, char **argv)
 {
