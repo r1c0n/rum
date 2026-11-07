@@ -8,6 +8,8 @@
 static struct process_handle descriptions[OPEN_DESCRIPTIONS];
 
 _Static_assert(RUM_OPEN_READ == FS_READ && RUM_OPEN_WRITE == FS_WRITE, "access bits");
+_Static_assert(RUM_ABI_HANDLE_LIMIT == 32 && RUM_SPAWN_MAPPING_LIMIT <= 32,
+               "mapping conflict bitmap covers every descriptor");
 
 bool process_filesystem_context(void)
 {

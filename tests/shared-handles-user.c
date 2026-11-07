@@ -33,6 +33,7 @@ static void invalid(rum_handle_t file)
     struct rum_spawn_mapped_request request = { RUM_SPAWN_MAPPED_VERSION, sizeof request,
         (rum_address_t)(uintptr_t)"/MAP.ELF", (rum_address_t)(uintptr_t)args("mapped"),
         (rum_address_t)(uintptr_t)map, 2, 0, 0 };
+    check(rum_open("/DOCS", 1, RUM_OPEN_DIRECTORY) == 6, 72);
     rum_result_t calls = rum_syscall3(TEST_CALLS, 0, 0, 0);
     check(rum_syscall3(RUM_SYS_DUPLICATE, UINT32_MAX, 0, 0) == -RUM_EFAULT, 10);
     check(rum_syscall3(RUM_SYS_SPAWN_MAPPED, PAGE + 3 * 4096 - 8, 0, 0) == -RUM_EFAULT, 11);
@@ -54,6 +55,9 @@ static void invalid(rum_handle_t file)
     map[1].source = 32; check(raw_spawn(&request) == -RUM_EBADF, 23); map[1].source = file;
     map[1].target = 32; check(raw_spawn(&request) == -RUM_EINVAL, 24); map[1].target = 1;
     map[1].reserved[1] = 1; check(raw_spawn(&request) == -RUM_EINVAL, 25); map[1].reserved[1] = 0;
+    map[0].source = 1; check(raw_spawn(&request) == -RUM_EBADF, 73); map[0].source = file;
+    map[1].source = 4; check(raw_spawn(&request) == -RUM_EBADF, 74);
+    map[1].source = 6; check(raw_spawn(&request) == -RUM_EISDIR, 75); map[1].source = file;
     request.mappings = PAGE + 3 * 4096 - 8;
     check(raw_spawn(&request) == -RUM_EFAULT, 26);
     request.mappings = (rum_address_t)(uintptr_t)map;

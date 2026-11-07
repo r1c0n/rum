@@ -5,6 +5,8 @@
 #include <rum/fs.h>
 
 enum process_handle_kind { HANDLE_UNUSED, HANDLE_INPUT, HANDLE_OUTPUT, HANDLE_FILE, HANDLE_DIRECTORY };
+/* A bounded, shared open description. Callers retain ownership through a
+   descriptor; do not cache a pointer after closing that descriptor. */
 struct process_handle {
     fs_reference reference;
     uint64_t offset;
@@ -18,6 +20,8 @@ struct process_descriptor { struct process_handle *object; uint32_t flags; };
 struct process_handles { struct process_descriptor slots[RUM_ABI_HANDLE_LIMIT]; };
 struct process_handle_statistics { uint32_t descriptions, descriptors, aliases; };
 
+/* Initialize a new private table. Prepare-spawn also requires a private empty
+   destination; on failure it owns no acquired references. Task context only. */
 rum_result_t process_handles_initialize(struct process_handles *);
 struct process_handle_statistics process_handles_stats(void);
 rum_result_t process_handle_duplicate(struct process_handles *, rum_handle_t source, rum_handle_t target, uint32_t flags);

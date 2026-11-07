@@ -35,7 +35,10 @@ static void aliases(void)
     assert(process_handle_read(process_handle_get(&a, 3), bytes, 4) == 2);
     fs_test_backend_short = 0; fs_test_backend_partial_error = FS_OK;
     assert(process_handle_read(process_handle_get(&a, 5), NULL, 0) == 0);
-    assert(process_handle_read(process_handle_get(&a, 5), bytes, 1) == -RUM_EIO);
+    struct rum_handle_mapping pending = {5, 10, {0}};
+    assert(!process_handles_prepare_spawn(&child, &a, &pending, 1, RUM_SPAWN_NO_DEFAULT_STREAMS));
+    assert(process_handle_read(process_handle_get(&child, 10), bytes, 1) == -RUM_EIO);
+    assert(!process_handles_destroy(&child));
     assert(process_handle_read(process_handle_get(&a, 3), bytes, 1) == 1 && bytes[0] == 'e');
     assert(!process_handle_close(&a, 3));
     assert(fs_remove(NULL, "/DATA.BIN") == FS_BUSY && fs_replace(NULL, "/DATA.BIN", "x", 1) == FS_BUSY);

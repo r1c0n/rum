@@ -177,5 +177,8 @@ void diagnostics_panic(void)
     field(serial_writestring, "diag_heapused", snapshot.heap.used_bytes);
     field(serial_writestring, "diag_mounts", snapshot.filesystem.mounts);
     field(serial_writestring, "diag_fsrefs", snapshot.filesystem.references);
+    field(serial_writestring, "diag_descriptions", snapshot.handles.descriptions);
+    field(serial_writestring, "diag_descriptors", snapshot.handles.descriptors);
+    field(serial_writestring, "diag_aliases", snapshot.handles.aliases);
     serial_writestring("\n");
 }
