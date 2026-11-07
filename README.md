@@ -22,9 +22,9 @@ and `.\rum.ps1 doctor` to check the environment.
 Linux/WSL:
 
 ```sh
-make -j4
-make prepare-disk DISK_IMAGE=build/rum-system.raw
-make run DISK_IMAGE=build/rum-system.raw
+./rum build -j4
+./rum prepare-disk --disk build/rum-system.raw
+./rum run --disk build/rum-system.raw
 ```
 
 Preparation only accepts a new path. It creates FAT16 and installs the shell
@@ -70,11 +70,13 @@ an interrupted write may require host repair. See [filesystem behavior](docs/fat
 
 | PowerShell | Linux/WSL | Purpose |
 | --- | --- | --- |
-| `.\rum.ps1 build` | `make -j4` | Build kernel, programs and ISO |
-| `.\rum.ps1 user` | `make user` | Build system programs |
-| `.\rum.ps1 run -DiskImage <image>` | `make run DISK_IMAGE=<image>` | Start with an existing raw disk |
-| `.\rum.ps1 test` | `make test` | Run host and QEMU checks |
-| `.\rum.ps1 debug -DiskImage <image>` | `make debug DISK_IMAGE=<image>` | Start paused with GDB on port 1234 |
+| `.\rum.ps1 build -Jobs 4` | `./rum build -j4` | Build kernel, programs and ISO |
+| `.\rum.ps1 user` | `./rum user` | Build system programs |
+| `.\rum.ps1 run -DiskImage <image>` | `./rum run --disk <image>` | Start with an existing raw disk |
+| `.\rum.ps1 test -Workers 4` | `./rum test --workers 4` | Run host and QEMU checks |
+| `.\rum.ps1 debug -DiskImage <image>` | `./rum debug --disk <image>` | Start paused with GDB on port 1234 |
+| `.\rum.ps1 package` | `./rum package` | Build and package ISO, README and docs |
+| `.\rum.ps1 clean` | `./rum clean` | Remove compiler outputs; preserve disks and VM bundles |
 
 `build/rum.elf` is the kernel and `build/rum.iso` is the boot/recovery image.
 System programs are built in `build/user/system/`. Rebuilding programs does
@@ -82,16 +84,19 @@ not update existing disks. Use a new disk for a fresh installation, or back up
 an existing image before deliberately replacing its `/RUM` files with host FAT
 tools. Never run two VMs against the same writable disk.
 
-`make test` uses four guest workers by default. Use `TEST_JOBS=2` or `1` on
-a smaller host. See [testing](docs/testing.md) for coverage and reports.
+Both launchers share `scripts/rum.py`; Windows uses WSL's Python and build
+tools. Build jobs and test workers default to four. Use `-Suite host` /
+`--suite host` for host checks or `-DryRun` / `--dry-run` to preview commands.
+The underlying Make targets remain available. See [setup](docs/setup.md) and
+[testing](docs/testing.md) for options, coverage and reports.
 
 ## Packaging
 
-`python3 scripts/package.py` creates `rum.zip` containing the ISO, this README
+`package` creates `rum.zip` containing the ISO, this README
 and documentation. The ISO alone provides recovery; normal startup also needs
 a prepared system disk.
 
-After building, run `python3 scripts/prepare-vm-images.py` in Ubuntu/WSL to create
+Run `.\rum.ps1 vm-images` or `./rum vm-images` to build and create
 a separate `rum-vm-images.zip` with a fresh installed system disk in raw, VMDK
 and VDI formats, the ISO and a VMware preset. Existing output directories are
 refused. [Release checks](docs/release.md) cover packaging and recovery.
@@ -106,6 +111,7 @@ refused. [Release checks](docs/release.md) cover packaging and recovery.
 | `system/`, `apps/` | Shell, command programs and applications |
 | `assets/disk/` | Initial disk documentation |
 | `tests/`, `scripts/` | Regression tests, toolchain, build and packaging tools |
+| `mk/` | Configuration, kernel, userspace, test and workflow Make rules |
 
 See the [documentation](docs/README.md), [source layout](docs/source-layout.md)
 and [roadmap](docs/roadmap.md).

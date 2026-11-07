@@ -1,85 +1,61 @@
+[CmdletBinding()]
 param(
-    [ValidateSet('doctor', 'setup', 'build', 'user', 'run', 'run-kernel', 'test', 'debug', 'panic', 'clean', 'create-disk', 'prepare-disk')]
+    [Parameter(Position = 0)]
+    [ValidateSet('help', 'doctor', 'setup', 'toolchain', 'build', 'user', 'run', 'run-kernel', 'test', 'debug', 'panic', 'clean', 'create-disk', 'prepare-disk', 'package', 'vm-images', 'release-check')]
     [string]$Action = 'run',
     [string]$Distro = 'Ubuntu',
     [string]$DiskImage,
     [switch]$DiskReadOnly,
-    [ValidateRange(1, 131071)]
-    [int]$DiskSizeMiB = 16
+    [ValidateRange(1, 131071)][int]$DiskSizeMiB = 16,
+    [ValidateRange(1, 64)][int]$Jobs = 4,
+    [Alias('TestJobs')][ValidateRange(1, 4)][int]$Workers = 4,
+    [ValidateSet('all', 'host', 'user', 'package', 'shell', 'storage', 'block', 'fat16', 'fat16-write', 'filesystem', 'preemption', 'lifecycle', 'sleep', 'console', 'integration')]
+    [string]$Suite = 'all',
+    [ValidateRange(16, 4096)][int]$MemoryMiB = 64,
+    [string]$Qemu,
+    [string]$CrossPrefix,
+    [string]$Output,
+    [switch]$NoBuild,
+    [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
-if ($DiskReadOnly -and -not $DiskImage) { throw '-DiskReadOnly requires -DiskImage.' }
-if ($DiskImage -and $Action -notin @('run', 'run-kernel', 'debug', 'create-disk', 'prepare-disk')) {
-    throw '-DiskImage is supported by run, run-kernel, debug, create-disk and prepare-disk.'
-}
-if ($Action -in @('create-disk', 'prepare-disk')) {
-    if (-not $DiskImage) { throw 'Supply -DiskImage with a NEW disposable image path.' }
-    if ($DiskReadOnly) { throw '-DiskReadOnly applies only when booting.' }
-    $imagePath = if ([IO.Path]::IsPathRooted($DiskImage)) { $DiskImage } else {
-        Join-Path (Get-Location).Path $DiskImage
-    }
-    $linuxPath = & wsl.exe -d $Distro --exec wslpath -a -u $imagePath
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    & wsl.exe -d $Distro --cd $PSScriptRoot --exec bash scripts/wsl-command.sh $Action $linuxPath $DiskSizeMiB
-    exit $LASTEXITCODE
-}
-if ($DiskImage) {
-    $diskFile = Get-Item -LiteralPath $DiskImage
-    if ($diskFile -isnot [IO.FileInfo] -or $diskFile.Length -eq 0 -or
-        $diskFile.Length % 512 -ne 0 -or $diskFile.Length -gt 137438953472) {
-        throw 'Raw disk must be a regular file with a nonzero multiple of 512 bytes, at most 128 GiB.'
-    }
-    foreach ($output in @('build\rum.iso', 'build\rum.elf', 'build\rum-system.img',
-                         'build\isodir\boot\rum.elf', 'build\isodir\boot\rum-system.img')) {
-        if ($diskFile.FullName -eq (Join-Path $PSScriptRoot $output)) {
-            throw 'A generated boot image cannot be attached as a writable disk.'
-        }
-    }
-}
-$buildAction = switch ($Action) {
-    'run' { 'build' }
-    'debug' { 'build' }
-    default { $Action }
-}
-$buildArguments = @('-d', $Distro, '--cd', $PSScriptRoot, '--exec', 'bash', 'scripts/wsl-command.sh', $buildAction)
-if ($DiskImage) {
-    $linuxDiskPath = & wsl.exe -d $Distro --exec wslpath -a -u $diskFile.FullName
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    $buildArguments += $linuxDiskPath
-}
-& wsl.exe @buildArguments
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-if ($Action -eq 'test') {
-    & (Join-Path $PSScriptRoot 'tests\disk-launcher-test.ps1')
-    exit 0
+function ConvertTo-RumLinuxPath([string]$Path) {
+    $absolute = if ([IO.Path]::IsPathRooted($Path)) { $Path } else { Join-Path (Get-Location).Path $Path }
+    $converted = & wsl.exe -d $Distro --exec wslpath -a -u $absolute
+    if ($LASTEXITCODE -ne 0) { throw "Cannot translate path for WSL: $Path" }
+    return $converted
 }
 
-if ($Action -in @('run', 'run-kernel', 'debug', 'panic')) {
-    $qemuCommand = Get-Command qemu-system-i386.exe -ErrorAction SilentlyContinue
-    if (-not $qemuCommand) {
-        $qemuCommand = Get-Command qemu-system-x86_64.exe -ErrorAction SilentlyContinue
-    }
-    if (-not $qemuCommand) { throw 'QEMU is missing from Windows PATH. Use make run in WSL or add QEMU to PATH.' }
-    $qemuArguments = @('-name', 'rum OS', '-m', '64M', '-nodefaults', '-vga', 'std', '-serial', 'stdio', '-no-reboot', '-no-shutdown')
-    if ($Action -eq 'panic') {
-        $qemuArguments += @('-kernel', (Join-Path $PSScriptRoot 'build\tests\fault-ud.elf'))
-    } elseif ($Action -eq 'run-kernel') {
-        $qemuArguments += @('-kernel', (Join-Path $PSScriptRoot 'build\rum.elf'))
+# WSL supplies Python and all build tools. No Windows Python installation is required.
+$linuxRoot = ConvertTo-RumLinuxPath $PSScriptRoot
+$arguments = @($Action, '--jobs', $Jobs, '--workers', $Workers, '--memory', $MemoryMiB,
+               '--size-mib', $DiskSizeMiB, '--suite', $Suite)
+if ($DiskImage) { $arguments += @('--disk', (ConvertTo-RumLinuxPath $DiskImage)) }
+if ($DiskReadOnly) { $arguments += '--read-only' }
+if ($Output) { $arguments += @('--output', (ConvertTo-RumLinuxPath $Output)) }
+if ($CrossPrefix) { $arguments += @('--cross-prefix', $CrossPrefix) }
+if ($NoBuild) { $arguments += '--no-build' }
+if ($DryRun) { $arguments += '--dry-run' }
+
+if ($Action -in @('run', 'run-kernel', 'debug', 'panic', 'doctor')) {
+    if ($Qemu) {
+        $qemuCommand = Get-Command $Qemu -ErrorAction Stop
     } else {
-        $isoPath = (Join-Path $PSScriptRoot 'build\rum.iso').Replace(',', ',,')
-        $qemuArguments += @('-boot', 'd', '-drive', "file=$isoPath,format=raw,if=ide,index=0,media=cdrom")
+        $qemuCommand = Get-Command qemu-system-i386.exe -ErrorAction SilentlyContinue
+        if (-not $qemuCommand) { $qemuCommand = Get-Command qemu-system-x86_64.exe -ErrorAction SilentlyContinue }
     }
-    if ($DiskImage) {
-        $bootPath = Join-Path $PSScriptRoot $(if ($Action -eq 'run-kernel') { 'build\rum.elf' } else { 'build\rum.iso' })
-        if ($diskFile.FullName -eq $bootPath) { throw 'Boot image and writable disk must be different files.' }
-        $diskPath = $diskFile.FullName.Replace(',', ',,')
-        $diskOptions = "file=$diskPath,format=raw,if=ide,index=2,media=disk,cache=writeback,werror=report,rerror=report"
-        if ($DiskReadOnly) { $diskOptions += ',readonly=on' }
-        $qemuArguments += @('-drive', $diskOptions)
+    if ($qemuCommand) {
+        $arguments += @('--windows-qemu', (ConvertTo-RumLinuxPath $qemuCommand.Source))
+    } elseif ($Action -ne 'doctor') {
+        throw 'Windows QEMU is missing. Add it to PATH or supply -Qemu with its executable path.'
+    } else {
+        Write-Warning 'Windows QEMU is missing; builds and WSL tests can still run.'
     }
-    if ($Action -eq 'debug') { $qemuArguments += @('-S', '-s') }
-    & $qemuCommand.Source @qemuArguments
-    exit $LASTEXITCODE
+} elseif ($Qemu) {
+    # Noninteractive tests and release checks use the Linux executable inside WSL.
+    $arguments += @('--qemu', $Qemu)
 }
+
+& wsl.exe -d $Distro --cd (Get-Location).Path --exec python3 "$linuxRoot/scripts/rum.py" @arguments
+exit $LASTEXITCODE

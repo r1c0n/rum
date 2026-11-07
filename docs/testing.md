@@ -1,17 +1,23 @@
 # Testing rum
 
-Run `make -j4 test` in Ubuntu/WSL, or `.\rum.ps1 test` on Windows. The suite
+Run `./rum test -j4 --workers 4` in Ubuntu/WSL, or
+`.\rum.ps1 test -Jobs 4 -Workers 4` on Windows. The suite
 builds its kernels and programs once, runs host checks and creates fixtures,
 then runs independent guest suites with four workers. Each worker runs at most
-one QEMU instance. Use `make test TEST_JOBS=2` or `TEST_JOBS=1` on a slower
-machine. The allowed worker range is 1–4. Build parallelism (`-j`)
-and guest parallelism (`TEST_JOBS`) are separate settings.
+one QEMU instance. Use `--workers 2` / `-Workers 2` on a slower
+machine. The allowed worker range is 1–4. Build jobs and guest workers are
+separate settings. `make -j4 test TEST_JOBS=4` remains supported.
 
 ## Coverage
 
 The default command runs all distinct regression scenarios. There is no hidden
 longer release-only tier. Focused `make test-*` targets remain available when
 changing one subsystem; see the relevant subsystem documentation.
+
+Use `./rum test --suite host` or `.\rum.ps1 test -Suite host` for host checks.
+Other groups include `user`, `package`, `shell`, `storage`, `block`, `fat16`,
+`fat16-write`, `filesystem`, `preemption`, `lifecycle`, `sleep`, `console` and
+`integration`. Run `help` for the full option list.
 
 * Portable host tests cover memory, paths, handles, ABI layouts, terminal and
   keyboard rules, sessions, recovery commands, Snake and the ATA port model.
@@ -60,5 +66,6 @@ guest workers start. Each guest uses its own temporary writable disk and QMP
 socket; tests never use a caller's disk image. Do not launch two complete test
 runs in the same checkout at once, since their build outputs and reports are
 shared. Run the Windows launcher checks separately with
-`tests/disk-launcher-test.ps1` when changing PowerShell argument handling;
-`.\rum.ps1 test` includes them automatically.
+`tests/disk-launcher-test.ps1` when changing PowerShell argument handling.
+Shared workflow validation and disk-preserving cleanup are covered by the
+portable `tests/build-environment-test.py` host test.

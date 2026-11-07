@@ -41,7 +41,7 @@ User code links with `-nostdlib`, rum's startup and syscall wrappers, and target
 1. Add `apps/name/main.c` with a normal
    `int main(int argc, char **argv)` entry.
 2. Include `<rum/user.h>` for the supported runtime calls.
-3. Add `name` to `APP_PROGRAMS` in the Makefile.
+3. Add `name` to `APP_PROGRAMS` in `mk/user.mk`.
 4. Run `make user` and fix any compiler or ELF-validator error.
 5. Debug with the ELF under `build/user/debug/`, not the stripped asset.
 6. Prepare a new system disk to install it, or back up an existing disk and

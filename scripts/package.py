@@ -2,17 +2,22 @@
 """Bundle the built ISO, README, and documentation into rum.zip."""
 
 from pathlib import Path
+import argparse
 import sys
 import tempfile
 from zipfile import ZIP_DEFLATED, ZipFile
 
 
-def package():
+def package(output=None):
     root = Path(__file__).resolve().parent.parent
     iso = root / "build/rum.iso"
     readme = root / "README.md"
     docs = root / "docs"
-    output = root / "rum.zip"
+    output = Path(output) if output is not None else root / "rum.zip"
+    if output.suffix.lower() != ".zip":
+        raise ValueError("package output must use the .zip extension")
+    if output.is_symlink():
+        raise ValueError("package output cannot be a symlink")
 
     if not iso.is_file():
         raise FileNotFoundError(
@@ -25,7 +30,7 @@ def package():
 
     files = [readme, docs, *sorted(docs.rglob("*"))]
     with tempfile.NamedTemporaryFile(
-        dir=root, prefix=".rum-", suffix=".zip", delete=False
+        dir=output.parent, prefix=".rum-", suffix=".zip", delete=False
     ) as temporary:
         temporary_path = Path(temporary.name)
     try:
@@ -40,9 +45,12 @@ def package():
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, help="ZIP output path (default: rum.zip)")
+    args = parser.parse_args()
     try:
-        output = package()
-    except OSError as error:
+        output = package(args.output)
+    except (OSError, ValueError) as error:
         print(f"package: {error}", file=sys.stderr)
         return 1
     print(f"Created {output}")

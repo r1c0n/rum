@@ -6,15 +6,21 @@ prefix="$project_dir/.tools/cross"
 target=i686-elf
 gcc_version=15.2.0
 binutils_version=2.45
-jobs=${JOBS:-6}
-build_root=${RUM_TOOLCHAIN_BUILD_DIR:-/tmp/rum-toolchain-$(id -u)}
+jobs=${JOBS:-4}
+prefix_id=$(printf %s "$prefix" | cksum | cut -d' ' -f1)
+build_root=${RUM_TOOLCHAIN_BUILD_DIR:-/tmp/rum-toolchain-$(id -u)/$target-gcc$gcc_version-binutils$binutils_version-$prefix_id}
 export PATH="$prefix/bin:$PATH"
+if ! [[ "$jobs" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]]; then
+    echo 'JOBS must be an integer from 1 through 64.' >&2; exit 2
+fi
 
 for tool in gcc g++ make bison flex makeinfo curl tar xz; do
     command -v "$tool" >/dev/null || { echo "Missing $tool; see docs/setup.md." >&2; exit 1; }
 done
-if command -v "$target-gcc" >/dev/null && test -f "$("$target-gcc" -print-libgcc-file-name)"; then
-    echo "Cross-compiler already available: $(command -v "$target-gcc")"
+if test -x "$prefix/bin/$target-gcc" &&
+   test "$("$prefix/bin/$target-gcc" -dumpmachine)" = "$target" &&
+   test -f "$("$prefix/bin/$target-gcc" -print-libgcc-file-name)"; then
+    echo "Cross-compiler already available: $prefix/bin/$target-gcc"
     exit 0
 fi
 mkdir -p "$prefix" "$build_root/sources" "$build_root/build-binutils" "$build_root/build-gcc"

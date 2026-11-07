@@ -7,5 +7,7 @@
 *.py text eol=lf
 *.cfg text eol=lf
 Makefile text eol=lf
-# Embedded payloads are exact bytes, including text files and their line endings.
-assets/ramfs/* -text
+*.mk text eol=lf
+rum text eol=lf
+# Disk templates retain their exact bytes across host platforms.
+assets/disk/* -text
