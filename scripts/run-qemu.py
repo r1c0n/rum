@@ -76,8 +76,8 @@ def main():
             elif args.disk_read_only:
                 raise ValueError("--disk-read-only requires --disk")
             return 0
-        if not 16 <= args.memory <= 128:
-            raise ValueError("guest memory must be 16 through 128 MiB")
+        if not 16 <= args.memory <= 4096:
+            raise ValueError("guest memory must be 16 through 4096 MiB")
         arguments = boot_arguments(args.image, args.kernel, args.disk, args.disk_read_only, windows_paths=args.windows_paths)
         command = [args.qemu, "-name", "rum OS", "-m", f"{args.memory}M", "-serial", "stdio",
                    "-no-reboot", "-no-shutdown"] + arguments

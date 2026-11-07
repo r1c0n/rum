@@ -3,11 +3,14 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $global:rumWslCalls = @()
 $global:rumWslStatus = 0
+$global:rumCommandStatus = 0
 function wsl.exe {
     $global:rumWslCalls += ,@($args)
     $global:LASTEXITCODE = $global:rumWslStatus
     if ($args -contains 'wslpath') {
         '/translated/' + ([string]$args[-1]).Replace('\', '/')
+    } else {
+        $global:LASTEXITCODE = $global:rumCommandStatus
     }
 }
 function Get-Command {
@@ -41,4 +44,8 @@ $global:rumWslStatus = 7
 $failed = $false
 try { & $launcher build } catch { $failed = $true }
 Check $failed 'WSL path conversion failures stop dispatch'
+$global:rumWslStatus = 0
+$global:rumCommandStatus = 9
+& $launcher build
+Check ($LASTEXITCODE -eq 9) 'build failures propagate to the calling shell'
 Write-Output 'PowerShell build adapter tests passed'

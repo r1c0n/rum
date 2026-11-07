@@ -1,4 +1,5 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
+.PHONY: test-host test-package
 
 FAULT_KERNELS := build/tests/fault-de.elf build/tests/fault-ud.elf build/tests/fault-gp.elf build/tests/fault-pf.elf
 FAULT_OBJECTS := $(FAULT_KERNELS:.elf=.o)

@@ -1,4 +1,5 @@
 USER_RULES := Makefile mk/config.mk mk/user.mk
+.PHONY: user test-user
 
 SYSTEM_COMMANDS := help about echo clear ls cat pwd cd write mkdir rm run exit recovery ps kill sleep
 SDK_EXAMPLES := hello nonzero fault spin readline

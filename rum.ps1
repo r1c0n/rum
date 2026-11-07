@@ -11,7 +11,7 @@ param(
     [Alias('TestJobs')][ValidateRange(1, 4)][int]$Workers = 4,
     [ValidateSet('all', 'host', 'user', 'package', 'shell', 'storage', 'block', 'fat16', 'fat16-write', 'filesystem', 'preemption', 'lifecycle', 'sleep', 'console', 'integration')]
     [string]$Suite = 'all',
-    [ValidateRange(16, 128)][int]$MemoryMiB = 64,
+    [ValidateRange(16, 4096)][int]$MemoryMiB = 64,
     [string]$Qemu,
     [string]$CrossPrefix,
     [string]$Output,

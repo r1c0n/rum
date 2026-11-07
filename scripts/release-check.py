@@ -33,6 +33,7 @@ def main():
     parser.add_argument("--cross-prefix", default=str(ROOT / ".tools/cross/bin/i686-elf-"))
     parser.add_argument("--qemu", default="qemu-system-i386")
     parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument("--workers", type=int, choices=range(1, 5), default=4)
     args = parser.parse_args()
     if os.name == "nt":
         parser.error("Run this build check in Ubuntu/WSL; the package test also runs on Windows.")
@@ -64,7 +65,7 @@ def main():
                     else:
                         raise RuntimeError(f"Unsupported snapshot object: {member.name}")
             # A new temporary tree has no stale objects, staged user ELFs or disk images.
-            make = ["make", f"-j{args.jobs}", f"CROSS_PREFIX={args.cross_prefix}", f"QEMU={args.qemu}"]
+            make = ["make", f"-j{args.jobs}", f"TEST_JOBS={args.workers}", f"CROSS_PREFIX={args.cross_prefix}", f"QEMU={args.qemu}"]
             run(make + ["all"], work, output / "build.log")
             # The suite builds once and bounds independent QEMU workers itself.
             run(make + ["test"], work, output / "tests.log")

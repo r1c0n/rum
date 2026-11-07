@@ -7,9 +7,10 @@ target=i686-elf
 gcc_version=15.2.0
 binutils_version=2.45
 jobs=${JOBS:-4}
-build_root=${RUM_TOOLCHAIN_BUILD_DIR:-/tmp/rum-toolchain-$(id -u)}
+prefix_id=$(printf %s "$prefix" | cksum | cut -d' ' -f1)
+build_root=${RUM_TOOLCHAIN_BUILD_DIR:-/tmp/rum-toolchain-$(id -u)/$target-gcc$gcc_version-binutils$binutils_version-$prefix_id}
 export PATH="$prefix/bin:$PATH"
-if ! [[ "$jobs" =~ ^[0-9]+$ ]] || (( jobs < 1 || jobs > 64 )); then
+if ! [[ "$jobs" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]]; then
     echo 'JOBS must be an integer from 1 through 64.' >&2; exit 2
 fi
 

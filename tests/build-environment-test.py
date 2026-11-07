@@ -44,6 +44,7 @@ with tempfile.TemporaryDirectory(prefix="rum-build-env-") as temporary:
     rejects(["clean", "--no-build"])
     rejects(["build", "--suite", "host"])
     rejects(["vm-images", "--output", str(root)])
+    rejects(["package", "--output", str(disk)])
     with patch.object(cli.subprocess, "run") as execute, contextlib.redirect_stdout(io.StringIO()):
         cli.dispatch(cli.parser().parse_args(["run", "--disk", str(disk), "--dry-run"]))
         cli.dispatch(cli.parser().parse_args(["clean", "--dry-run"]))

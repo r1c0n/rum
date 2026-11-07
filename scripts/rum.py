@@ -53,7 +53,7 @@ def parser():
                         help="explicit raw disk image; new path for prepare-disk/create-disk")
     result.add_argument("--read-only", action="store_true", default=os.environ.get("DISK_READ_ONLY") == "1")
     result.add_argument("--size-mib", type=bounded(1, 131071), default=os.environ.get("DISK_SIZE_MIB", "16"))
-    result.add_argument("--memory", type=bounded(16, 128), default=64, help="guest RAM in MiB (default: 64)")
+    result.add_argument("--memory", type=bounded(16, 4096), default=64, help="guest RAM in MiB (default: 64)")
     result.add_argument("--qemu", default=os.environ.get("QEMU", "qemu-system-i386"))
     result.add_argument("--windows-qemu", type=Path, help=argparse.SUPPRESS)
     result.add_argument("--cross-prefix", default=os.environ.get("CROSS_PREFIX"))
@@ -95,12 +95,19 @@ def validate(args):
         raise ValueError("--read-only requires a boot action and an existing --disk")
     if args.action == "prepare-disk" and not 16 <= args.size_mib <= 128:
         raise ValueError("prepared system disks must be 16 through 128 MiB")
+    if args.action == "vm-images" and args.output is None:
+        args.output = ROOT / "build/vm-images"
     if args.output is not None:
         args.output = args.output.absolute()
         if args.action not in {"package", "vm-images"}:
             raise ValueError("--output is only supported for package and vm-images")
         if args.action == "vm-images" and (args.output.exists() or args.output.is_symlink()):
             raise ValueError("VM output already exists; choose a new directory")
+        if args.action == "package":
+            if args.output.suffix.lower() != ".zip" or args.output.is_symlink() or args.output.is_dir():
+                raise ValueError("package output must be a ZIP file path, not a directory or symlink")
+            if not args.output.parent.is_dir():
+                raise ValueError("package output parent must already exist")
     if args.no_build and args.action not in BOOT_ACTIONS | {"package", "vm-images"}:
         raise ValueError("--no-build applies only to boot or packaging")
     if args.suite != "all" and args.action != "test":
@@ -161,7 +168,7 @@ def dispatch(args):
     elif action == "clean":
         script("clean-build.py")
     elif action == "release-check":
-        options = ["--jobs", str(args.jobs), "--qemu", args.qemu]
+        options = ["--jobs", str(args.jobs), "--workers", str(args.workers), "--qemu", args.qemu]
         if args.cross_prefix:
             options += ["--cross-prefix", args.cross_prefix]
         script("release-check.py", *options)
