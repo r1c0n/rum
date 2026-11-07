@@ -1,5 +1,11 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
 .PHONY: test-host test-package
+.PHONY: test-shared-handles-host
+test-shared-handles-host: build/tests/handles-test build/tests/abi-test
+	./build/tests/handles-test
+	./build/tests/abi-test
+
+test-host: build/tests/handles-test
 
 FAULT_KERNELS := build/tests/fault-de.elf build/tests/fault-ud.elf build/tests/fault-gp.elf build/tests/fault-pf.elf
 FAULT_OBJECTS := $(FAULT_KERNELS:.elf=.o)
@@ -31,6 +37,10 @@ TEST_DEPENDENCIES += build/tests/lifecycle-kernel.d build/tests/lifecycle-ids-ke
 TEST_DEPENDENCIES += build/tests/waits-kernel.d build/tests/sleep-kernel.d build/tests/user/sleep.d
 TEST_DEPENDENCIES += build/tests/console-kernel.d build/tests/user/console.d
 TEST_DEPENDENCIES += build/tests/integration-kernel.d build/tests/user/integration.d
+
+build/tests/handles-test: tests/handles-test.c kernel/process/handles.c kernel/include/rum/handles.h tests/handles-include/rum/cpu.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Itests/handles-include -Itests/include $(CPPFLAGS) -std=gnu11 -O2 -fno-builtin -Wall -Wextra -Werror $(sort $(filter %.c,$^)) -o $@
 
 .SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) $(PROCESS_FAULT_OBJECTS) build/tests/paging-spaces.o build/tests/user-memory.o
 .SECONDARY: $(USER_DEBUG) $(USER_RUNTIME) $(addprefix build/user/objects/,$(addsuffix .o,$(USER_PROGRAMS)))

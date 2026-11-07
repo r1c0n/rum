@@ -10,6 +10,9 @@
 
 #define RUM_FS_ABI_VERSION 1
 #define RUM_ABI_HANDLE_LIMIT 32
+#define RUM_HANDLE_ABI_VERSION 1
+#define RUM_DUP_ANY 0xFFFFFFFFu /* Allocate the lowest free descriptor at 3..31. */
+#define RUM_DUP_CLOSPAWN 1u /* This descriptor cannot be a spawn mapping source. */
 #define RUM_OPEN_READ 1
 #define RUM_OPEN_WRITE 2
 #define RUM_OPEN_DIRECTORY 1 /* Only directories; read access is required. */
@@ -22,6 +25,14 @@
 
 #ifndef __ASSEMBLER__
 #include <stddef.h>
+/* Duplicates share the open description. An explicit target is atomically
+   replaced on success; source == target only changes descriptor flags. */
+struct rum_duplicate_request {
+    uint32_t version, size;
+    rum_handle_t source, target;
+    uint32_t flags, reserved;
+};
+_Static_assert(sizeof(struct rum_duplicate_request) == 24, "duplicate packet layout");
 /* Every word has the same layout on i386 and a host. Reserved words must be
    zero. Inputs require the exact size and version; extensions use a new version.
    Paths are NUL-terminated user strings, bounded by PATH_CAPACITY. */

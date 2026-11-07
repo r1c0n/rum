@@ -18,7 +18,7 @@ struct process_result {
     struct task_fault fault;
 };
 
-/* Load one RAM-file ELF, run it as this task's foreground child, wait for its
+/* Load one filesystem ELF, run it as this task's foreground child, wait for its
    complete result, and release every owned task and address-space resource. */
 enum process_launch_error process_launch_foreground(const char *program,
                                                      const char *arguments,
@@ -28,6 +28,8 @@ enum process_launch_error process_launch_foreground(const char *program,
 rum_result_t process_start_foreground(const char *, const struct rum_arguments *, task_id *);
 rum_result_t process_start_shell(const char *, const struct rum_arguments *, task_id *);
 rum_result_t process_spawn(const char *, const struct rum_arguments *, task_id *);
+rum_result_t process_spawn_with_handles(const char *, const struct rum_arguments *,
+                                      const struct rum_handle_mapping *, unsigned count, unsigned flags, task_id *);
 rum_result_t process_run_foreground(const char *, const struct rum_arguments *, struct process_result *);
 rum_result_t process_run_command(const char *, const struct rum_arguments *, const char *, struct process_result *);
 

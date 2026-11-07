@@ -53,6 +53,9 @@ struct task_process {
     struct paging_space *space;
     struct exception_user_frame user_frame;
     char name[RUM_PROCESS_NAME_CAPACITY];
+    /* Optional private descriptor table, moved only after successful
+       publication. Failure leaves it owned by the trusted producer. */
+    struct process_handles *initial_handles;
 };
 
 struct task_snapshot {

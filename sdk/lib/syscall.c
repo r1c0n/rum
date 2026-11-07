@@ -1,5 +1,20 @@
 #include <rum/user.h>
 
+rum_result_t rum_duplicate(rum_handle_t source, rum_handle_t target, uint32_t flags)
+{
+    struct rum_duplicate_request request = { RUM_HANDLE_ABI_VERSION, sizeof request, source, target, flags, 0 };
+    return rum_syscall3(RUM_SYS_DUPLICATE, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
+
+rum_result_t rum_spawn_with_handles(const char *path, const struct rum_arguments *arguments,
+                                   const struct rum_handle_mapping *mappings, uint32_t count, uint32_t flags)
+{
+    struct rum_spawn_mapped_request request = { RUM_SPAWN_MAPPED_VERSION, sizeof request,
+        (rum_address_t)(uintptr_t)path, (rum_address_t)(uintptr_t)arguments,
+        (rum_address_t)(uintptr_t)mappings, count, flags, 0 };
+    return rum_syscall3(RUM_SYS_SPAWN_MAPPED, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
+
 _Static_assert(sizeof(void *) == sizeof(rum_address_t), "i386 user pointers");
 
 rum_result_t rum_open(const char *path, uint32_t access, uint32_t flags)
