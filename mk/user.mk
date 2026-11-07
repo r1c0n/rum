@@ -37,6 +37,17 @@ build/user/objects/shell.o: system/shell/main.c $(USER_INCLUDE_STAMP) $(USER_RUL
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
 
+build/user/objects/shell-parse.o: system/shell/parse.c system/shell/shell.h $(USER_INCLUDE_STAMP) $(USER_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+
+build/user/objects/shell-pipeline.o: system/shell/pipeline.c system/shell/shell.h $(USER_INCLUDE_STAMP) $(USER_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+
+build/user/debug/shell.elf: build/user/objects/shell-parse.o build/user/objects/shell-pipeline.o
+USER_DEPENDENCIES += build/user/objects/shell-parse.d build/user/objects/shell-pipeline.d
+
 $(addprefix build/user/objects/,$(addsuffix .o,$(APP_PROGRAMS))): build/user/objects/%.o: apps/%/main.c $(USER_INCLUDE_STAMP) $(USER_RULES)
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@

@@ -1,0 +1,22 @@
+#ifndef RUM_SHELL_PRIVATE_H
+#define RUM_SHELL_PRIVATE_H
+#include <rum/tools.h>
+
+#define SHELL_PIPELINE_LIMIT 4u
+#define SHELL_REDIRECTION_LIMIT 8u
+enum shell_redirect_kind { SHELL_INPUT, SHELL_OUTPUT, SHELL_APPEND };
+struct shell_redirect { enum shell_redirect_kind kind; char *path; };
+struct shell_stage {
+    unsigned argc, redirect_count;
+    char *argv[RUM_ABI_ARGUMENT_LIMIT];
+    struct shell_redirect redirects[SHELL_REDIRECTION_LIMIT];
+};
+struct shell_pipeline {
+    unsigned count;
+    char text[RUM_COMMAND_TEXT_CAPACITY];
+    struct shell_stage stages[SHELL_PIPELINE_LIMIT];
+};
+/* No mutations or syscalls until the complete bounded grammar is accepted. */
+rum_result_t shell_parse_pipeline(const char *, struct shell_pipeline *);
+void shell_run_pipeline(struct shell_pipeline *, void (*completion)(const struct rum_process_result *));
+#endif

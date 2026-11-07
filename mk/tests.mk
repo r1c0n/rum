@@ -1,4 +1,30 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
+.PHONY: test-workflows-host test-workflows
+build/tests/shell-parse-test: tests/shell-parse-test.c system/shell/parse.c system/shell/shell.h $(ABI_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror tests/shell-parse-test.c system/shell/parse.c -o $@
+
+build/tests/user/workflow.o: tests/workflow-user.c $(USER_INCLUDE_STAMP) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+
+build/tests/user/workflow.debug.elf: build/tests/user/workflow.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+
+build/tests/user/workflow.elf: build/tests/user/workflow.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@
+	build/tools/check-user-elf $@ $<
+
+test-workflows-host: test-shared-handles-host build/tests/session-test build/tests/shell-parse-test
+	./build/tests/session-test
+	./build/tests/shell-parse-test
+
+test-workflows: all test-workflows-host build/tests/user/workflow.elf
+	python3 tests/workflow-qemu-test.py --qemu $(QEMU)
+
+test-host: build/tests/shell-parse-test
+test-build: build/tests/shell-parse-test build/tests/user/workflow.elf
+TEST_DEPENDENCIES += build/tests/user/workflow.d
 .PHONY: test-host test-package
 .PHONY: test-shared-handles-host
 test-shared-handles-host: build/tests/handles-test build/tests/abi-test
@@ -605,6 +631,7 @@ test-host: build/tests/block-test build/tests/console-test build/tests/memory-te
 	./build/tests/session-test
 	./build/tests/handles-test
 	./build/tests/path-test
+	./build/tests/shell-parse-test
 	./build/tests/pipe-test
 	./build/tests/fs-test
 	./build/tests/ata-test
