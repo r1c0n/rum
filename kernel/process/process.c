@@ -10,7 +10,7 @@
 #include <rum/process_limits.h>
 
 static rum_result_t start_process(const char *program, const struct rum_arguments *arguments,
-                                  bool foreground, bool shell, task_id *child)
+                                  bool foreground, bool shell, struct process_handles *handles, task_id *child)
 {
     if (!child || !program || !elf_arguments_valid(arguments)) return -RUM_EINVAL;
     *child = 0;
@@ -58,6 +58,7 @@ static rum_result_t start_process(const char *program, const struct rum_argument
         (void)paging_space_destroy(process.space);
         return -RUM_EINTR;
     }
+    process.initial_handles = handles;
     const char *name = path;
     for (unsigned i = 0; path[i]; ++i) if (path[i] == '/') name = path + i + 1;
     for (unsigned i = 0; i < sizeof process.name - 1 && name[i]; ++i)
@@ -70,17 +71,32 @@ static rum_result_t start_process(const char *program, const struct rum_argument
 
 rum_result_t process_start_foreground(const char *path, const struct rum_arguments *arguments, task_id *child)
 {
-    return start_process(path, arguments, true, false, child);
+    return start_process(path, arguments, true, false, NULL, child);
 }
 
 rum_result_t process_start_shell(const char *path, const struct rum_arguments *arguments, task_id *child)
 {
-    return start_process(path, arguments, true, true, child);
+    return start_process(path, arguments, true, true, NULL, child);
 }
 
 rum_result_t process_spawn(const char *path, const struct rum_arguments *arguments, task_id *child)
 {
-    return start_process(path, arguments, false, false, child);
+    return start_process(path, arguments, false, false, NULL, child);
+}
+
+rum_result_t process_spawn_with_handles(const char *path, const struct rum_arguments *arguments,
+                                       const struct rum_handle_mapping *mappings, unsigned count,
+                                       unsigned flags, task_id *child)
+{
+    if (!child || !path || !elf_arguments_valid(arguments)) return -RUM_EINVAL;
+    *child = 0;
+    struct process_handles prepared = {0};
+    rum_result_t error = process_handles_prepare_spawn(&prepared, task_current_handles(), mappings, count, flags);
+    if (!error) error = start_process(path, arguments, false, false, &prepared, child);
+    /* Successful publication moves the complete table, leaving this empty.
+       Failure at any loader/constructor stage still belongs to the caller. */
+    rum_result_t closed = process_handles_destroy(&prepared);
+    return error ? error : closed;
 }
 
 static rum_result_t run_foreground(const char *path, const struct rum_arguments *arguments,

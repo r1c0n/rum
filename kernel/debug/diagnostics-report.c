@@ -80,6 +80,9 @@ void diagnostics_render(const struct kernel_diagnostics *snapshot, diagnostics_w
     decimal(write, snapshot->heap.allocations); write(" allocations\nFilesystem: ");
     decimal(write, snapshot->filesystem.mounts); write(" mounted, ");
     decimal(write, snapshot->filesystem.references); write(" open references\n");
+    write("Handles: "); decimal(write, snapshot->handles.descriptors); write(" descriptors, ");
+    decimal(write, snapshot->handles.descriptions); write(" open descriptions, ");
+    decimal(write, snapshot->handles.aliases); write(" aliases\n");
     static const char *const states[] = {"unused", "runnable", "running", "blocked", "exited"};
     for (uint32_t i = 0; i < snapshot->tasks.count; ++i) {
         const struct task_information *item = &snapshot->tasks.tasks[i];
@@ -174,5 +177,8 @@ void diagnostics_panic(void)
     field(serial_writestring, "diag_heapused", snapshot.heap.used_bytes);
     field(serial_writestring, "diag_mounts", snapshot.filesystem.mounts);
     field(serial_writestring, "diag_fsrefs", snapshot.filesystem.references);
+    field(serial_writestring, "diag_descriptions", snapshot.handles.descriptions);
+    field(serial_writestring, "diag_descriptors", snapshot.handles.descriptors);
+    field(serial_writestring, "diag_aliases", snapshot.handles.aliases);
     serial_writestring("\n");
 }

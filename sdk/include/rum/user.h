@@ -10,6 +10,7 @@
 
 rum_result_t rum_open(const char *path, uint32_t access, uint32_t flags);
 rum_result_t rum_close(rum_handle_t);
+rum_result_t rum_duplicate(rum_handle_t source, rum_handle_t target, uint32_t flags);
 rum_result_t rum_seek(rum_handle_t, int64_t displacement, uint32_t whence, uint64_t *position);
 rum_result_t rum_readdir(rum_handle_t, struct rum_directory_entry *);
 rum_result_t rum_chdir(const char *);
@@ -19,6 +20,8 @@ rum_result_t rum_remove(const char *);
 rum_result_t rum_flush(rum_handle_t);
 rum_result_t rum_run(const char *, const struct rum_arguments *, struct rum_process_result *);
 rum_result_t rum_spawn(const char *, const struct rum_arguments *);
+rum_result_t rum_spawn_with_handles(const char *, const struct rum_arguments *,
+                                   const struct rum_handle_mapping *, uint32_t count, uint32_t flags);
 rum_result_t rum_wait(rum_pid_t, uint32_t flags, struct rum_process_result *);
 rum_result_t rum_terminate(rum_pid_t, uint32_t flags);
 rum_result_t rum_yield(void);

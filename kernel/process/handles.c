@@ -2,8 +2,14 @@
 #include <rum/handles.h>
 #include <rum/cpu.h>
 #include <rum/interrupts.h>
+#include <rum/process_limits.h>
+
+#define OPEN_DESCRIPTIONS (RUM_PROCESS_LIMIT * RUM_ABI_HANDLE_LIMIT)
+static struct process_handle descriptions[OPEN_DESCRIPTIONS];
 
 _Static_assert(RUM_OPEN_READ == FS_READ && RUM_OPEN_WRITE == FS_WRITE, "access bits");
+_Static_assert(RUM_ABI_HANDLE_LIMIT == 32 && RUM_SPAWN_MAPPING_LIMIT <= 32,
+               "mapping conflict bitmap covers every descriptor");
 
 bool process_filesystem_context(void)
 {
@@ -38,23 +44,75 @@ rum_result_t process_fs_error(enum fs_error error)
     return -RUM_EIO;
 }
 
-void process_handles_initialize(struct process_handles *table)
+static struct process_handle *new_description(enum process_handle_kind kind, unsigned access)
 {
+    uint32_t flags = cpu_interrupt_save();
+    struct process_handle *result = NULL;
+    for (unsigned i = 0; i < OPEN_DESCRIPTIONS; ++i) if (!descriptions[i].references) {
+        result = &descriptions[i];
+        *result = (struct process_handle){ .kind = kind, .access = access, .references = 1 };
+        break;
+    }
+    cpu_interrupt_restore(flags);
+    return result;
+}
+
+static rum_result_t retain(struct process_handle *object)
+{
+    uint32_t flags = cpu_interrupt_save();
+    rum_result_t error = object->references == UINT32_MAX ? -RUM_EOVERFLOW : 0;
+    if (!error) ++object->references;
+    cpu_interrupt_restore(flags);
+    return error;
+}
+
+static rum_result_t release(struct process_handle *object)
+{
+    if (object->references == 1 && object->reference) {
+        enum fs_error error = fs_close(object->reference);
+        if (error != FS_OK) return process_fs_error(error);
+    }
+    uint32_t flags = cpu_interrupt_save();
+    if (!--object->references) *object = (struct process_handle){0};
+    cpu_interrupt_restore(flags);
+    return 0;
+}
+
+struct process_handle_statistics process_handles_stats(void)
+{
+    uint32_t flags = cpu_interrupt_save();
+    struct process_handle_statistics result = {0};
+    for (unsigned i = 0; i < OPEN_DESCRIPTIONS; ++i) if (descriptions[i].references) {
+        ++result.descriptions;
+        result.descriptors += descriptions[i].references;
+    }
+    result.aliases = result.descriptors - result.descriptions;
+    cpu_interrupt_restore(flags);
+    return result;
+}
+
+rum_result_t process_handles_initialize(struct process_handles *table)
+{
+    if (!table) return -RUM_EINVAL;
+    if (!process_filesystem_context()) return -RUM_EBUSY;
     *table = (struct process_handles){0};
-    table->slots[0] = (struct process_handle){ .kind = HANDLE_INPUT, .access = FS_READ };
-    table->slots[1] = table->slots[2] = (struct process_handle){ .kind = HANDLE_OUTPUT, .access = FS_WRITE };
+    for (unsigned i = 0; i < 3; ++i) {
+        table->slots[i].object = new_description(i ? HANDLE_OUTPUT : HANDLE_INPUT, i ? FS_WRITE : FS_READ);
+        if (!table->slots[i].object) { (void)process_handles_destroy(table); return -RUM_ENOMEM; }
+    }
+    return 0;
 }
 
 unsigned process_handles_count(const struct process_handles *table)
 {
     unsigned count = 0;
-    if (table) for (unsigned i = 0; i < RUM_ABI_HANDLE_LIMIT; ++i) count += table->slots[i].kind != HANDLE_UNUSED;
+    if (table) for (unsigned i = 0; i < RUM_ABI_HANDLE_LIMIT; ++i) count += table->slots[i].object != NULL;
     return count;
 }
 
 struct process_handle *process_handle_get(struct process_handles *table, rum_handle_t handle)
 {
-    return table && handle < RUM_ABI_HANDLE_LIMIT && table->slots[handle].kind != HANDLE_UNUSED ? &table->slots[handle] : NULL;
+    return table && handle < RUM_ABI_HANDLE_LIMIT ? table->slots[handle].object : NULL;
 }
 
 rum_result_t process_handle_open(struct process_handles *table, const struct fs_context *context,
@@ -63,19 +121,22 @@ rum_result_t process_handle_open(struct process_handles *table, const struct fs_
     if (!table || !path || !access || (access & ~(FS_READ | FS_WRITE)) ||
         (flags & ~RUM_OPEN_DIRECTORY) || ((flags & RUM_OPEN_DIRECTORY) && access != FS_READ)) return -RUM_EINVAL;
     unsigned slot = 3;
-    while (slot < RUM_ABI_HANDLE_LIMIT && table->slots[slot].kind != HANDLE_UNUSED) ++slot;
+    while (slot < RUM_ABI_HANDLE_LIMIT && table->slots[slot].object) ++slot;
     if (slot == RUM_ABI_HANDLE_LIMIT) return -RUM_EMFILE;
     if (!process_filesystem_context()) return -RUM_EBUSY;
+    struct process_handle *object = new_description(HANDLE_FILE, access);
+    if (!object) return -RUM_ENOMEM;
     fs_reference reference = 0;
     enum fs_error error = fs_open(context, path, access, &reference);
-    if (error != FS_OK) return process_fs_error(error);
+    if (error != FS_OK) { (void)release(object); return process_fs_error(error); }
     struct fs_information info;
     error = fs_stat(reference, &info);
     if (error == FS_OK && (flags & RUM_OPEN_DIRECTORY) && info.kind != FS_DIRECTORY) error = FS_NOT_DIRECTORY;
-    if (error != FS_OK) { (void)fs_close(reference); return process_fs_error(error); }
+    if (error != FS_OK) { (void)fs_close(reference); (void)release(object); return process_fs_error(error); }
     uint32_t saved = cpu_interrupt_save();
-    table->slots[slot] = (struct process_handle){ .reference = reference, .access = access,
-        .kind = info.kind == FS_DIRECTORY ? HANDLE_DIRECTORY : HANDLE_FILE };
+    object->reference = reference;
+    object->kind = info.kind == FS_DIRECTORY ? HANDLE_DIRECTORY : HANDLE_FILE;
+    table->slots[slot] = (struct process_descriptor){ .object = object };
     cpu_interrupt_restore(saved);
     return (rum_result_t)slot;
 }
@@ -85,13 +146,83 @@ rum_result_t process_handle_close(struct process_handles *table, rum_handle_t id
     struct process_handle *handle = process_handle_get(table, id);
     if (!handle) return -RUM_EBADF;
     if (!process_filesystem_context()) return -RUM_EBUSY;
-    if (handle->reference) {
+    if (handle->references == 1 && handle->reference) {
         enum fs_error error = fs_close(handle->reference);
         if (error != FS_OK) return process_fs_error(error);
     }
     uint32_t saved = cpu_interrupt_save();
-    *handle = (struct process_handle){0};
+    table->slots[id] = (struct process_descriptor){0};
+    if (!--handle->references) *handle = (struct process_handle){0};
     cpu_interrupt_restore(saved);
+    return 0;
+}
+
+static rum_result_t mapping_valid(const struct process_handle *object, unsigned target)
+{
+    if (target >= RUM_ABI_HANDLE_LIMIT) return -RUM_EINVAL;
+    if (target < 3) {
+        if (object->kind == HANDLE_DIRECTORY) return -RUM_EISDIR;
+        if (!(object->access & (target ? FS_WRITE : FS_READ))) return -RUM_EBADF;
+    }
+    return 0;
+}
+
+rum_result_t process_handle_duplicate(struct process_handles *table, rum_handle_t source, rum_handle_t target, uint32_t flags)
+{
+    if (flags & ~RUM_DUP_CLOSPAWN) return -RUM_EINVAL;
+    struct process_handle *object = process_handle_get(table, source);
+    if (!object) return -RUM_EBADF;
+    if (!process_filesystem_context()) return -RUM_EBUSY;
+    if (target == RUM_DUP_ANY) {
+        target = 3;
+        while (target < RUM_ABI_HANDLE_LIMIT && table->slots[target].object) ++target;
+        if (target == RUM_ABI_HANDLE_LIMIT) return -RUM_EMFILE;
+    }
+    rum_result_t error = mapping_valid(object, target);
+    if (error) return error;
+    if (source == target) { table->slots[target].flags = flags; return (rum_result_t)target; }
+    error = retain(object);
+    if (error) return error;
+    if (table->slots[target].object) error = process_handle_close(table, target);
+    if (error) { (void)release(object); return error; }
+    uint32_t saved = cpu_interrupt_save();
+    table->slots[target] = (struct process_descriptor){ .object = object, .flags = flags };
+    cpu_interrupt_restore(saved);
+    return (rum_result_t)target;
+}
+
+rum_result_t process_handles_prepare_spawn(struct process_handles *destination, const struct process_handles *source,
+                                         const struct rum_handle_mapping *mappings, unsigned count, unsigned flags)
+{
+    if (!destination || destination == source || count > RUM_SPAWN_MAPPING_LIMIT ||
+        (count && (!source || !mappings)) || (flags & ~RUM_SPAWN_NO_DEFAULT_STREAMS)) return -RUM_EINVAL;
+    if (!process_filesystem_context()) return -RUM_EBUSY;
+    uint32_t targets = 0;
+    for (unsigned i = 0; i < count; ++i) {
+        const struct rum_handle_mapping *map = &mappings[i];
+        if (map->reserved[0] || map->reserved[1] || map->target >= RUM_ABI_HANDLE_LIMIT) return -RUM_EINVAL;
+        if (targets & (1u << map->target)) return -RUM_EINVAL;
+        targets |= 1u << map->target;
+        if (map->source >= RUM_ABI_HANDLE_LIMIT || !source->slots[map->source].object) return -RUM_EBADF;
+        if (source->slots[map->source].flags & RUM_DUP_CLOSPAWN) return -RUM_EACCES;
+        rum_result_t error = mapping_valid(source->slots[map->source].object, map->target);
+        if (error) return error;
+    }
+    *destination = (struct process_handles){0};
+    if (!(flags & RUM_SPAWN_NO_DEFAULT_STREAMS)) {
+        rum_result_t error = process_handles_initialize(destination);
+        if (error) return error;
+    }
+    for (unsigned i = 0; i < count; ++i) {
+        struct process_handle *object = source->slots[mappings[i].source].object;
+        rum_result_t error = retain(object);
+        if (!error && destination->slots[mappings[i].target].object) {
+            error = process_handle_close(destination, mappings[i].target);
+            if (error) (void)release(object);
+        }
+        if (error) { (void)process_handles_destroy(destination); return error; }
+        destination->slots[mappings[i].target] = (struct process_descriptor){ .object = object };
+    }
     return 0;
 }
 

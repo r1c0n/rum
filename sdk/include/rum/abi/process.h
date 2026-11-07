@@ -2,12 +2,16 @@
 #define RUM_ABI_PROCESS_H
 
 #include <rum/abi/types.h>
+#include <rum/abi/filesystem.h>
 
 #define RUM_ABI_ARGUMENT_LIMIT 32 /* Includes argv[0]. */
 #define RUM_ABI_ARGUMENT_BYTES 4096 /* Includes every string's NUL. */
 #define RUM_PROCESS_ABI_VERSION 1
 #define RUM_COMMAND_ABI_VERSION 2
 #define RUM_LIFECYCLE_ABI_VERSION 1
+#define RUM_SPAWN_MAPPED_VERSION 1
+#define RUM_SPAWN_MAPPING_LIMIT RUM_ABI_HANDLE_LIMIT
+#define RUM_SPAWN_NO_DEFAULT_STREAMS 1u
 #define RUM_PROCESS_LIST_VERSION 1
 #define RUM_PROCESS_LIST_LIMIT 16
 #define RUM_PROCESS_NAME_CAPACITY 64
@@ -96,6 +100,24 @@ struct rum_spawn_request {
     rum_address_t path, arguments;
     uint32_t flags, reserved[3];
 };
+/* Only named sources are inherited. Sources may repeat; targets must be unique.
+   Standard target 0 requires read access, 1/2 write access, and no directories.
+   CLOSPAWN sources are forbidden. Child descriptor flags start at zero. */
+struct rum_handle_mapping {
+    rum_handle_t source, target;
+    uint32_t reserved[2];
+};
+/* By default unmapped 0..2 are fresh console streams. NO_DEFAULT_STREAMS starts
+   with an empty table. All other unmapped descriptors are closed. Zero count
+   requires a zero mappings address. This does not grant foreground authority. */
+struct rum_spawn_mapped_request {
+    uint32_t version, size;
+    rum_address_t path, arguments, mappings;
+    uint32_t mapping_count, flags, reserved;
+};
+_Static_assert(sizeof(struct rum_handle_mapping) == 16 &&
+               sizeof(struct rum_spawn_mapped_request) == 32 &&
+               offsetof(struct rum_spawn_mapped_request, mapping_count) == 20, "mapped spawn layout");
 /* Returns 1 with a copied result and consumes that child's exit record, or 0
    for NOHANG with live children but no completion. Errors/0 leave output intact.
    Initialize the result's existing process ABI version, size and reserved. */

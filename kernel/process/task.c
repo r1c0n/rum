@@ -280,7 +280,13 @@ static task_id create_process(const struct task_process *process, bool make_fore
         (void)task_switch_release();
         return 0;
     }
+    if (!process->initial_handles && process_handles_initialize(&owner.handles)) {
+        (void)fs_context_destroy(&owner.filesystem);
+        (void)task_switch_release();
+        return 0;
+    }
     if (!new_stack(&constructed, stack_slot)) {
+        (void)process_handles_destroy(&owner.handles);
         (void)fs_context_destroy(&owner.filesystem);
         (void)task_switch_release();
         return 0;
@@ -295,11 +301,15 @@ static task_id create_process(const struct task_process *process, bool make_fore
     if (!console_can_launch(parent_console, make_foreground) || task_current_cancelled()) {
         cpu_interrupt_restore(saved);
         (void)paging_kernel_stack_release(stack_slot);
+        (void)process_handles_destroy(&owner.handles);
         (void)fs_context_destroy(&owner.filesystem);
         (void)task_switch_release();
         return 0;
     }
-    process_handles_initialize(&owner.handles);
+    if (process->initial_handles) {
+        owner.handles = *process->initial_handles;
+        *process->initial_handles = (struct process_handles){0};
+    }
     ++next_id;
     ++next_process_id;
     prepare_stack(&constructed);

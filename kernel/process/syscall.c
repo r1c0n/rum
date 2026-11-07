@@ -101,6 +101,16 @@ static rum_result_t open_file(struct paging_space *space, struct process_handles
     return error ? error : process_handle_open(table, task_current_filesystem(), path, request.access, request.flags);
 }
 
+static rum_result_t duplicate_handle(struct paging_space *space, struct process_handles *table, uint32_t address)
+{
+    struct rum_duplicate_request request;
+    if (!accessible(space, address, sizeof request, false) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    if (request.version != RUM_HANDLE_ABI_VERSION || request.size != sizeof request || request.reserved ||
+        (request.flags & ~RUM_DUP_CLOSPAWN)) return -RUM_EINVAL;
+    return process_handle_duplicate(table, request.source, request.target, request.flags);
+}
+
 static rum_result_t seek_file(struct paging_space *space, struct process_handles *table, uint32_t id, uint32_t address)
 {
     struct process_handle *handle = process_handle_get(table, id);
@@ -232,6 +242,36 @@ static rum_result_t spawn_child(struct paging_space *space, uint32_t address)
     else if (!elf_arguments_valid(arguments)) error = -RUM_EINVAL;
     task_id child = 0;
     if (!error) error = process_spawn(path, arguments, &child);
+    (void)kfree(arguments);
+    if (error) return error;
+    struct task_information info;
+    if (!task_query(child, &info)) cpu_halt();
+    return (rum_result_t)info.process_id;
+}
+
+static rum_result_t spawn_mapped_child(struct paging_space *space, uint32_t address)
+{
+    struct rum_spawn_mapped_request request;
+    if (!accessible(space, address, sizeof request, false) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    if (request.version != RUM_SPAWN_MAPPED_VERSION || request.size != sizeof request || request.reserved ||
+        (request.flags & ~RUM_SPAWN_NO_DEFAULT_STREAMS) || request.mapping_count > RUM_SPAWN_MAPPING_LIMIT ||
+        (!request.mapping_count && request.mappings)) return -RUM_EINVAL;
+    struct rum_handle_mapping mappings[RUM_SPAWN_MAPPING_LIMIT];
+    uint32_t bytes = request.mapping_count * sizeof mappings[0];
+    if (bytes && (!accessible(space, request.mappings, bytes, false) ||
+        !paging_copy_from_user(space, mappings, request.mappings, bytes))) return -RUM_EFAULT;
+    char path[RUM_ABI_PATH_CAPACITY];
+    rum_result_t error = copy_path(space, request.path, path);
+    if (error) return error;
+    if (!accessible(space, request.arguments, sizeof(struct rum_arguments), false)) return -RUM_EFAULT;
+    if (!process_filesystem_context()) return -RUM_EBUSY;
+    struct rum_arguments *arguments = kmalloc(sizeof *arguments);
+    if (!arguments) return -RUM_ENOMEM;
+    if (!paging_copy_from_user(space, arguments, request.arguments, sizeof *arguments)) error = -RUM_EFAULT;
+    else if (!elf_arguments_valid(arguments)) error = -RUM_EINVAL;
+    task_id child = 0;
+    if (!error) error = process_spawn_with_handles(path, arguments, mappings, request.mapping_count, request.flags, &child);
     (void)kfree(arguments);
     if (error) return error;
     struct task_information info;
@@ -398,6 +438,10 @@ void syscall_dispatch(struct exception_frame *frame)
         result = transfer(space, handles, frame->ebx, frame->ecx, frame->edx, frame->eax == RUM_SYS_WRITE); break;
     case RUM_SYS_OPEN: result = open_file(space, handles, frame->ebx); break;
     case RUM_SYS_CLOSE: result = process_handle_close(handles, frame->ebx); break;
+    case RUM_SYS_DUPLICATE:
+        result = frame->ecx || frame->edx ? -RUM_EINVAL : duplicate_handle(space, handles, frame->ebx); break;
+    case RUM_SYS_SPAWN_MAPPED:
+        result = frame->ecx || frame->edx ? -RUM_EINVAL : spawn_mapped_child(space, frame->ebx); break;
     case RUM_SYS_SEEK: result = seek_file(space, handles, frame->ebx, frame->ecx); break;
     case RUM_SYS_READDIR: result = list_directory(space, handles, frame->ebx, frame->ecx); break;
     case RUM_SYS_CHDIR: case RUM_SYS_MKDIR: case RUM_SYS_REMOVE:

@@ -5,6 +5,7 @@
 #include <rum/heap.h>
 #include <rum/pmm.h>
 #include <rum/fs.h>
+#include <rum/handles.h>
 
 struct kernel_diagnostics {
     uint32_t cr0, cr3, kernel_esp, esp0, flags;
@@ -14,6 +15,7 @@ struct kernel_diagnostics {
     struct pmm_statistics physical;
     struct heap_statistics heap;
     struct fs_statistics filesystem;
+    struct process_handle_statistics handles;
 };
 
 /* Foreground or fatal exception only. No allocation, switching or cleanup.
