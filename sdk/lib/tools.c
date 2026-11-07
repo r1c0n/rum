@@ -6,7 +6,9 @@ void tool_output(const void *buffer, unsigned bytes)
     const char *s = buffer;
     while (bytes) {
         rum_result_t n = rum_write(RUM_STDOUT, s, bytes);
-        if (n <= 0 || (unsigned)n > bytes) rum_exit(1);
+        if (n <= 0 || (unsigned)n > bytes) {
+            tool_error("write", n < 0 ? n : -RUM_EIO); rum_exit(1);
+        }
         s += n; bytes -= (unsigned)n;
     }
 }
@@ -47,7 +49,15 @@ void tool_error(const char *command, rum_result_t result)
     case RUM_EOVERFLOW: message = "value or process identifier is out of range"; break;
     default: message = "operation failed"; break;
     }
-    tool_print(command); tool_print(": "); tool_print(message); tool_print(".\n");
+    const char *parts[] = {command, ": ", message, ".\n"};
+    for (unsigned i = 0; i < sizeof parts / sizeof parts[0]; ++i) {
+        const char *p = parts[i]; unsigned bytes = tool_length(p);
+        while (bytes) {
+            rum_result_t written = rum_write(RUM_STDERR, p, bytes);
+            if (written <= 0 || (unsigned)written > bytes) return;
+            p += written; bytes -= (unsigned)written;
+        }
+    }
 }
 char *tool_word(char **text)
 {

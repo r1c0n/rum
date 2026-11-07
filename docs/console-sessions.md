@@ -24,7 +24,8 @@ Standard output and standard error remain writable by every process. Each
 syscall accepts at most 128 bytes and renders that chunk to VGA and COM1 without
 switching tasks between devices. Interrupts remain enabled. Separate writes
 can interleave, and a line longer than one chunk is not atomic. There is no
-per-process terminal or output redirection. The shell redraws an edited line
+per-process terminal. [Redirection](shell-workflows.md) replaces selected
+standard descriptors with files or pipes. The shell redraws an edited line
 after a child completion notice; arbitrary program output can still interrupt it.
 
 The keyboard queue is shared. Ownership is checked again after an input wait
@@ -57,8 +58,16 @@ The supervisor restarts a shell that exits or faults. Three short-lived shell
 exits enter kernel recovery; a session lasting at least 30 seconds resets that
 failure window. A missing or invalid initial executable enters recovery
 immediately. `recovery` requests recovery directly. The new shell starts at `/`;
-RAM edits survive until reboot and flushed disk edits retain their normal
-persistence guarantees.
+Flushed disk edits retain their normal persistence guarantees.
+
+Foreground pipelines use a bounded scope owned by the initial shell. Its
+first stage receives an input-only lease; the shell retains control ownership
+and cannot read input until the scope ends. Later stages cannot take console
+input or nested foreground-command authority. Ctrl+C latches scope cancellation
+and wakes/cancels all joined stages, including a child completing publication
+after that IRQ. Unrelated background children are excluded. The scope can end
+only after all stages exit; collection releases the input reference and restores
+the shell. Shell exit tears down the scope with the rest of its session.
 
 ## Kernel ownership
 

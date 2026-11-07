@@ -90,9 +90,16 @@ rum_result_t process_spawn_with_handles(const char *path, const struct rum_argum
 {
     if (!child || !path || !elf_arguments_valid(arguments)) return -RUM_EINVAL;
     *child = 0;
+    if (flags & ~(RUM_SPAWN_NO_DEFAULT_STREAMS | RUM_SPAWN_PIPELINE)) return -RUM_EINVAL;
+    if (flags & RUM_SPAWN_PIPELINE) {
+        rum_result_t status = task_pipeline_status();
+        if (status) return status;
+    }
     struct process_handles prepared = {0};
-    rum_result_t error = process_handles_prepare_spawn(&prepared, task_current_handles(), mappings, count, flags);
+    rum_result_t error = process_handles_prepare_spawn(&prepared, task_current_handles(), mappings, count,
+        flags & RUM_SPAWN_NO_DEFAULT_STREAMS);
     if (!error) error = start_process(path, arguments, false, false, &prepared, child);
+    if (!error && (flags & RUM_SPAWN_PIPELINE) && !task_join_pipeline(*child)) cpu_halt();
     /* Successful publication moves the complete table, leaving this empty.
        Failure at any loader/constructor stage still belongs to the caller. */
     rum_result_t closed = process_handles_destroy(&prepared);

@@ -20,6 +20,7 @@ SUITES = {
     "console": "test-console-sessions", "integration": "test-integration-stress",
     "handles": "test-shared-handles",
     "pipes": "test-pipes",
+    "workflows": "test-workflows",
 }
 BOOT_ACTIONS = {"run", "run-kernel", "debug", "panic"}
 DISK_ACTIONS = BOOT_ACTIONS - {"panic"} | {"create-disk", "prepare-disk"}

@@ -248,14 +248,55 @@ enum fs_error fs_unmount_disk(void)
 
 enum fs_error fs_open(const struct fs_context *context, const char *path, unsigned access, fs_reference *result)
 {
-    if (!result || !access || (access & ~(FS_READ | FS_WRITE))) return FS_INVALID;
+    return fs_open_flags(context, path, access, 0, result);
+}
+
+enum fs_error fs_open_flags(const struct fs_context *context, const char *path, unsigned access,
+                            unsigned flags, fs_reference *result)
+{
+    if (!result || !access || (access & ~(FS_READ | FS_WRITE)) ||
+        (flags & ~(FS_OPEN_CREATE | FS_OPEN_TRUNCATE | FS_OPEN_APPEND)) ||
+        (flags && !(access & FS_WRITE))) return FS_INVALID;
     *result = 0;
     struct fs_path plan;
     enum fs_error error = preflight(context, path, &plan);
     if (error != FS_OK || (error = enter()) != FS_OK) return error;
     struct location location;
     error = resolve(context, &plan, plan.input.count, &location);
+    if (error == FS_NOT_FOUND && (flags & FS_OPEN_CREATE) && plan.input.count && !plan.input.directory) {
+        error = resolve(context, &plan, plan.input.count - 1, &location);
+        if (error == FS_OK) {
+            struct fs_backend *backend = &mounts[location.mount].backend;
+            const char *name = plan.input.text + plan.input.offsets[plan.input.count - 1];
+            /* Missing parents are never created; reserve reference capacity
+               before a mutation that might publish an empty file. */
+            unsigned free_refs = 0, free_objects = 0;
+            for (unsigned i = 0; i < FS_REFERENCE_LIMIT; ++i) free_refs += !references[i].token;
+            for (unsigned i = 0; i < FS_OBJECT_LIMIT; ++i) free_objects += !objects[i].references;
+            if (location.nodes[location.depth].kind != FS_DIRECTORY) error = FS_NOT_DIRECTORY;
+            else if (backend->read_only) error = FS_READ_ONLY;
+            else if (!free_refs || !free_objects || !next_token) error = FS_NO_SPACE;
+            else if (!backend->operations->write || !backend->operations->replace ||
+                     ((flags & FS_OPEN_TRUNCATE) && !backend->operations->truncate)) error = FS_UNSUPPORTED;
+            else error = backend->operations->replace(backend->context, location.nodes[location.depth].id, name, NULL, 0);
+            if (error == FS_OK) error = step(&location, name);
+        }
+    }
+    if (error == FS_OK && flags) {
+        struct fs_node *node = &location.nodes[location.depth];
+        struct fs_backend *backend = &mounts[location.mount].backend;
+        if (node->kind != FS_FILE) error = FS_IS_DIRECTORY;
+        else if (backend->read_only) error = FS_READ_ONLY;
+        else if (!backend->operations->write ||
+                 ((flags & FS_OPEN_TRUNCATE) && !backend->operations->truncate)) error = FS_UNSUPPORTED;
+        else if ((flags & FS_OPEN_TRUNCATE) && retained(location.mount, node->id)) error = FS_BUSY;
+    }
     if (error == FS_OK) error = new_reference(&location, access, result);
+    if (error == FS_OK && (flags & FS_OPEN_TRUNCATE)) {
+        struct fs_backend *backend = &mounts[location.mount].backend;
+        error = backend->operations->truncate(backend->context, location.nodes[location.depth].id, 0);
+        if (error != FS_OK) { (void)close_reference(*result); *result = 0; }
+    }
     leave(); return error;
 }
 
@@ -315,7 +356,8 @@ enum fs_error fs_stat_path(const struct fs_context *context, const char *path, s
     leave(); return error;
 }
 
-static struct fs_io_result io(fs_reference token, uint64_t offset, void *buffer, size_t bytes, bool write)
+static struct fs_io_result io(fs_reference token, uint64_t offset, void *buffer, size_t bytes, bool write,
+                              uint64_t *append_position)
 {
     struct fs_io_result result = {0};
     if (bytes && !buffer) { result.error = FS_INVALID; return result; }
@@ -331,11 +373,20 @@ static struct fs_io_result io(fs_reference token, uint64_t offset, void *buffer,
         else if (object->kind != FS_FILE) result.error = FS_IS_DIRECTORY;
         else if (write && backend->read_only) result.error = FS_READ_ONLY;
         else if (bytes) {
+            if (append_position) {
+                struct fs_node node = {0};
+                result.error = backend->operations->stat(backend->context, object->id, &node);
+                if (result.error == FS_OK && (node.id != object->id || node.kind != FS_FILE)) result.error = FS_IO_ERROR;
+                offset = node.size;
+                if (result.error == FS_OK && bytes > UINT64_MAX - offset) result.error = FS_RANGE;
+            }
+            if (result.error != FS_OK) { leave(); return result; }
             if (write) result = backend->operations->write ?
                 backend->operations->write(backend->context, object->id, offset, buffer, bytes) :
                 (struct fs_io_result){ .error = FS_UNSUPPORTED };
             else result = backend->operations->read(backend->context, object->id, offset, buffer, bytes);
             if (result.transferred > bytes) result = (struct fs_io_result){ .error = FS_IO_ERROR };
+            if (append_position && result.transferred) *append_position = offset + result.transferred;
         }
     }
     leave(); return result;
@@ -343,12 +394,18 @@ static struct fs_io_result io(fs_reference token, uint64_t offset, void *buffer,
 
 struct fs_io_result fs_read(fs_reference token, uint64_t offset, void *buffer, size_t bytes)
 {
-    return io(token, offset, buffer, bytes, false);
+    return io(token, offset, buffer, bytes, false, NULL);
 }
 
 struct fs_io_result fs_write(fs_reference token, uint64_t offset, const void *buffer, size_t bytes)
 {
-    return io(token, offset, (void *)buffer, bytes, true);
+    return io(token, offset, (void *)buffer, bytes, true, NULL);
+}
+
+struct fs_io_result fs_append(fs_reference token, const void *buffer, size_t bytes, uint64_t *position)
+{
+    if (!position) return (struct fs_io_result){ .error = FS_INVALID };
+    return io(token, 0, (void *)buffer, bytes, true, position);
 }
 
 enum fs_error fs_readdir(fs_reference token, uint64_t *cursor, struct fs_entry *entry)

@@ -89,11 +89,39 @@ static void bounds(void)
     assert(console_attach(&extra, 2000, NULL, false) && !console_can_launch(&extra, true) && !console_owns_input(&extra));
     assert(!console_member_exit(&extra) && console_detach(&extra)); empty();
 }
+static void pipeline(void)
+{
+    struct console_member shell = {0}, a = {0}, b = {0}, bg = {0}, late = {0};
+    assert(console_attach(&shell, 3000, NULL, true) && console_mark_shell(&shell));
+    assert(console_attach(&bg, 3001, &shell, false));
+    assert(!console_pipeline_begin(&bg) && !console_pipeline_join(&shell, &bg));
+    assert(console_pipeline_begin(&shell) && !console_pipeline_begin(&shell));
+    assert(!console_owns_input(&shell) && !console_can_launch(&shell, true));
+    assert(console_attach(&a, 3002, &shell, false) && console_pipeline_join(&shell, &a));
+    assert(console_attach(&b, 3003, &shell, false) && console_pipeline_join(&shell, &b));
+    assert(console_owns_input(&a) && !console_owns_input(&b) && !console_owns_input(&bg));
+    assert(!console_pipeline_end(&shell) && !console_grant_command(&shell, &a));
+    assert(console_pipeline_cancel() && console_pipeline_cancelled(&shell));
+    assert(console_pipeline_member(&a) && console_pipeline_member(&b) && !console_pipeline_member(&bg));
+    console_cancel_member(&a); console_cancel_member(&b);
+    assert(!console_member_exit(&a) && console_detach(&a) && !console_owns_input(&b));
+    assert(console_attach(&late, 3004, &shell, false) && console_pipeline_join(&shell, &late));
+    assert(console_pipeline_cancelled(&shell) && !console_owns_input(&late));
+    assert(!console_member_exit(&late) && console_detach(&late));
+    assert(!console_member_exit(&b) && console_detach(&b));
+    assert(console_pipeline_end(&shell) && console_owns_input(&shell) && !console_pipeline_cancel());
+    assert(console_pipeline_begin(&shell) && !console_pipeline_cancelled(&shell));
+    assert(console_attach(&a, 3005, &shell, false) && console_pipeline_join(&shell, &a));
+    assert(console_member_exit(&shell) && !a.references && !console_owns_input(&a));
+    assert(console_detach(&shell));
+    assert(!console_member_exit(&a) && console_detach(&a));
+    assert(!console_member_exit(&bg) && console_detach(&bg)); empty();
+}
 int main(void)
 {
     empty();
     for (unsigned i = 0; i < 64; ++i) { nested(); exiting_parent(); cancelled_publication(); }
-    bounds();
+    bounds(); pipeline();
     puts("PASS: console session references, nested ownership, cancellation, closing sessions and bounded reuse");
     return 0;
 }

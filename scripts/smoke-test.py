@@ -664,6 +664,8 @@ def guest_keyboard(stream, serial):
                 send("shift", "1")
             elif character == "_":
                 send("shift", "minus")
+            elif character in "<>|":
+                send("shift", {"<": "comma", ">": "dot", "|": "backslash"}[character])
             elif "A" <= character <= "Z":
                 send("shift", character.lower())
             elif "a" <= character <= "z" or character.isdigit():

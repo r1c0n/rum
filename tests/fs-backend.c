@@ -172,8 +172,19 @@ static enum fs_error readdir_node(void *context, uint64_t id, uint64_t cursor,
     return FS_END;
 }
 static enum fs_error flush(void *context) { (void)context; ++calls; ++data_calls; return fs_test_backend_failure; }
+static enum fs_error truncate_node(void *context, uint64_t id, uint64_t size)
+{
+    (void)context; ++calls; ++data_calls;
+    if (fs_test_backend_failure != FS_OK) return fs_test_backend_failure;
+    struct node *node = by_id(id);
+    if (!node) return FS_NOT_FOUND;
+    if (node->kind != FS_FILE) return FS_IS_DIRECTORY;
+    if (size > (node->large ? node->capacity : BYTES)) return FS_NO_SPACE;
+    if (size > node->size) memset((node->large ? node->large : node->data) + node->size, 0, size - node->size);
+    node->size = (size_t)size; return FS_OK;
+}
 static const struct fs_operations operations = {
-    lookup, stat_node, retain, release, read_node, write_node, replace, remove_node, mkdir_node, readdir_node, flush, NULL, NULL
+    lookup, stat_node, retain, release, read_node, write_node, replace, remove_node, mkdir_node, readdir_node, flush, NULL, truncate_node
 };
 static const struct fs_backend backend = { .operations = &operations, .root = 1, .naming = FS_NAMES_FAT83 };
 

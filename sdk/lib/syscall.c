@@ -72,6 +72,7 @@ rum_result_t rum_terminate(rum_pid_t id, uint32_t flags)
         .process_id = id, .flags = flags };
     return rum_syscall3(RUM_SYS_TERMINATE, (rum_address_t)(uintptr_t)&request, 0, 0);
 }
+rum_result_t rum_isatty(rum_handle_t handle) { return rum_syscall3(RUM_SYS_ISATTY, handle, 0, 0); }
 rum_result_t rum_yield(void) { return rum_syscall3(RUM_SYS_YIELD, 0, 0, 0); }
 rum_result_t rum_process_list(struct rum_process_entry *entries, uint32_t capacity, uint32_t *total)
 {

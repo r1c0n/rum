@@ -227,27 +227,31 @@ host and ring-3 checks.
 
 ### 3. File redirection and pipeline launch
 
-- [ ] Extend file opening with explicit create, truncate, and append behavior,
+- [x] Extend file opening with explicit create, truncate, and append behavior,
   including backend capability checks and documented busy-object rules.
-- [ ] Keep append positioning and writes serialized across concurrent open
+- [x] Keep append positioning and writes serialized across concurrent open
   descriptions. Preserve backend size limits and partial-failure reporting.
-- [ ] Parse `<`, `>`, `>>`, and `|` in userspace with explicit bounds on commands,
+- [x] Parse `<`, `>`, `>>`, and `|` in userspace with explicit bounds on commands,
   arguments, redirections, and pipeline length.
-- [ ] Prepare pipes and stream mappings, spawn every pipeline stage before
+- [x] Prepare pipes and stream mappings, spawn every pipeline stage before
   waiting, and close the shell's unused pipe endpoints promptly.
-- [ ] Define foreground input ownership for a pipeline and cancel and reap
+- [x] Define foreground input ownership for a pipeline and cancel and reap
   all of its stages on Ctrl+C; step 4 adds the shell's job registry.
-- [ ] Define redirection order, standard error behavior, and the pipeline's
+- [x] Define redirection order, standard error behavior, and the pipeline's
   reported status.
-- [ ] Terminate and reap already-started stages if later setup fails. Document
+- [x] Terminate and reap already-started stages if later setup fails. Document
   that an earlier file truncation or committed write cannot be rolled back.
-- [ ] Make `cat` offer a byte-preserving stream mode for redirection and pipes
+- [x] Make `cat` offer a byte-preserving stream mode for redirection and pipes
   while retaining a safe display mode for the console.
 
 Test empty and binary files, append, failed opens, full/read-only media,
 pipelines longer than one pipe buffer, missing executables, and a failed middle
 stage. Verify exact resulting file bytes and ensure no inherited endpoint
 keeps a completed pipeline waiting forever.
+
+See [redirection and pipelines](shell-workflows.md) for grammar, API and failure
+contracts. Run `./rum test --suite workflows -j4` for the focused host and QEMU
+checks, including host-byte comparisons and read-only/full disks.
 
 ### 4. Background jobs and foreground control
 

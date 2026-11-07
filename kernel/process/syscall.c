@@ -83,7 +83,7 @@ static rum_result_t transfer(struct paging_space *space, struct process_handles 
         if (!task_switch_release()) cpu_halt();
         return (rum_result_t)chunk;
     }
-    if (!handle->pipe && bytes > UINT64_MAX - handle->offset) return -RUM_EOVERFLOW;
+    if (!handle->pipe && !(write && handle->append) && bytes > UINT64_MAX - handle->offset) return -RUM_EOVERFLOW;
     rum_result_t result = write ? process_handle_write(handle, buffer, chunk) : process_handle_read(handle, buffer, chunk);
     if (!write && result > 0 && !paging_copy_to_user(space, address, buffer, (size_t)result)) cpu_halt();
     return result;
@@ -96,8 +96,9 @@ static rum_result_t open_file(struct paging_space *space, struct process_handles
         !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
     if (request.version != RUM_FS_ABI_VERSION || request.size != sizeof request || request.reserved ||
         !request.access || (request.access & ~(RUM_OPEN_READ | RUM_OPEN_WRITE)) ||
-        (request.flags & ~RUM_OPEN_DIRECTORY) ||
-        ((request.flags & RUM_OPEN_DIRECTORY) && request.access != RUM_OPEN_READ)) return -RUM_EINVAL;
+        (request.flags & ~(RUM_OPEN_DIRECTORY | RUM_OPEN_CREATE | RUM_OPEN_TRUNCATE | RUM_OPEN_APPEND)) ||
+        ((request.flags & RUM_OPEN_DIRECTORY) && (request.access != RUM_OPEN_READ || request.flags != RUM_OPEN_DIRECTORY)) ||
+        ((request.flags & ~RUM_OPEN_DIRECTORY) && !(request.access & RUM_OPEN_WRITE))) return -RUM_EINVAL;
     char path[RUM_ABI_PATH_CAPACITY];
     rum_result_t error = copy_path(space, request.path, path);
     return error ? error : process_handle_open(table, task_current_filesystem(), path, request.access, request.flags);
@@ -272,7 +273,7 @@ static rum_result_t spawn_mapped_child(struct paging_space *space, uint32_t addr
     if (!accessible(space, address, sizeof request, false) ||
         !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
     if (request.version != RUM_SPAWN_MAPPED_VERSION || request.size != sizeof request || request.reserved ||
-        (request.flags & ~RUM_SPAWN_NO_DEFAULT_STREAMS) || request.mapping_count > RUM_SPAWN_MAPPING_LIMIT ||
+        (request.flags & ~(RUM_SPAWN_NO_DEFAULT_STREAMS | RUM_SPAWN_PIPELINE)) || request.mapping_count > RUM_SPAWN_MAPPING_LIMIT ||
         (!request.mapping_count && request.mappings)) return -RUM_EINVAL;
     struct rum_handle_mapping mappings[RUM_SPAWN_MAPPING_LIMIT];
     uint32_t bytes = request.mapping_count * sizeof mappings[0];
@@ -378,7 +379,7 @@ static rum_result_t command_text(struct paging_space *space, uint32_t address, u
 
 static rum_result_t session_control(struct paging_space *space, uint32_t action, uint32_t address, uint32_t reserved)
 {
-    if (reserved || action < RUM_SESSION_CHDIR || action > RUM_SESSION_RECOVERY ||
+    if (reserved || action < RUM_SESSION_CHDIR || action > RUM_SESSION_PIPELINE_END ||
         (action != RUM_SESSION_CHDIR && address)) return -RUM_EINVAL;
     char path[RUM_ABI_PATH_CAPACITY];
     if (action == RUM_SESSION_CHDIR) {
@@ -455,6 +456,12 @@ void syscall_dispatch(struct exception_frame *frame)
         result = transfer(space, handles, frame->ebx, frame->ecx, frame->edx, frame->eax == RUM_SYS_WRITE); break;
     case RUM_SYS_OPEN: result = open_file(space, handles, frame->ebx); break;
     case RUM_SYS_CLOSE: result = process_handle_close(handles, frame->ebx); break;
+    case RUM_SYS_ISATTY: {
+        struct process_handle *handle = process_handle_get(handles, frame->ebx);
+        result = frame->ecx || frame->edx ? -RUM_EINVAL : !handle ? -RUM_EBADF :
+            handle->kind == HANDLE_INPUT || handle->kind == HANDLE_OUTPUT;
+        break;
+    }
     case RUM_SYS_PIPE:
         result = frame->ecx || frame->edx ? -RUM_EINVAL : create_pipe(space, handles, frame->ebx); break;
     case RUM_SYS_DUPLICATE:

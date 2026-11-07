@@ -50,6 +50,11 @@ kernel game through the console ABI. The game engine remains under
 `kernel/recovery/` until the public input and terminal interfaces can support
 the full userspace port.
 
+`system/shell/main.c` owns the interactive prompt and plain command launches.
+`parse.c` validates bounded workflow syntax, and `pipeline.c` prepares streams,
+launches stages and collects their results. These files use SDK interfaces;
+filesystem, pipe and console ownership remain kernel services.
+
 ## Header and runtime boundaries
 
 `sdk/include/rum/abi/` is the source of truth for public ABI packets and constants.

@@ -5,7 +5,7 @@ int main(int argc, char **argv)
     tool_print("help              Show commands\n"
         "about             About rum\nclear             Clear the console\n"
         "echo <text>       Print text\nls [path]         List a directory\n"
-        "cat <path>        Show a file (binary bytes escaped)\n"
+        "cat <path>        Show a file; omit path to read stdin\n"
         "pwd               Show the working directory\ncd [path]         Change directory\n"
         "write <path> [text] Create or replace a file\n"
         "mkdir <path>      Create a disk directory\nrm <path>         Remove a file or empty directory\n"
@@ -15,6 +15,8 @@ int main(int argc, char **argv)
         "sleep <milliseconds> Wait for the specified time\n"
         "snake             Play Snake (WASD, P, R, Q)\n"
         "exit              Restart the shell\nrecovery          Open the recovery shell\n"
+        "Pipes: cat IN.BIN | cat > OUT.BIN\n"
+        "Redirect with <, > (replace), or >> (append).\n"
         "Programs are available in /rum.\n");
     return 0;
 }

@@ -84,7 +84,9 @@ foreground ownership; inheritance grants no keyboard or shell-session authority.
 
 Legacy `rum_spawn`, `rum_run` and `rum_run_command` keep their fresh console
 streams and do not inherit files. [Pipes](pipes.md) can use these mappings too.
-Shell redirection syntax and pipeline ownership are later roadmap steps.
+The shell uses these mappings for [redirection and pipelines](shell-workflows.md).
+Its foreground scope additionally permits `RUM_SPAWN_PIPELINE`; this flag is
+restricted to the initial shell and grants input to the first stage only.
 
 ## Public ABI
 

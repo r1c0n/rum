@@ -13,6 +13,7 @@ struct process_handle {
     fs_reference reference;
     uint64_t offset;
     unsigned access;
+    bool append;
     enum process_handle_kind kind;
     rum_result_t pending_error;
     uint32_t references;

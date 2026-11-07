@@ -36,6 +36,11 @@ for standard-stream replacement, close-on-spawn flags and cleanup rules.
 [pipes and stream I/O](../docs/pipes.md) for blocking, atomic writes, EOF,
 broken pipes and cancellation behavior.
 
+Use `rum_open` CREATE/TRUNCATE/APPEND flags for output files and `rum_isatty`
+to choose console display or byte-preserving stream output. The shell's
+[workflow guide](../docs/shell-workflows.md) documents these contracts and its
+foreground pipeline scope.
+
 User programs compile against this public tree and generated ABI copies only.
 The kernel uses the same canonical ABI definitions alongside its private
 `kernel/include/rum/` headers. Never copy kernel-private structures into the SDK

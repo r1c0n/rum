@@ -1,9 +1,20 @@
-#include <rum/tools.h>
+#include "shell.h"
 
 static struct { rum_pid_t pid; char name[RUM_PROCESS_NAME_CAPACITY]; } children[RUM_PROCESS_LIST_LIMIT];
 static int equal(const char *a, const char *b)
 {
     while (*a && *a == *b) { ++a; ++b; } return *a == *b;
+}
+static void completion(const struct rum_process_result *result)
+{
+    tool_print("["); tool_number(result->process_id); tool_print("] ");
+    for (unsigned i = 0; i < RUM_PROCESS_LIST_LIMIT; ++i) if (children[i].pid == result->process_id) {
+        tool_print(children[i].name); tool_print(": "); children[i].pid = 0; break;
+    }
+    if (result->termination == RUM_PROCESS_CANCELLED) tool_print("cancelled");
+    else if (result->termination == RUM_PROCESS_FAULTED) tool_print("faulted");
+    else { tool_print("exited with status "); tool_number(result->status); }
+    tool_print(".\n");
 }
 static void completions(int editing)
 {
@@ -14,14 +25,7 @@ static void completions(int editing)
         if (done != 1) break;
         if (editing && !shown) tool_print("\n");
         shown = 1;
-        tool_print("["); tool_number(result.process_id); tool_print("] ");
-        for (unsigned i = 0; i < RUM_PROCESS_LIST_LIMIT; ++i) if (children[i].pid == result.process_id) {
-            tool_print(children[i].name); tool_print(": "); children[i].pid = 0; break;
-        }
-        if (result.termination == RUM_PROCESS_CANCELLED) tool_print("cancelled");
-        else if (result.termination == RUM_PROCESS_FAULTED) tool_print("faulted");
-        else { tool_print("exited with status "); tool_number(result.status); }
-        tool_print(".\n");
+        completion(&result);
     }
 }
 
@@ -35,6 +39,13 @@ static void prompt(void)
 
 static void execute(char *line)
 {
+    for (unsigned i = 0; line[i]; ++i) if (line[i] == '<' || line[i] == '>' || line[i] == '|') {
+        struct shell_pipeline plan;
+        rum_result_t result = shell_parse_pipeline(line, &plan);
+        if (result < 0) tool_print("shell: invalid or oversized pipeline.\n");
+        else shell_run_pipeline(&plan, completion);
+        return;
+    }
     char *tail = line, *argv[RUM_ABI_ARGUMENT_LIMIT];
     char *command = tool_word(&tail);
     if (!command) return;

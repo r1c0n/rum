@@ -370,6 +370,28 @@ bool task_current_is_shell(void)
     return task_current_is_process() && console_is_shell(&current->process->console);
 }
 
+rum_result_t task_pipeline_status(void)
+{
+    if (!task_current_is_shell() || !console_pipeline_active(&current->process->console)) return -RUM_EACCES;
+    return console_pipeline_cancelled(&current->process->console) ? -RUM_EINTR : 0;
+}
+bool task_join_pipeline(task_id id)
+{
+    if (!task_current_is_shell()) return false;
+    uint32_t saved = cpu_interrupt_save();
+    bool joined = false;
+    for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].id == id && tasks[i].state == TASK_RUNNABLE &&
+        tasks[i].process->parent == current->id && tasks[i].process->kind == TASK_PROCESS) {
+        joined = console_pipeline_join(&current->process->console, &tasks[i].process->console);
+        if (joined && console_pipeline_cancelled(&current->process->console)) {
+            tasks[i].process->cancellation_requested = true;
+            console_cancel_member(&tasks[i].process->console);
+        }
+        break;
+    }
+    cpu_interrupt_restore(saved); return joined;
+}
+
 bool task_mark_shell_command(task_id id, const char *text)
 {
     if (!task_current_is_shell() || !id || !text || irq_in_handler()) return false;
@@ -396,6 +418,12 @@ const char *task_current_command_text(void)
 
 rum_result_t task_session_control(unsigned action, const char *path)
 {
+    if (action == RUM_SESSION_PIPELINE_BEGIN || action == RUM_SESSION_PIPELINE_END) {
+        if (!task_current_is_shell()) return -RUM_EACCES;
+        if (!process_filesystem_context()) return -RUM_EBUSY;
+        return (action == RUM_SESSION_PIPELINE_BEGIN ? console_pipeline_begin(&current->process->console) :
+            console_pipeline_end(&current->process->console)) ? 0 : -RUM_EBUSY;
+    }
     if (action < RUM_SESSION_CHDIR || action > RUM_SESSION_RECOVERY) return -RUM_EINVAL;
     if (!process_filesystem_context()) return -RUM_EBUSY;
     struct console_member *shell = console_command_shell(&current->process->console);
@@ -842,18 +870,20 @@ bool task_cancel_foreground(void)
     uint32_t saved = cpu_interrupt_save();
     bool requested = false;
     task_id foreground = console_cancellation_target();
-    if (ready && foreground) {
+    bool pipeline = ready && console_pipeline_cancel();
+    if (pipeline) requested = true;
+    if (ready && (foreground || pipeline)) {
         for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
             struct task *task = &tasks[i];
-            if (task->id != foreground || task->process->kind != TASK_PROCESS ||
-                task->state == TASK_EXITED || task->state == TASK_UNUSED) continue;
+            if (task->state == TASK_UNUSED || task->state == TASK_EXITED || task->process->kind != TASK_PROCESS ||
+                (pipeline ? !console_pipeline_member(&task->process->console) : task->id != foreground)) continue;
             task->process->cancellation_requested = true;
             console_cancel_member(&task->process->console);
             if (task->state == TASK_BLOCKED) {
                 wake_task(task, TASK_WAIT_CANCELLED);
             }
             requested = true;
-            break;
+            if (!pipeline) break;
         }
     }
     cpu_interrupt_restore(saved);

@@ -9,6 +9,8 @@ struct console_session {
     bool closing, exit_requested;
     int32_t exit_status;
     struct console_member *root, *owner;
+    struct console_member *pipeline_input;
+    bool pipeline_active, pipeline_started, pipeline_cancelled;
     struct console_member *members[RUM_PROCESS_LIMIT];
 };
 static struct console_session sessions[RUM_PROCESS_LIMIT];
@@ -49,7 +51,8 @@ bool console_can_launch(const struct console_member *parent, bool foreground)
 {
     uint32_t saved = cpu_interrupt_save();
     bool valid = parent ? parent->live && !parent->cancelled &&
-        (!parent->session || !parent->session->closing) && (!foreground || owns(parent)) :
+        (!parent->session || !parent->session->closing) && (!foreground || (owns(parent) &&
+        (!parent->session || !parent->session->pipeline_active))) :
         !foreground || (!active && available());
     if (valid && parent && parent->session) {
         unsigned i = 0;
@@ -101,7 +104,9 @@ bool console_is_shell(const struct console_member *member)
 }
 bool console_owns_input(const struct console_member *member)
 {
-    uint32_t saved = cpu_interrupt_save(); bool valid = owns(member);
+    uint32_t saved = cpu_interrupt_save();
+    bool valid = active && active->pipeline_active ? member && member->live && !member->cancelled &&
+        !active->closing && active->pipeline_input == member : owns(member);
     cpu_interrupt_restore(saved); return valid;
 }
 bool console_grant_command(struct console_member *shell, struct console_member *child)
@@ -142,6 +147,64 @@ uint32_t console_cancellation_target(void)
     uint32_t id = member && member->live && !member->shell ? member->id : 0;
     cpu_interrupt_restore(saved); return id;
 }
+bool console_pipeline_active(const struct console_member *shell)
+{
+    uint32_t saved = cpu_interrupt_save();
+    bool valid = console_is_shell(shell) && owns(shell) && shell->session->pipeline_active;
+    cpu_interrupt_restore(saved); return valid;
+}
+bool console_pipeline_cancelled(const struct console_member *shell)
+{
+    uint32_t saved = cpu_interrupt_save();
+    bool cancelled = console_pipeline_active(shell) && shell->session->pipeline_cancelled;
+    cpu_interrupt_restore(saved); return cancelled;
+}
+bool console_pipeline_begin(struct console_member *shell)
+{
+    uint32_t saved = cpu_interrupt_save();
+    bool valid = console_is_shell(shell) && owns(shell) && !shell->session->pipeline_active;
+    if (valid) shell->session->pipeline_active = true;
+    cpu_interrupt_restore(saved); return valid;
+}
+bool console_pipeline_end(struct console_member *shell)
+{
+    uint32_t saved = cpu_interrupt_save();
+    bool valid = console_pipeline_active(shell);
+    struct console_session *session = valid ? shell->session : 0;
+    if (valid) for (unsigned i = 0; i < RUM_PROCESS_LIMIT; ++i)
+        if (session->members[i] && session->members[i]->pipeline && session->members[i]->live) valid = false;
+    if (valid) {
+        session->pipeline_active = session->pipeline_started = session->pipeline_cancelled = false;
+        for (unsigned i = 0; i < RUM_PROCESS_LIMIT; ++i)
+            if (session->members[i]) session->members[i]->pipeline = false;
+    }
+    cpu_interrupt_restore(saved); return valid;
+}
+bool console_pipeline_join(struct console_member *shell, struct console_member *child)
+{
+    uint32_t saved = cpu_interrupt_save();
+    bool valid = console_pipeline_active(shell) && child && child->live && child != shell &&
+        child->session == shell->session && !child->pipeline && !child->foreground_launch;
+    if (valid) {
+        child->pipeline = true;
+        if (!shell->session->pipeline_started) {
+            shell->session->pipeline_started = true;
+            shell->session->pipeline_input = child; ++child->references;
+        }
+    }
+    cpu_interrupt_restore(saved); return valid;
+}
+bool console_pipeline_member(const struct console_member *member)
+{
+    return member && active && active->pipeline_active && member->session == active && member->pipeline;
+}
+bool console_pipeline_cancel(void)
+{
+    uint32_t saved = cpu_interrupt_save();
+    bool valid = active && !active->closing && active->pipeline_active;
+    if (valid) active->pipeline_cancelled = true;
+    cpu_interrupt_restore(saved); return valid;
+}
 void console_cancel_member(struct console_member *member)
 {
     if (!member) return;
@@ -155,7 +218,12 @@ bool console_member_exit(struct console_member *member)
     if (!member || !member->live) { cpu_interrupt_restore(saved); return false; }
     struct console_session *session = member->session;
     member->live = false; member->command = false;
+    if (session && session->pipeline_input == member) {
+        --member->references; session->pipeline_input = 0;
+    }
     if (session && session->root == member) {
+        if (session->pipeline_input) { --session->pipeline_input->references; session->pipeline_input = 0; }
+        session->pipeline_active = session->pipeline_started = session->pipeline_cancelled = false;
         discard = member->shell;
         session->closing = true;
         for (unsigned i = 0; i < RUM_PROCESS_LIMIT; ++i) if (session->members[i]) {

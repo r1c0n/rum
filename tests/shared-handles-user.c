@@ -47,7 +47,7 @@ static void invalid(rum_handle_t file)
     check(raw_duplicate(&duplicate) == -RUM_EINVAL, 15);
     request.version = 2; check(raw_spawn(&request) == -RUM_EINVAL, 16); request.version = 1;
     request.size--; check(raw_spawn(&request) == -RUM_EINVAL, 17); request.size++;
-    request.flags = 2; check(raw_spawn(&request) == -RUM_EINVAL, 18); request.flags = 0;
+    request.flags = 4; check(raw_spawn(&request) == -RUM_EINVAL, 18); request.flags = 0;
     request.reserved = 1; check(raw_spawn(&request) == -RUM_EINVAL, 19); request.reserved = 0;
     request.mapping_count = 33; check(raw_spawn(&request) == -RUM_EINVAL, 20);
     request.mapping_count = 0; check(raw_spawn(&request) == -RUM_EINVAL, 21); request.mapping_count = 2;
