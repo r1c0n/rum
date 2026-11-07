@@ -321,6 +321,7 @@ rum_result_t process_handle_write(struct process_handle *handle, const void *buf
 }
 rum_result_t process_handle_readdir(struct process_handle *handle, struct fs_entry *entry)
 {
+    if (handle && handle->pipe) return -RUM_ENOTDIR;
     if (!handle || !(handle->access & FS_READ)) return -RUM_EBADF;
     if (handle->kind != HANDLE_DIRECTORY) return -RUM_ENOTDIR;
     if (!process_filesystem_context()) return -RUM_EBUSY;

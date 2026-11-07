@@ -150,6 +150,7 @@ static void pipes_test(void)
     assert(process_handle_seek(process_handle_get(&child, 0), 0, 0, &position) == -RUM_ESPIPE &&
            process_handle_seek(process_handle_get(&child, 1), 0, 0, &position) == -RUM_ESPIPE &&
            process_handle_readdir(process_handle_get(&child, 0), &entry) == -RUM_ENOTDIR &&
+           process_handle_readdir(process_handle_get(&child, 1), &entry) == -RUM_ENOTDIR &&
            process_handle_flush(process_handle_get(&child, 1)) == -RUM_EINVAL);
     char bytes[4];
     assert(process_handle_read(process_handle_get(&child, 1), bytes, 0) == -RUM_EBADF);
