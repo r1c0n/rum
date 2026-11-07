@@ -27,6 +27,7 @@ the kernel is built as `rum.elf` and packaged in `rum.iso`; an explicitly prepar
 | `assets/disk/` | Initial system-disk documentation |
 | `tests/` | Host checks, test backends, guest fixtures, and QEMU automation |
 | `scripts/` | Toolchain, disk-image, build, packaging, and test orchestration |
+| `mk/` | Make configuration and separate kernel, userspace, test and workflow rules |
 
 ## Choosing a subsystem
 
@@ -68,14 +69,14 @@ host C library. See [SDK sources](../sdk/README.md) for the current interface.
 
 ## Registering source files
 
-The Makefile keeps explicit kernel source groups: `CORE_SOURCES`,
+`mk/kernel.mk` keeps explicit kernel source groups: `CORE_SOURCES`,
 `PROCESS_SOURCES`, `MM_SOURCES`, `IO_SOURCES`, `FS_SOURCES`, `HAL_SOURCES`,
 `DRIVER_SOURCES`, `RECOVERY_SOURCES`, `DEBUG_SOURCES`, and `ARCH_SOURCES`.
 Add new implementation files to their owning group.
 
-User executables have an explicit manifest as well:
+`mk/user.mk` lists user executables explicitly:
 
-| Source | Makefile list | Installed name |
+| Source | Program list | Installed name |
 | --- | --- | --- |
 | `system/shell/main.c` | Built-in shell entry | `shell.elf` |
 | `system/commands/name.c` | `SYSTEM_COMMANDS` | `name.elf` |
@@ -83,11 +84,17 @@ User executables have an explicit manifest as well:
 | `sdk/examples/name.c` | `SDK_EXAMPLES` | `name.elf` |
 
 Names must be unique across these groups. Source discovery does not implicitly
-install programs. The manifest controls the read-only system archive, while
+install programs. The manifest controls installation into `/RUM` on a new disk, while
 the user-ELF checks verify that each source program has a validated executable.
 
 Program objects live under `build/user/objects/`; debug ELFs and maps remain in
 `build/user/debug/`, and stripped runtime ELFs remain in `build/user/system/`.
+
+`rum.ps1` adapts PowerShell paths and selects Windows QEMU; `rum` starts Python
+on Linux. Both delegate workflows to `scripts/rum.py`. `mk/config.mk` owns
+compiler flags and tool defaults, `mk/tests.mk` owns fixtures and test targets,
+and `mk/commands.mk` exposes the workflow commands through Make. Keep QEMU
+device layout in `scripts/run-qemu.py`, rather than duplicating it in launchers.
 The normal `make`, `make user`, and PowerShell wrapper commands are unchanged.
 
 ## Checking layout changes

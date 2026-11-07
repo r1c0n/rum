@@ -27,15 +27,13 @@ select its controller.
 From PowerShell in the repository:
 
 ```powershell
-.\rum.ps1 build
-wsl.exe -d Ubuntu --cd $PWD.Path --exec python3 scripts/prepare-vm-images.py
+.\rum.ps1 vm-images
 ```
 
 Or from Ubuntu/Linux:
 
 ```sh
-make
-python3 scripts/prepare-vm-images.py
+./rum vm-images
 ```
 
 The helper needs `qemu-img` and Mtools in Ubuntu/WSL. If either is missing:
@@ -66,7 +64,7 @@ An existing output directory is refused before anything is formatted. To make
 another independent set, choose a new directory:
 
 ```powershell
-wsl.exe -d Ubuntu --cd $PWD.Path --exec python3 scripts/prepare-vm-images.py --output build/vm-images-new
+.\rum.ps1 vm-images -Output build\vm-images-new
 ```
 
 The standard `rum.zip` release archive stays unchanged: ISO, root README, and

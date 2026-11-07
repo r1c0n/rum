@@ -14,7 +14,7 @@ runtime, and access operating-system services through syscalls.
 | `tools/` | Host-side ELF validator used before installing an executable |
 
 From the repository root, run `make user` or `./rum.ps1 user`. This builds the
-SDK runtime and every program in the explicit Makefile manifest. Debug ELFs and
+SDK runtime and every program listed in `mk/user.mk`. Debug ELFs and
 maps go to `build/user/debug/`; stripped assets go to `build/user/system/` and
 are listed in `build/user/programs.txt`. `prepare-disk` installs that manifest
 into `/RUM` on a newly created FAT16 image. Existing disks are not changed by a build.

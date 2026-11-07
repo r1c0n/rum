@@ -9,7 +9,7 @@ To add a command:
 
 1. Create `system/commands/name.c` with a normal C `main` entry.
 2. Include `<rum/user.h>` or `<rum/tools.h>` for shared command helpers.
-3. Add `name` to `SYSTEM_COMMANDS` in the root Makefile.
+3. Add `name` to `SYSTEM_COMMANDS` in `mk/user.mk`.
 4. Run `make user` to build program ELFs, then install them on a new disk with
    `make prepare-disk DISK_IMAGE=build/new-system.raw`.
 5. Run `make test-user` and the relevant shell tests.
