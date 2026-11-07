@@ -52,7 +52,8 @@ Command programs use only the public syscall ABI. `start` is shell syntax;
 when disk errors prevent loading programs. Use `<`, `>`, `>>` and `|` to connect
 programs and files; see [redirection and pipelines](shell-workflows.md) for
 examples, limits, byte-preserving `cat` output and cancellation rules. Quoting,
-background pipelines, history and completion are not implemented.
+history and completion are not implemented. End a command or pipeline with `&`
+to create a [background job](jobs.md), then use `jobs`, `fg` and `wait` to manage it.
 
 ## Recovery and diagnostics
 

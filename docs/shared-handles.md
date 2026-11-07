@@ -87,6 +87,8 @@ streams and do not inherit files. [Pipes](pipes.md) can use these mappings too.
 The shell uses these mappings for [redirection and pipelines](shell-workflows.md).
 Its foreground scope additionally permits `RUM_SPAWN_PIPELINE`; this flag is
 restricted to the initial shell and grants input to the first stage only.
+`RUM_SPAWN_JOB` joins the shell's currently building [session job](jobs.md), for
+foreground or background workflows. It cannot be combined with PIPELINE.
 
 ## Public ABI
 

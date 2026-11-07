@@ -22,8 +22,8 @@ Spaces around operators are optional. Names and paths follow the usual FAT
 8.3 rules. The shell accepts up to four stages, 32 arguments per stage including
 the program name, and eight redirections across a line. The input line limit is
 255 bytes. A malformed or oversized line starts no process and opens no file.
-Quoting, descriptor prefixes such as `2>`, `&`, background pipelines and shell
-expansion are not supported.
+End a command or pipeline with `&` to run it as a [background job](jobs.md).
+Quoting, descriptor prefixes such as `2>` and shell expansion are not supported.
 
 ## Bytes and errors
 
@@ -69,6 +69,7 @@ Plain `cd`, `exit`, `recovery` and `start` keep their existing behavior. They
 cannot use pipeline/redirection syntax. Pipeline stages do not receive authority
 to change the shell's directory, restart it, or launch a nested foreground
 command through `run`. Invoke the program itself as a stage instead.
+`jobs`, `fg` and `wait` also require a plain foreground command invocation.
 
 ## File-open API
 
@@ -101,7 +102,8 @@ redirection nor append adds journaling or crash recovery.
 0 for files, directories and pipes, or a negative error. Extra arguments must be
 zero. It performs no device or filesystem access and does not confer ownership.
 
-The initial shell opens a foreground scope with `rum_session` actions
+The shell uses the [session job API](jobs.md) for foreground and background
+workflows. The older foreground-only scope remains available through `rum_session` actions
 `RUM_SESSION_PIPELINE_BEGIN` and `RUM_SESSION_PIPELINE_END`, using a NULL path.
 Mapped spawn with `RUM_SPAWN_PIPELINE` joins a direct child to that scope.
 Ordinary processes cannot use these controls. A nested scope or ending one
@@ -109,7 +111,7 @@ with live stages returns EBUSY; a mapped launch after scope cancellation returns
 EINTR. Construction that completes during cancellation publishes an already
 cancelled child and returns its PID for collection. Stream mappings retain
 their usual validation and rollback rules. These controls cover one foreground
-workflow; background job management remains separate work.
+workflow and cannot overlap a foreground job.
 
 ## Focused validation
 

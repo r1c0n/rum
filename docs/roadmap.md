@@ -255,23 +255,27 @@ checks, including host-byte comparisons and read-only/full disks.
 
 ### 4. Background jobs and foreground control
 
-- [ ] Track a bounded job as one process or a pipeline, with one shell-session
+- [x] Track a bounded job as one process or a pipeline, with one shell-session
   identity and a defined lifecycle.
-- [ ] Add `&` launch syntax and standalone `jobs`, `fg`, and `wait` commands using
+- [x] Add `&` launch syntax and standalone `jobs`, `fg`, and `wait` commands using
   public session interfaces.
-- [ ] Transfer console ownership to a foreground job and return it when every
+- [x] Transfer console ownership to a foreground job and return it when every
   stage finishes or the job is cancelled.
-- [ ] Deliver Ctrl+C to the foreground job's active stages, leaving the shell
+- [x] Deliver Ctrl+C to the foreground job's active stages, leaving the shell
   and unrelated jobs running.
-- [ ] Report job completion once, preserve each stage's result for cleanup,
+- [x] Report job completion once, preserve each stage's result for cleanup,
   and define the user-visible pipeline result.
-- [ ] Define shell exit/restart policy for outstanding jobs and handle job-table
+- [x] Define shell exit/restart policy for outstanding jobs and handle job-table
   exhaustion without leaking children or descriptors.
 
 Test foreground pipelines, background pipelines, concurrent completions,
 background attempts to read the console, `fg` on an exited job, and cancellation
 while a stage is blocked in pipe or file I/O. Stop/resume, Ctrl+Z, and a general
 Unix signal model remain later work.
+
+See [background jobs](jobs.md) for commands, ownership, limits and the public
+ABI. Run `./rum test --suite jobs -j4` for focused host and QEMU checks through
+both boot paths, with real keyboard input and disposable FAT images.
 
 ### 5. Public terminal input and userspace Snake
 

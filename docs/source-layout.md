@@ -54,6 +54,10 @@ the full userspace port.
 `parse.c` validates bounded workflow syntax, and `pipeline.c` prepares streams,
 launches stages and collects their results. These files use SDK interfaces;
 filesystem, pipe and console ownership remain kernel services.
+`kernel/process/jobs.c` retains bounded job results after task reaping; `task.c`
+enforces controller authority, waits and cancellation, while `session.c` owns
+console input leases. The standalone `jobs`, `fg` and `wait` programs live in
+`system/commands/` and include public SDK headers only.
 
 ## Header and runtime boundaries
 
