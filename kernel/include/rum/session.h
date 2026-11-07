@@ -36,7 +36,9 @@ bool console_pipeline_cancelled(const struct console_member *shell);
 bool console_pipeline_join(struct console_member *shell, struct console_member *child);
 bool console_pipeline_member(const struct console_member *);
 bool console_pipeline_cancel(void); /* IRQ: latch cancellation even during setup. */
-uint32_t console_cancellation_target(void); /* IRQ-safe; shell receives Ctrl+C as input. */
+/* IRQ-safe legacy target. task cancellation handles a pipeline scope first;
+   otherwise an interactive shell receives Ctrl+C as queued input. */
+uint32_t console_cancellation_target(void);
 void console_cancel_member(struct console_member *);
 /* Restore a referenced previous owner or close a root session. True requests
    discarding input from a terminated interactive shell, before its restart. */

@@ -161,6 +161,7 @@ callee-saved registers.
 | 24 | `rum_duplicate(source, target, flags)` | Versioned duplicate packet | Target descriptor |
 | 25 | `rum_spawn_with_handles(path, args, maps, count, flags)` | Versioned launch packet and explicit mapping array | Positive child PID |
 | 26 | `rum_pipe(request)` | Writable versioned pipe packet with zero input flags/output fields | Zero; separate read/write descriptors and limits |
+| 27 | `rum_isatty(handle)` | Descriptor; remaining registers zero | 1 console, 0 other, or negative error |
 
 Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
 means success. A negative result is the negation of a `RUM_E*` value from

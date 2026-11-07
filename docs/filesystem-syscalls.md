@@ -25,12 +25,19 @@ return result < 0 || closed < 0;
 ```
 
 `rum_open` accepts `RUM_OPEN_READ`, `RUM_OPEN_WRITE`, or their bitwise OR.
-Flags are zero or `RUM_OPEN_DIRECTORY`, which requires read-only access and
+`RUM_OPEN_DIRECTORY` requires read-only access and
 rejects regular files. With zero flags, a read-only open may also open a
 directory. Directory handles support `rum_readdir`, not byte reads or writes.
 Unknown bits, zero access, or a writable directory request are rejected.
 
-Open does not create or truncate a file. `rum_replace(path, data, bytes)` creates
+With zero flags, open does not create or truncate a file. `RUM_OPEN_CREATE`,
+`RUM_OPEN_TRUNCATE` and `RUM_OPEN_APPEND` require write access and cannot be
+combined with DIRECTORY. Append selects EOF and writes in one serialized
+filesystem operation, even across separate open descriptions. Truncate-open
+rejects an already open identity with EBUSY. See [redirection and pipelines](shell-workflows.md)
+for the complete flag, capability and partial-failure contracts.
+
+`rum_replace(path, data, bytes)` creates
 or replaces a whole file, up to 65,536 bytes. Zero bytes creates an empty file
 and ignores the data pointer. An open file identity cannot be replaced. A
 writable handle can overwrite or append to an

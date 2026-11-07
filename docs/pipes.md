@@ -83,8 +83,8 @@ parent endpoint. A parent retaining a write alias prevents EOF. A retained read
 alias prevents broken-pipe detection. Writing an entire large payload before
 starting a reader can block when the bounded buffer fills.
 
-The shell's `|`, redirection syntax and pipeline ownership are later roadmap
-steps. These APIs are available directly to user programs now.
+The shell uses these APIs for [`|` and file redirection](shell-workflows.md).
+They are also available directly to user programs.
 
 ## Waiting, cancellation and lifetime
 

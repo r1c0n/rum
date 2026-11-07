@@ -49,8 +49,10 @@ a process owned by the shell session. See [process tools](process-tools.md).
 
 Command programs use only the public syscall ABI. `start` is shell syntax;
 `exit` and `recovery` are built-in session controls so they remain available
-when disk errors prevent loading programs. Quoting, pipelines, redirection,
-history and completion are not implemented.
+when disk errors prevent loading programs. Use `<`, `>`, `>>` and `|` to connect
+programs and files; see [redirection and pipelines](shell-workflows.md) for
+examples, limits, byte-preserving `cat` output and cancellation rules. Quoting,
+background pipelines, history and completion are not implemented.
 
 ## Recovery and diagnostics
 

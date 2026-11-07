@@ -112,7 +112,9 @@ struct rum_handle_mapping {
 };
 /* By default unmapped 0..2 are fresh console streams. NO_DEFAULT_STREAMS starts
    with an empty table. All other unmapped descriptors are closed. Zero count
-   requires a zero mappings address. This does not grant foreground authority. */
+   requires a zero mappings address. PIPELINE requires an active scope owned by
+   the initial shell; its first joined child receives console input only.
+   Other mapped launches grant no foreground or shell-command authority. */
 struct rum_spawn_mapped_request {
     uint32_t version, size;
     rum_address_t path, arguments, mappings;
