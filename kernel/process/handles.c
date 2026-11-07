@@ -3,6 +3,7 @@
 #include <rum/cpu.h>
 #include <rum/interrupts.h>
 #include <rum/process_limits.h>
+#include <rum/pipe.h>
 
 #define OPEN_DESCRIPTIONS (RUM_PROCESS_LIMIT * RUM_ABI_HANDLE_LIMIT)
 static struct process_handle descriptions[OPEN_DESCRIPTIONS];
@@ -73,6 +74,9 @@ static rum_result_t release(struct process_handle *object)
         if (error != FS_OK) return process_fs_error(error);
     }
     uint32_t flags = cpu_interrupt_save();
+    if (object->references == 1 && object->pipe && !pipe_close(object->pipe, object->kind == HANDLE_PIPE_WRITE)) {
+        cpu_interrupt_restore(flags); return -RUM_EIO;
+    }
     if (!--object->references) *object = (struct process_handle){0};
     cpu_interrupt_restore(flags);
     return 0;
@@ -151,10 +155,35 @@ rum_result_t process_handle_close(struct process_handles *table, rum_handle_t id
         if (error != FS_OK) return process_fs_error(error);
     }
     uint32_t saved = cpu_interrupt_save();
+    if (handle->references == 1 && handle->pipe && !pipe_close(handle->pipe, handle->kind == HANDLE_PIPE_WRITE)) {
+        cpu_interrupt_restore(saved); return -RUM_EIO;
+    }
     table->slots[id] = (struct process_descriptor){0};
     if (!--handle->references) *handle = (struct process_handle){0};
     cpu_interrupt_restore(saved);
     return 0;
+}
+
+rum_result_t process_handles_pipe(struct process_handles *table, rum_handle_t *reader, rum_handle_t *writer)
+{
+    if (!table || !reader || !writer || reader == writer) return -RUM_EINVAL;
+    if (!process_filesystem_context()) return -RUM_EBUSY;
+    unsigned slots[2], count = 0;
+    for (unsigned i = 3; i < RUM_ABI_HANDLE_LIMIT && count < 2; ++i)
+        if (!table->slots[i].object) slots[count++] = i;
+    if (count != 2) return -RUM_EMFILE;
+    struct process_handle *read = new_description(HANDLE_PIPE_READ, FS_READ);
+    if (!read) return -RUM_ENOMEM;
+    struct process_handle *write = new_description(HANDLE_PIPE_WRITE, FS_WRITE);
+    if (!write) { (void)release(read); return -RUM_ENOMEM; }
+    struct kernel_pipe *pipe = pipe_create();
+    if (!pipe) { (void)release(write); (void)release(read); return -RUM_ENOMEM; }
+    uint32_t flags = cpu_interrupt_save();
+    read->pipe = write->pipe = pipe;
+    table->slots[slots[0]] = (struct process_descriptor){ .object = read };
+    table->slots[slots[1]] = (struct process_descriptor){ .object = write };
+    *reader = slots[0]; *writer = slots[1];
+    cpu_interrupt_restore(flags); return 0;
 }
 
 static rum_result_t mapping_valid(const struct process_handle *object, unsigned target)
@@ -241,6 +270,7 @@ rum_result_t process_handle_seek(struct process_handle *handle, uint64_t displac
 {
     if (!handle) return -RUM_EBADF;
     if (!position || whence > RUM_SEEK_END) return -RUM_EINVAL;
+    if (handle->pipe) return -RUM_ESPIPE;
     if (handle->kind == HANDLE_INPUT || handle->kind == HANDLE_OUTPUT) return -RUM_EINVAL;
     if (handle->kind == HANDLE_DIRECTORY && (whence != RUM_SEEK_SET || displacement)) return -RUM_EINVAL;
     if (!process_filesystem_context()) return -RUM_EBUSY;
@@ -263,6 +293,7 @@ static rum_result_t transfer(struct process_handle *handle, void *buffer, size_t
 {
     if (!handle || !(handle->access & (write ? FS_WRITE : FS_READ))) return -RUM_EBADF;
     if (handle->kind == HANDLE_DIRECTORY) return -RUM_EISDIR;
+    if (handle->pipe) return write ? pipe_write(handle->pipe, buffer, bytes) : pipe_read(handle->pipe, buffer, bytes);
     if (handle->kind != HANDLE_FILE || (bytes && !buffer)) return -RUM_EINVAL;
     if (bytes > INT32_MAX || bytes > UINT64_MAX - handle->offset) return -RUM_EOVERFLOW;
     if (!bytes) return 0;
@@ -298,6 +329,7 @@ rum_result_t process_handle_readdir(struct process_handle *handle, struct fs_ent
 }
 rum_result_t process_handle_flush(struct process_handle *handle)
 {
+    if (handle && handle->pipe) return -RUM_EINVAL;
     if (!handle || !handle->reference) return -RUM_EBADF;
     if (!process_filesystem_context()) return -RUM_EBUSY;
     return process_fs_error(fs_flush(handle->reference));

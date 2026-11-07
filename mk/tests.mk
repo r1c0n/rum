@@ -64,9 +64,19 @@ build/tests/shared-handles.iso: build/tests/shared-handles.elf $(TESTS_RULES)
 	printf 'set timeout=0\nmenuentry "rum shared handles" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/shared-handles-isodir/boot/grub/grub.cfg
 	grub-mkrescue -o $@ build/shared-handles-isodir
 
-build/tests/handles-test: tests/handles-test.c kernel/process/handles.c kernel/include/rum/handles.h tests/handles-include/rum/cpu.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS) $(TESTS_RULES)
+build/tests/handles-test: tests/handles-test.c kernel/process/handles.c kernel/io/pipe.c tests/pipe-task-backend.c tests/pipe-task-backend.h kernel/include/rum/handles.h kernel/include/rum/pipe.h tests/handles-include/rum/cpu.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS) $(TESTS_RULES)
 	@mkdir -p $(@D)
 	$(HOST_CC) -Itests/handles-include -Itests/include $(CPPFLAGS) -std=gnu11 -O2 -fno-builtin -Wall -Wextra -Werror $(sort $(filter %.c,$^)) -o $@
+
+.PHONY: test-pipes-host
+test-pipes-host: build/tests/pipe-test build/tests/handles-test build/tests/abi-test
+	./build/tests/pipe-test
+	./build/tests/handles-test
+	./build/tests/abi-test
+build/tests/pipe-test: tests/pipe-test.c kernel/io/pipe.c kernel/core/memory.c tests/pipe-task-backend.c tests/pipe-task-backend.h kernel/include/rum/pipe.h tests/handles-include/rum/cpu.h $(ABI_HEADERS) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Itests/handles-include $(CPPFLAGS) -std=gnu11 -O2 -fno-builtin -Wall -Wextra -Werror $(sort $(filter %.c,$^)) -o $@
+test-host: build/tests/pipe-test
 
 .SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) $(PROCESS_FAULT_OBJECTS) build/tests/paging-spaces.o build/tests/user-memory.o
 .SECONDARY: $(USER_DEBUG) $(USER_RUNTIME) $(addprefix build/user/objects/,$(addsuffix .o,$(USER_PROGRAMS)))

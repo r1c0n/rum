@@ -5,6 +5,7 @@
 #include <rum/handles.h>
 #include <rum/heap.h>
 #include <rum/interrupts.h>
+#include <rum/pipe.h>
 #include "fs-backend.h"
 #include "page-backend.h"
 #include "test-files.h"
@@ -113,8 +114,16 @@ static void exhaustion(void)
     unsigned count = process_handles_stats().descriptors;
     assert(process_handles_initialize(&tables[RUM_PROCESS_LIMIT]) == -RUM_ENOMEM);
     assert(!process_handles_count(&tables[RUM_PROCESS_LIMIT]) && process_handles_stats().descriptors == count);
-    for (unsigned h = 30; h < 32; ++h)
+    for (unsigned h = 30; h < 32; ++h) {
         assert(process_handle_open(&tables[RUM_PROCESS_LIMIT - 1], NULL, "/DATA.BIN", FS_READ, 0) == (rum_result_t)h);
+        if (h == 30) {
+            rum_handle_t read = 123, write = 456;
+            unsigned descriptions = process_handles_stats().descriptions;
+            assert(process_handles_pipe(&child, &read, &write) == -RUM_ENOMEM);
+            assert(read == 123 && write == 456 && !process_handles_count(&child) &&
+                   process_handles_stats().descriptions == descriptions && !pipe_stats().pipes);
+        }
+    }
     assert(process_handle_duplicate(&tables[0], 3, RUM_DUP_ANY, 0) == -RUM_EMFILE);
     unsigned calls = fs_test_backend_calls();
     assert(process_handle_open(&child, NULL, "/DATA.BIN", FS_READ, 0) == -RUM_ENOMEM && fs_test_backend_calls() == calls);
@@ -125,12 +134,54 @@ static void exhaustion(void)
     for (unsigned i = 0; i < RUM_PROCESS_LIMIT; ++i) assert(!process_handles_destroy(&tables[i]));
     empty();
 }
+static void pipes_test(void)
+{
+    struct process_handles table = {0}, child = {0};
+    rum_handle_t read, write;
+    unsigned calls = fs_test_backend_calls();
+    assert(!process_handles_initialize(&table) && !process_handles_pipe(&table, &read, &write));
+    assert(read == 3 && write == 4 && pipe_stats().pipes == 1);
+    assert(process_handle_duplicate(&table, read, RUM_DUP_ANY, 0) == 5 &&
+           process_handle_duplicate(&table, write, RUM_DUP_ANY, 0) == 6);
+    struct rum_handle_mapping maps[] = {{5, 0, {0}}, {6, 1, {0}}};
+    assert(!process_handles_prepare_spawn(&child, &table, maps, 2, RUM_SPAWN_NO_DEFAULT_STREAMS));
+    assert(!process_handle_close(&table, read) && !process_handle_close(&table, write));
+    uint64_t position; struct fs_entry entry;
+    assert(process_handle_seek(process_handle_get(&child, 0), 0, 0, &position) == -RUM_ESPIPE &&
+           process_handle_seek(process_handle_get(&child, 1), 0, 0, &position) == -RUM_ESPIPE &&
+           process_handle_readdir(process_handle_get(&child, 0), &entry) == -RUM_ENOTDIR &&
+           process_handle_flush(process_handle_get(&child, 1)) == -RUM_EINVAL);
+    char bytes[4];
+    assert(process_handle_read(process_handle_get(&child, 1), bytes, 0) == -RUM_EBADF);
+    assert(process_handle_write(process_handle_get(&table, 6), "a\0b", 3) == 3 &&
+           process_handle_read(process_handle_get(&child, 0), bytes, 4) == 3 && bytes[0] == 'a' && !bytes[1] && bytes[2] == 'b');
+    assert(!process_handle_close(&table, 5) && process_handle_write(process_handle_get(&child, 1), "x", 1) == 1);
+    assert(process_handle_read(process_handle_get(&child, 0), bytes, 1) == 1 && bytes[0] == 'x');
+    assert(!process_handle_close(&child, 0) && process_handle_write(process_handle_get(&table, 6), "x", 1) == -RUM_EPIPE);
+    assert(process_handle_write(process_handle_get(&table, 6), NULL, 0) == 0);
+    assert(!process_handles_destroy(&table) && pipe_stats().pipes == 1 && !process_handles_destroy(&child));
+    empty(); assert(!pipe_stats().pipes);
+    assert(!process_handles_initialize(&table));
+    for (unsigned i = 0; i < 14; ++i) assert(!process_handles_pipe(&table, &read, &write));
+    read = 123; write = 456;
+    unsigned descriptors = process_handles_stats().descriptors;
+    assert(process_handles_pipe(&table, &read, &write) == -RUM_EMFILE && read == 123 && write == 456 &&
+           process_handles_stats().descriptors == descriptors && pipe_stats().pipes == 14);
+    assert(!process_handles_destroy(&table));
+    struct process_handles all[RUM_KERNEL_PIPE_LIMIT] = {0};
+    for (unsigned i = 0; i < RUM_KERNEL_PIPE_LIMIT; ++i) assert(!process_handles_pipe(&all[i], &read, &write));
+    descriptors = process_handles_stats().descriptors;
+    assert(process_handles_pipe(&table, &read, &write) == -RUM_ENOMEM &&
+           !process_handles_count(&table) && process_handles_stats().descriptors == descriptors);
+    for (unsigned i = 0; i < RUM_KERNEL_PIPE_LIMIT; ++i) assert(!process_handles_destroy(&all[i]));
+    assert(fs_test_backend_calls() == calls && !pipe_stats().pipes); empty();
+}
 int main(void)
 {
     test_page_budget(-1);
     assert(heap_initialize() && test_files_initialize() && test_files_mount());
     assert(test_file_put("DATA.BIN", "abcdef", 6));
-    aliases(); validation(); exhaustion();
+    aliases(); validation(); exhaustion(); pipes_test();
     assert(!fs_stats().references && !fs_test_backend_pins() && fs_unmount_disk() == FS_OK);
     puts("PASS: shared offsets/errors, descriptor mapping, authority, pinning, limits and rollback");
     return 0;

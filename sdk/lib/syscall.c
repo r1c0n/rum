@@ -1,5 +1,10 @@
 #include <rum/user.h>
 
+rum_result_t rum_pipe(struct rum_pipe_request *request)
+{
+    return rum_syscall3(RUM_SYS_PIPE, (rum_address_t)(uintptr_t)request, 0, 0);
+}
+
 rum_result_t rum_duplicate(rum_handle_t source, rum_handle_t target, uint32_t flags)
 {
     struct rum_duplicate_request request = { RUM_HANDLE_ABI_VERSION, sizeof request, source, target, flags, 0 };

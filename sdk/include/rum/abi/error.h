@@ -29,5 +29,7 @@
 #define RUM_ENOEXEC 24
 #define RUM_ECHILD 25 /* No owned child matches, including an already reaped PID. */
 #define RUM_ESRCH 26 /* No process with that PID remains. */
+#define RUM_EPIPE 27 /* A nonempty pipe write has no remaining reader. */
+#define RUM_ESPIPE 28 /* This object does not support seeking. */
 
 #endif
