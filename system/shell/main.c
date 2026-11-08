@@ -166,6 +166,11 @@ int main(int argc, char **argv)
             shell_editor_commit(&editor); execute(command); completions(0); begin_line();
         } else if (action == SHELL_EDIT_CANCEL) {
             end_line(); tool_print("^C\n"); completions(0); begin_line();
+        } else if (action == SHELL_EDIT_CLEAR) {
+            end_line();
+            result = rum_console(RUM_CONSOLE_CLEAR);
+            if (result < 0) { tool_error("shell", result); return 1; }
+            begin_line();
         } else if (action == SHELL_EDIT_COMPLETE) complete();
         else if (action == SHELL_EDIT_CHANGED) show_line();
     }

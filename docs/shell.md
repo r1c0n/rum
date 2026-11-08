@@ -12,6 +12,8 @@ foreground program or clears the current line.
 | Left / Right | Move within the command |
 | Home / End | Move to the start or end of the command |
 | Backspace / Delete | Remove the character before or at the cursor |
+| Ctrl+L | Clear the screen, preserving the current command and cursor |
+| Ctrl+U | Clear the entire current command without running it |
 | Up / Down | Browse history; Down past the newest entry restores the draft and cursor |
 | Page Up / Page Down | Browse older output or return toward the live screen |
 | Tab | Complete a program or path, or list matching names |

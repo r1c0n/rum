@@ -27,7 +27,7 @@ struct shell_editor {
     char history[SHELL_HISTORY_LIMIT][RUM_COMMAND_TEXT_CAPACITY];
     unsigned length, cursor, history_first, history_count, browse, draft_cursor;
 };
-enum shell_edit_action { SHELL_EDIT_NONE, SHELL_EDIT_CHANGED, SHELL_EDIT_ACCEPT, SHELL_EDIT_CANCEL, SHELL_EDIT_COMPLETE };
+enum shell_edit_action { SHELL_EDIT_NONE, SHELL_EDIT_CHANGED, SHELL_EDIT_ACCEPT, SHELL_EDIT_CANCEL, SHELL_EDIT_COMPLETE, SHELL_EDIT_CLEAR };
 struct shell_matches {
     char values[SHELL_COMPLETION_LIMIT][RUM_COMMAND_TEXT_CAPACITY];
     unsigned count, scanned, truncated, common;

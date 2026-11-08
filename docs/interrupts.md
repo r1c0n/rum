@@ -93,8 +93,9 @@ The decoder supports a US QWERTY keyboard with:
 - Extended Left, Right, Up, Down, Home, End, Delete, Page Up and Page Down presses.
 
 Function keys, keyboard LEDs, Num Lock behavior, and alternate
-layouts are unsupported. Ctrl+C requests foreground-process cancellation; other
-Ctrl and Alt combinations are ignored. At the supervised shell, Ctrl+C is
+layouts are unsupported. Ctrl+C requests foreground-process cancellation;
+Ctrl+L and Ctrl+U produce ASCII control bytes 12 and 21 for userspace handling.
+Other Ctrl and Alt combinations are ignored. At the supervised shell, Ctrl+C is
 queued as input to discard the current line. Pause and Print Screen sequences are
 consumed without producing text.
 

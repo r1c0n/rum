@@ -36,6 +36,12 @@ int main(int argc, char **argv)
     assert(!strcmp(e.line, "echo 19!") && !e.browse);
     shell_editor_key(&e, RUM_KEY_UP); assert(!strcmp(e.line, "echo 19"));
     assert(shell_editor_key(&e, 3) == SHELL_EDIT_CANCEL && !e.length && !e.browse && e.history_count == 16);
+    type(&e, "echo ac"); shell_editor_key(&e, RUM_KEY_LEFT);
+    assert(shell_editor_key(&e, 12) == SHELL_EDIT_CLEAR && !strcmp(e.line, "echo ac") && e.cursor == 6);
+    shell_editor_key(&e, RUM_KEY_UP);
+    assert(shell_editor_key(&e, 12) == SHELL_EDIT_CLEAR && e.browse == 1 && !strcmp(e.line, "echo 19"));
+    assert(shell_editor_key(&e, 21) == SHELL_EDIT_CHANGED && !e.length && !e.cursor && !e.browse && e.history_count == 16);
+    assert(shell_editor_key(&e, RUM_KEY_DOWN) == SHELL_EDIT_NONE);
     for (unsigned i = 0; i < RUM_COMMAND_TEXT_CAPACITY - 1; ++i) type(&e, "a");
     assert(shell_editor_key(&e, 'b') == SHELL_EDIT_NONE && e.length == 255 && !e.line[255]);
     assert(!shell_editor_replace(&e, 0, 0, "b") && !shell_editor_replace(&e, 2, 1, ""));
