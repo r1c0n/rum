@@ -48,6 +48,13 @@ build/user/objects/shell-pipeline.o: system/shell/pipeline.c system/shell/shell.
 build/user/debug/shell.elf: build/user/objects/shell-parse.o build/user/objects/shell-pipeline.o
 USER_DEPENDENCIES += build/user/objects/shell-parse.d build/user/objects/shell-pipeline.d
 
+build/user/objects/snake-model.o: apps/snake/model.c apps/snake/model.h $(USER_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+
+build/user/debug/snake.elf: build/user/objects/snake-model.o
+USER_DEPENDENCIES += build/user/objects/snake-model.d
+
 $(addprefix build/user/objects/,$(addsuffix .o,$(APP_PROGRAMS))): build/user/objects/%.o: apps/%/main.c $(USER_INCLUDE_STAMP) $(USER_RULES)
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@

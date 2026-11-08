@@ -11,6 +11,14 @@ enum vga_color {
     VGA_DARK_GREY, VGA_LIGHT_BLUE, VGA_LIGHT_GREEN, VGA_LIGHT_CYAN,
     VGA_LIGHT_RED, VGA_LIGHT_MAGENTA, VGA_YELLOW, VGA_WHITE
 };
+#define TERMINAL_WIDTH 80u
+#define TERMINAL_HEIGHT 24u
+struct terminal_state { uint32_t x, y, foreground, background; bool visible; };
+struct terminal_snapshot { uint16_t cells[TERMINAL_WIDTH * TERMINAL_HEIGHT]; struct terminal_state state; };
+struct terminal_state terminal_state(void);
+bool terminal_cursor_at(uint32_t x, uint32_t y);
+void terminal_capture(struct terminal_snapshot *);
+void terminal_restore(const struct terminal_snapshot *);
 
 void terminal_initialize(void);
 void terminal_clear(void);

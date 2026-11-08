@@ -9,9 +9,9 @@ PROCESS_SOURCES := kernel/process/task.c kernel/process/session.c kernel/process
                    kernel/process/elf.c kernel/process/process.c
 FS_SOURCES := kernel/fs/path.c kernel/fs/fs-types.c \
               kernel/fs/fs.c kernel/fs/fat16.c kernel/fs/fat16-write.c
-IO_SOURCES := kernel/io/block.c kernel/io/pipe.c
+IO_SOURCES := kernel/io/block.c kernel/io/pipe.c kernel/io/terminal.c
 HAL_SOURCES := hal/pc/pic.c hal/pc/irq.c hal/pc/pit.c
-RECOVERY_SOURCES := kernel/recovery/shell.c kernel/recovery/snake.c kernel/recovery/snake_model.c
+RECOVERY_SOURCES := kernel/recovery/shell.c kernel/recovery/snake.c apps/snake/model.c
 DEBUG_SOURCES := kernel/debug/diagnostics.c kernel/debug/diagnostics-report.c
 ARCH_SOURCES := arch/i386/cpu.c arch/i386/gdt.c arch/i386/interrupt.c \
                 arch/i386/exceptions.c \

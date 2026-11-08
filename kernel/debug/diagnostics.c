@@ -2,6 +2,7 @@
 #include <rum/diagnostics.h>
 #include <rum/gdt.h>
 #include <rum/memory.h>
+#include <rum/terminal_session.h>
 
 bool diagnostics_capture(struct kernel_diagnostics *result)
 {
@@ -20,6 +21,7 @@ bool diagnostics_capture(struct kernel_diagnostics *result)
     result->handles = process_handles_stats();
     result->pipes = pipe_stats();
     result->jobs = jobs_stats();
+    result->terminal_owner = terminal_session_owner();
     cpu_interrupt_restore(flags);
     return true;
 }

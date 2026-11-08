@@ -9,6 +9,14 @@
 #include <rum/abi/time.h>
 #include <rum/abi/pipe.h>
 #include <rum/abi/job.h>
+#include <rum/abi/terminal.h>
+rum_result_t rum_terminal_query(struct rum_terminal_capabilities *);
+rum_result_t rum_terminal_begin(void);
+rum_result_t rum_terminal_end(void);
+rum_result_t rum_terminal_cells(uint32_t x, uint32_t y, const struct rum_terminal_cell *, uint32_t count);
+rum_result_t rum_terminal_cursor(uint32_t x, uint32_t y, uint32_t visible);
+rum_result_t rum_terminal_color(uint32_t foreground, uint32_t background);
+rum_result_t rum_terminal_read(struct rum_terminal_event *, uint32_t capacity, uint32_t milliseconds, uint32_t *ticks);
 
 rum_result_t rum_open(const char *path, uint32_t access, uint32_t flags);
 rum_result_t rum_close(rum_handle_t);

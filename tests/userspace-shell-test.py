@@ -155,7 +155,8 @@ def commands(console):
     console.command("clear", "\x1b[2J\x1b[H> ")
     console.type("snake\n"); console.wait("rum_snake_started\r\n")
     console.send("p"); console.wait("rum_snake_paused\r\n")
-    console.send("q"); console.wait("rum_snake_quit\r\n/> ")
+    console.send("q"); console.wait("/> ")
+    assert "Snake score:" in console.serial.read_text()
 
 
 def disk_commands(console):

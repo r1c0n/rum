@@ -1,4 +1,45 @@
 #include <rum/user.h>
+static rum_result_t terminal_call(struct rum_terminal_request *request)
+{
+    request->version = RUM_TERMINAL_ABI_VERSION; request->size = sizeof *request;
+    return rum_syscall3(RUM_SYS_TERMINAL, (rum_address_t)(uintptr_t)request, 0, 0);
+}
+rum_result_t rum_terminal_query(struct rum_terminal_capabilities *caps)
+{
+    struct rum_terminal_request request = { .operation = RUM_TERM_QUERY, .data = (rum_address_t)(uintptr_t)caps };
+    return terminal_call(&request);
+}
+rum_result_t rum_terminal_begin(void)
+{
+    struct rum_terminal_request request = { .operation = RUM_TERM_BEGIN }; return terminal_call(&request);
+}
+rum_result_t rum_terminal_end(void)
+{
+    struct rum_terminal_request request = { .operation = RUM_TERM_END }; return terminal_call(&request);
+}
+rum_result_t rum_terminal_cells(uint32_t x, uint32_t y, const struct rum_terminal_cell *cells, uint32_t count)
+{
+    struct rum_terminal_request request = { .operation = RUM_TERM_CELLS, .x = x, .y = y, .count = count,
+        .data = (rum_address_t)(uintptr_t)cells }; return terminal_call(&request);
+}
+rum_result_t rum_terminal_cursor(uint32_t x, uint32_t y, uint32_t visible)
+{
+    struct rum_terminal_request request = { .operation = RUM_TERM_CURSOR, .x = x, .y = y, .flags = visible };
+    return terminal_call(&request);
+}
+rum_result_t rum_terminal_color(uint32_t foreground, uint32_t background)
+{
+    struct rum_terminal_request request = { .operation = RUM_TERM_COLOR, .x = foreground, .y = background };
+    return terminal_call(&request);
+}
+rum_result_t rum_terminal_read(struct rum_terminal_event *events, uint32_t capacity, uint32_t milliseconds, uint32_t *ticks)
+{
+    struct rum_terminal_request request = { .operation = RUM_TERM_READ, .count = capacity,
+        .timeout_ms = milliseconds, .data = (rum_address_t)(uintptr_t)events };
+    rum_result_t result = terminal_call(&request);
+    if (result >= 0 && ticks) *ticks = request.now_ticks;
+    return result;
+}
 
 rum_result_t rum_pipe(struct rum_pipe_request *request)
 {

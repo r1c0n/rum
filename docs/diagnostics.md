@@ -40,6 +40,7 @@ userspace has stopped and recovery has reclaimed its children. See
 | `Handles` | Descriptor references, live open descriptions, and aliases sharing those descriptions |
 | `Pipes` | Live pipes, buffered bytes, endpoint descriptions, active operations and blocked calls |
 | `Jobs` | Session job records, running/building and completed records, and active waits |
+| `Terminal` | Normal display state or the kernel task identity holding an interactive lease |
 
 Each task entry also shows whether its stack and directory are owned or
 borrowed. Kernel tasks have PID zero. A published process has a positive PID,
@@ -68,6 +69,9 @@ In the kernel recovery console:
   of descriptor aliases. See [pipes](pipes.md).
 - Job records include completed results awaiting `wait` or `fg`. All job and
   active-wait counts return to zero after shell teardown. See [jobs](jobs.md).
+- Terminal state returns to `normal` after its owner exits, faults or is
+  cancelled. Its screen snapshot and input lease cannot remain attached to a
+  reclaimed process. See [terminal cleanup](terminal.md).
 - Free physical pages may decrease when the heap grows, even after individual
   heap allocations are freed. Heap pages stay mapped for reuse.
 

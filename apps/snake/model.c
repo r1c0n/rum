@@ -1,5 +1,4 @@
-#include <rum/memory.h>
-#include <rum/snake_model.h>
+#include "model.h"
 
 struct snake_cell snake_model_cell(const struct snake_model *model, unsigned offset)
 {
@@ -30,7 +29,9 @@ static void place_food(struct snake_model *model)
 
 void snake_model_reset(struct snake_model *model, uint32_t seed)
 {
-    memset(model, 0, sizeof *model);
+    /* Freestanding in both user and recovery builds; no runtime dependency. */
+    volatile unsigned char *bytes = (volatile unsigned char *)model;
+    for (unsigned i = 0; i < sizeof *model; ++i) bytes[i] = 0;
     model->head = SNAKE_INITIAL_LENGTH - 1;
     model->length = SNAKE_INITIAL_LENGTH;
     model->direction = model->pending = SNAKE_RIGHT;

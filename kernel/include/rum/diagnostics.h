@@ -20,6 +20,7 @@ struct kernel_diagnostics {
     struct process_handle_statistics handles;
     struct pipe_statistics pipes;
     struct job_statistics jobs;
+    uint32_t terminal_owner;
 };
 
 /* Foreground or fatal exception only. No allocation, switching or cleanup.

@@ -279,22 +279,26 @@ both boot paths, with real keyboard input and disposable FAT images.
 
 ### 5. Public terminal input and userspace Snake
 
-- [ ] Add fixed-width terminal capability queries and bounded cursor, color,
+- [x] Add fixed-width terminal capability queries and bounded cursor, color,
   text-update, and noncanonical keyboard-input operations.
-- [ ] Restrict interactive terminal state changes and keyboard reads to the
+- [x] Restrict interactive terminal state changes and keyboard reads to the
   foreground owner; validate all positions, lengths, flags, and user buffers.
-- [ ] Define input events and timed waits needed by interactive programs,
+- [x] Define input events and timed waits needed by interactive programs,
   keeping PS/2 queues and VGA addresses private to the kernel.
-- [ ] Restore terminal mode, cursor, colors, and input ownership after normal
+- [x] Restore terminal mode, cursor, colors, and input ownership after normal
   exit, cancellation, a user fault, or partial setup.
-- [ ] Move the game loop, board, scoring, and rendering into `snake.elf` using
+- [x] Move the game loop, board, scoring, and rendering into `snake.elf` using
   only public terminal, timing, and process interfaces.
-- [ ] Retain a recovery-shell game path so missing or rejected system disks
+- [x] Retain a recovery-shell game path so missing or rejected system disks
   do not remove diskless recovery functionality.
 
 Test Snake under competing CPU load, invalid terminal packets, background
 access attempts, rapid input, and faults while a terminal mode is active.
 Ordinary output and the shell prompt must remain usable afterward.
+
+See the [terminal API](terminal.md) and [Snake guide](snake.md) for controls,
+ownership and cleanup. Run `./rum test --suite terminal -j4` for focused host
+and QEMU checks, including user-game scoring, reboot persistence and recovery.
 
 A small bounded text editor is a stretch goal after these interfaces are
 stable. It should preserve the original file when saving fails and state its

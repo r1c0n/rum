@@ -10,7 +10,7 @@
 #include <rum/shell.h>
 #include <rum/terminal.h>
 #include <rum/snake.h>
-#include <rum/snake_model.h>
+#include "../apps/snake/model.h"
 #include "page-backend.h"
 
 static char output[16384];

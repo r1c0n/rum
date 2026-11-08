@@ -26,6 +26,7 @@ programs and persistent files. With no usable disk, rum opens recovery.
 - [Pipes and stream I/O](pipes.md)
 - [Redirection and pipelines](shell-workflows.md)
 - [Background jobs](jobs.md)
+- [Terminal API](terminal.md)
 - [Block devices](block-devices.md)
 - [Releases](release.md) and [roadmap](roadmap.md)
 

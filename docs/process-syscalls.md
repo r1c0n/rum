@@ -323,9 +323,10 @@ retain their existing blocking input behavior.
 ## Console actions
 
 `rum_console(action)` uses syscall 15. `RUM_CONSOLE_CLEAR` clears the text area
-and emits the serial clear-screen sequence. `RUM_CONSOLE_SNAKE` runs the existing
-kernel Snake application synchronously until Q returns to the caller. Ctrl+C
-returns to the supervised shell, or cleans up the game and cancels a child.
+and emits the serial clear-screen sequence. The retired `RUM_CONSOLE_SNAKE`
+selector returns ENOSYS to a foreground caller. Snake now runs as a separate
+user ELF through the [public terminal API](terminal.md), which restores its
+screen, cursor and colors after normal exit, a fault or cancellation.
 No coordinates, port numbers, queue pointers or kernel pointers are accepted.
 Unknown actions and nonzero unused syscall arguments return `-RUM_EINVAL`.
 

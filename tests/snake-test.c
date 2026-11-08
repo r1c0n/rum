@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
-#include <rum/snake_model.h>
+#include "../apps/snake/model.h"
 
 static bool same(struct snake_cell a, struct snake_cell b) { return a.x == b.x && a.y == b.y; }
 
