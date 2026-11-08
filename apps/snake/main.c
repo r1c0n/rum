@@ -21,9 +21,15 @@ static unsigned load_best(void)
 {
     rum_result_t fd = rum_open("/SNAKE.DAT", RUM_OPEN_READ, 0);
     if (fd < 0) return 0;
-    unsigned char bytes[5]; rum_result_t count = rum_read((rum_handle_t)fd, bytes, sizeof bytes);
+    unsigned char bytes[5]; rum_result_t count = 0; int failed = 0;
+    while ((unsigned)count < sizeof bytes) {
+        rum_result_t read = rum_read((rum_handle_t)fd, bytes + count, sizeof bytes - (unsigned)count);
+        if (read < 0) { failed = 1; break; }
+        if (!read) break;
+        count += read;
+    }
     rum_result_t closed = rum_close((rum_handle_t)fd);
-    if (count <= 0 || count > 4 || closed < 0) return 0;
+    if (failed || count <= 0 || count > 4 || closed < 0) return 0;
     if (bytes[count - 1] == '\n') --count;
     if (!count) return 0;
     unsigned value = 0;

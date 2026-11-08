@@ -129,12 +129,22 @@ def main():
         original = disk.read_bytes()
         for ram, iso in ((16, False), (64, True)):
             disk.write_bytes(original); run(args.qemu, disk, ram, iso, path)
+        # Saving a new best on a read-only volume must still restore the display.
+        disk.write_bytes(original)
+        score = Path(temporary) / "score"; score.write_bytes(b"0\n")
+        images.command("mcopy", "-i", str(disk), str(score), "::/SNAKE.DAT")
+        before = disk.read_bytes()
+        with shell.boot(args.qemu, 16, "snake-readonly", disk=disk, options="rum.disk-readonly") as console:
+            play(console, path)
+            contains(console, "Best score could not be saved to disk.\r\n")
+            console.command("term defaults", "terminal defaults restored")
+        assert disk.read_bytes() == before
         with shell.boot(args.qemu, 16, "snake-diskless", marker="Kernel recovery shell.") as console:
             console.type("snake\n"); console.wait("rum_snake_started\r\n")
             console.send("p"); console.wait("rum_snake_paused\r\n")
             console.send("q"); console.wait("rum_snake_quit\r\n> ")
             assert "Terminal: normal" in console.command("diag")
-    print("PASS: diskless recovery Snake remains available without loading a user ELF", flush=True)
+    print("PASS: failed score saves restore the display; diskless recovery Snake needs no user ELF", flush=True)
 
 
 if __name__ == "__main__":

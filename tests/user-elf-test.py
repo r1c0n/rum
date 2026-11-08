@@ -42,6 +42,12 @@ for program in programs:
     user_debug = root / f"build/user/debug/{program}.elf"
     check(root / f"build/user/system/{program}.elf", True, user_debug)
     assert not subprocess.check_output([args.cross_prefix + "nm", "--undefined-only", str(user_debug)])
+
+# The normal game owns its model and rendering in its user ELF; recovery is
+# linked separately. Do not regress to a wrapper around a kernel game call.
+snake_symbols = subprocess.check_output([args.cross_prefix + "nm", str(root / "build/user/debug/snake.elf")], text=True)
+assert " snake_model_step" in snake_symbols and " snake_model_reset" in snake_symbols
+assert " snake_start" not in snake_symbols and " snake_tick" not in snake_symbols
 debug_sections = subprocess.check_output([args.cross_prefix + "readelf", "-S", str(debug)], text=True)
 asset_sections = subprocess.check_output([args.cross_prefix + "readelf", "-S", str(asset)], text=True)
 assert ".debug_info" in debug_sections and ".symtab" in debug_sections

@@ -22,6 +22,7 @@ SUITES = {
     "pipes": "test-pipes",
     "workflows": "test-workflows",
     "jobs": "test-jobs",
+    "terminal": "test-terminal",
 }
 BOOT_ACTIONS = {"run", "run-kernel", "debug", "panic"}
 DISK_ACTIONS = BOOT_ACTIONS - {"panic"} | {"create-disk", "prepare-disk"}

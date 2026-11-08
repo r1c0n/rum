@@ -108,6 +108,11 @@ int main(int argc, char **argv)
         row[0].character = 'Z'; row[1].reserved = 1;
         check(rum_terminal_cells(0, 0, row, 2) == -RUM_EINVAL, 53);
         struct rum_terminal_cell corner = {'@', 14, 1, 0}; check(!rum_terminal_cells(79, 23, &corner, 1), 54);
+        struct rum_arguments args = {0}; char *words[] = {"term", "denied"};
+        struct rum_process_result child = { .version = 1, .size = sizeof child };
+        check(!tool_arguments(&args, 2, words), 59);
+        rum_result_t pid = rum_spawn("/RUM/TERM.ELF", &args);
+        check(pid > 0 && rum_wait((rum_pid_t)pid, 0, &child) == 1 && child.status == 0, 60);
         struct rum_terminal_capabilities caps;
         check(!rum_terminal_query(&caps) && caps.cursor_x == 5 && caps.cursor_y == 6 &&
               caps.foreground == 14 && caps.background == 1 && !caps.cursor_visible, 55);
