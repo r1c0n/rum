@@ -134,6 +134,7 @@ bool task_foreground_end(task_id id);
 bool task_cancel_foreground(void);
 bool task_current_cancelled(void);
 bool task_current_owns_console(void);
+uint32_t task_console_owner_id(void); /* Current input lease; kernel identity only. */
 rum_result_t task_pipeline_status(void);
 bool task_join_pipeline(task_id);
 struct rum_job_request;

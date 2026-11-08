@@ -12,6 +12,7 @@
 #include <rum/task.h>
 #include <rum/session.h>
 #include <rum/jobs.h>
+#include <rum/terminal_session.h>
 #include <rum/keyboard.h>
 #include <rum/timer.h>
 
@@ -321,6 +322,7 @@ static task_id create_process(const struct task_process *process, bool make_fore
     ++created;
     cpu_interrupt_restore(saved);
     (void)task_switch_release();
+    terminal_session_reconcile();
     return id;
 }
 
@@ -909,6 +911,7 @@ static _Noreturn void terminate_current(enum task_termination termination,
        file pins in task context before publishing EXITED. IRQs cannot schedule
        a kernel continuation; no backend callback runs under the update lock. */
     cpu_interrupt_enable();
+    terminal_session_exit(current->id);
     if (process_handles_destroy(&current->process->handles)) cpu_halt();
     (void)cpu_interrupt_save();
     /* Abandon the complete descendant tree before publishing the parent's
@@ -1044,6 +1047,15 @@ bool task_current_cancelled(void)
 bool task_current_owns_console(void)
 {
     return task_current_is_process() && !current->process->orphaned && console_owns_input(&current->process->console);
+}
+uint32_t task_console_owner_id(void)
+{
+    if (!ready) return 0;
+    uint32_t saved = cpu_interrupt_save(), result = 0;
+    for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].state != TASK_UNUSED && tasks[i].state != TASK_EXITED &&
+        tasks[i].process->kind == TASK_PROCESS && !tasks[i].process->orphaned &&
+        console_owns_input(&tasks[i].process->console)) { result = tasks[i].id; break; }
+    cpu_interrupt_restore(saved); return result;
 }
 
 rum_result_t task_request_termination(rum_pid_t id, bool session)

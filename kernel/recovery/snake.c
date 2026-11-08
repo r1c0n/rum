@@ -2,7 +2,7 @@
 #include <rum/fs.h>
 #include <rum/serial.h>
 #include <rum/snake.h>
-#include <rum/snake_model.h>
+#include "../../apps/snake/model.h"
 #include <rum/terminal.h>
 
 #define LEFT 19u

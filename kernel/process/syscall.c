@@ -13,7 +13,7 @@
 #include <rum/pipe.h>
 #include <rum/process.h>
 #include <rum/serial.h>
-#include <rum/snake.h>
+#include <rum/terminal_session.h>
 #include <rum/syscall.h>
 #include <rum/task.h>
 #include <rum/abi/job.h>
@@ -76,7 +76,7 @@ static rum_result_t transfer(struct paging_space *space, struct process_handles 
     if (write && !paging_copy_from_user(space, buffer, address, chunk)) return -RUM_EFAULT;
     if (handle->kind == HANDLE_OUTPUT) {
         if (!task_switch_hold()) return -RUM_EBUSY;
-        terminal_write(buffer, chunk);
+        if (terminal_session_output(task_current_id())) terminal_write(buffer, chunk);
         for (unsigned i = 0; i < chunk; ++i) {
             if (buffer[i] == '\n') serial_putchar('\r');
             serial_putchar(buffer[i]);
@@ -454,6 +454,108 @@ static rum_result_t replace_file(struct paging_space *space, uint32_t address)
     return error;
 }
 
+static rum_result_t terminal_events(struct rum_terminal_event *events, uint32_t capacity, uint32_t milliseconds)
+{
+    uint32_t ticks;
+    if (!timer_duration_ticks(milliseconds, &ticks)) return -RUM_ERANGE;
+    uint32_t deadline = timer_ticks() + ticks;
+    for (;;) {
+        if (task_current_cancelled()) return -RUM_EINTR;
+        if (!terminal_session_owned(task_current_id())) return -RUM_EACCES;
+        struct task_event *event = keyboard_input_event();
+        uint32_t observed = task_event_sequence(event), count = 0;
+        char c;
+        while (count < capacity && keyboard_read(&c)) {
+            events[count++] = (struct rum_terminal_event){ .type = RUM_TERM_TEXT_EVENT,
+                .value = (unsigned char)c, .tick = timer_ticks() };
+        }
+        if (count) return (rum_result_t)count;
+        if (!milliseconds) return 0;
+        uint32_t now = timer_ticks();
+        if (timer_deadline_reached(now, deadline)) return 0;
+        if (task_wait_for(event, observed, deadline - now) == TASK_WAIT_INVALID) return -RUM_EBUSY;
+    }
+}
+static rum_result_t terminal_control(struct paging_space *space, uint32_t address)
+{
+    struct rum_terminal_request request;
+    if (!accessible(space, address, sizeof request, true) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    unsigned op = request.operation;
+    if (request.version != RUM_TERMINAL_ABI_VERSION || request.size != sizeof request ||
+        op < RUM_TERM_QUERY || op > RUM_TERM_READ || request.now_ticks || request.reserved[0] || request.reserved[1])
+        return -RUM_EINVAL;
+    uint32_t bytes = 0; bool output = false;
+    if (op == RUM_TERM_QUERY) {
+        if (request.flags || request.x || request.y || request.count || request.timeout_ms) return -RUM_EINVAL;
+        bytes = sizeof(struct rum_terminal_capabilities); output = true;
+    } else if (op == RUM_TERM_CELLS) {
+        if (request.flags || request.timeout_ms || request.x >= TERMINAL_WIDTH || request.y >= TERMINAL_HEIGHT ||
+            request.count > RUM_TERM_MAX_CELLS || request.count > TERMINAL_WIDTH - request.x) return -RUM_EINVAL;
+        bytes = request.count * sizeof(struct rum_terminal_cell);
+    } else if (op == RUM_TERM_READ) {
+        if (request.flags || request.x || request.y || !request.count || request.count > RUM_TERM_MAX_EVENTS)
+            return -RUM_EINVAL;
+        if (request.timeout_ms > RUM_TERM_MAX_WAIT_MS) return -RUM_ERANGE;
+        bytes = request.count * sizeof(struct rum_terminal_event); output = true;
+    } else {
+        if (request.data || request.count || request.timeout_ms) return -RUM_EINVAL;
+        if (op == RUM_TERM_CURSOR) {
+            if (request.flags > 1 || request.x >= TERMINAL_WIDTH || request.y >= TERMINAL_HEIGHT) return -RUM_EINVAL;
+        } else if (op == RUM_TERM_COLOR) {
+            if (request.flags || request.x > 15 || request.y > 15) return -RUM_EINVAL;
+        } else if (request.flags || request.x || request.y) return -RUM_EINVAL;
+    }
+    if (bytes && (!accessible(space, request.data, bytes, output) ||
+        (output && (uint64_t)request.data < (uint64_t)address + sizeof request &&
+         (uint64_t)address < (uint64_t)request.data + bytes))) return -RUM_EFAULT;
+    if (!process_filesystem_context()) return -RUM_EBUSY;
+    uint32_t id = task_current_id();
+    rum_result_t result = 0;
+    if (op == RUM_TERM_QUERY) {
+        struct terminal_state state = terminal_state();
+        struct rum_terminal_capabilities caps = { .version = RUM_TERMINAL_ABI_VERSION, .size = sizeof caps,
+            .width = TERMINAL_WIDTH, .height = TERMINAL_HEIGHT, .max_cells = RUM_TERM_MAX_CELLS,
+            .max_events = RUM_TERM_MAX_EVENTS, .tick_hz = TIMER_HZ, .ticks = timer_ticks(), .features = RUM_TERM_FEATURES,
+            .mode = terminal_session_owner() ? RUM_TERM_ACTIVE | (terminal_session_owned(id) ? RUM_TERM_OWNED : 0) : 0,
+            .cursor_x = state.x, .cursor_y = state.y, .foreground = state.foreground,
+            .background = state.background, .cursor_visible = state.visible };
+        if (!paging_copy_to_user(space, request.data, &caps, sizeof caps)) cpu_halt();
+    } else if (op == RUM_TERM_BEGIN) {
+        struct process_handles *handles = task_current_handles();
+        struct process_handle *in = process_handle_get(handles, RUM_STDIN), *out = process_handle_get(handles, RUM_STDOUT);
+        if (!task_current_owns_console() || !in || !out || in->kind != HANDLE_INPUT || out->kind != HANDLE_OUTPUT)
+            return -RUM_EACCES;
+        result = terminal_session_begin(id);
+    } else {
+        if (!terminal_session_owned(id)) return -RUM_EACCES;
+        if (op == RUM_TERM_END) result = terminal_session_end(id);
+        else if (op == RUM_TERM_CURSOR) {
+            (void)terminal_cursor_at(request.x, request.y); terminal_cursor_visible(request.flags != 0);
+        } else if (op == RUM_TERM_COLOR) {
+            terminal_set_color((enum vga_color)request.x, (enum vga_color)request.y);
+        } else if (op == RUM_TERM_CELLS) {
+            struct rum_terminal_cell cells[RUM_TERM_MAX_CELLS];
+            if (bytes && !paging_copy_from_user(space, cells, request.data, bytes)) return -RUM_EFAULT;
+            /* Validate the complete row before the first framebuffer update. */
+            for (uint32_t i = 0; i < request.count; ++i)
+                if (cells[i].character < 32 || cells[i].character > 126 || cells[i].foreground > 15 ||
+                    cells[i].background > 15 || cells[i].reserved) return -RUM_EINVAL;
+            for (uint32_t i = 0; i < request.count; ++i)
+                (void)terminal_put_at(request.x + i, request.y, (char)cells[i].character,
+                    (enum vga_color)cells[i].foreground, (enum vga_color)cells[i].background);
+        } else if (op == RUM_TERM_READ) {
+            struct rum_terminal_event events[RUM_TERM_MAX_EVENTS];
+            result = terminal_events(events, request.count, request.timeout_ms);
+            if (result > 0 && !paging_copy_to_user(space, request.data, events, (uint32_t)result * sizeof events[0])) cpu_halt();
+        }
+    }
+    if (result < 0) return result;
+    request.now_ticks = timer_ticks();
+    if (!paging_copy_to_user(space, address, &request, sizeof request)) cpu_halt();
+    return result;
+}
+
 static rum_result_t console_action(uint32_t action, uint32_t reserved1, uint32_t reserved2)
 {
     if (reserved1 || reserved2 || action > RUM_CONSOLE_SNAKE) return -RUM_EINVAL;
@@ -465,19 +567,7 @@ static rum_result_t console_action(uint32_t action, uint32_t reserved1, uint32_t
         if (!task_switch_release()) cpu_halt();
         return 0;
     }
-    if (!snake_start(timer_ticks())) return -RUM_ENOMEM;
-    while (snake_active()) {
-        uint32_t observed = task_event_sequence(task_work_event());
-        if (task_current_cancelled()) {
-            snake_receive('q', timer_ticks());
-            task_cancel_current_if_requested();
-        }
-        char key;
-        while (keyboard_read(&key)) snake_receive(key == '\x03' ? 'q' : key, timer_ticks());
-        snake_tick(timer_ticks());
-        if (snake_active()) (void)task_wait(task_work_event(), observed);
-    }
-    return 0;
+    return -RUM_ENOSYS; /* Snake is an ELF; the kernel game is recovery-only. */
 }
 
 void syscall_dispatch(struct exception_frame *frame)
@@ -489,6 +579,7 @@ void syscall_dispatch(struct exception_frame *frame)
     }
     /* The gate protects frame construction. No FS callback runs with IF clear. */
     cpu_interrupt_enable();
+    terminal_session_reconcile();
     task_cancel_current_if_requested();
     struct paging_space *space = task_current_process_space();
     struct process_handles *handles = task_current_handles();
@@ -500,6 +591,8 @@ void syscall_dispatch(struct exception_frame *frame)
         result = transfer(space, handles, frame->ebx, frame->ecx, frame->edx, frame->eax == RUM_SYS_WRITE); break;
     case RUM_SYS_OPEN: result = open_file(space, handles, frame->ebx); break;
     case RUM_SYS_CLOSE: result = process_handle_close(handles, frame->ebx); break;
+    case RUM_SYS_TERMINAL:
+        result = frame->ecx || frame->edx ? -RUM_EINVAL : terminal_control(space, frame->ebx); break;
     case RUM_SYS_JOB:
         result = frame->ecx || frame->edx ? -RUM_EINVAL : job_control(space, frame->ebx); break;
     case RUM_SYS_ISATTY: {
@@ -542,5 +635,6 @@ void syscall_dispatch(struct exception_frame *frame)
     default: result = -RUM_ENOSYS; break;
     }
     frame->eax = (uint32_t)result;
+    terminal_session_reconcile();
     task_exit_shell_if_requested();
 }

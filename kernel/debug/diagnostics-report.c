@@ -87,6 +87,8 @@ void diagnostics_render(const struct kernel_diagnostics *snapshot, diagnostics_w
     decimal(write, snapshot->jobs.running); write(" running, ");
     decimal(write, snapshot->jobs.completed); write(" completed, ");
     decimal(write, snapshot->jobs.operations); write(" active waits\n");
+    if (snapshot->terminal_owner) { write("Terminal: interactive, task "); decimal(write, snapshot->terminal_owner); write("\n"); }
+    else write("Terminal: normal\n");
     write("Pipes: "); decimal(write, snapshot->pipes.pipes); write(" live, ");
     decimal(write, snapshot->pipes.buffered_bytes); write(" buffered bytes | ");
     decimal(write, snapshot->pipes.readers); write(" read ends, ");

@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* Pure game state shared by independently linked user and recovery builds. */
 #define SNAKE_WIDTH 40u
 #define SNAKE_HEIGHT 16u
 #define SNAKE_CELLS (SNAKE_WIDTH * SNAKE_HEIGHT)

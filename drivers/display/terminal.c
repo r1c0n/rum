@@ -9,6 +9,7 @@ static volatile uint16_t *const buffer = (volatile uint16_t *)0xB8000;
 static size_t row;
 static size_t column;
 static uint8_t color;
+static bool cursor_visible;
 
 static uint16_t entry(char character)
 {
@@ -58,6 +59,7 @@ void terminal_initialize(void)
     outb(0x3D5, 14);
     outb(0x3D4, 0x0B);
     outb(0x3D5, 15);
+    cursor_visible = true;
     update_cursor();
 }
 
@@ -130,6 +132,30 @@ bool terminal_put_at(size_t x, size_t y, char character,
 
 void terminal_cursor_visible(bool visible)
 {
+    cursor_visible = visible;
     outb(0x3D4, 0x0A);
     outb(0x3D5, visible ? 14 : 14 | 0x20);
+}
+
+struct terminal_state terminal_state(void)
+{
+    return (struct terminal_state){ .x = column, .y = row, .foreground = color & 15,
+        .background = color >> 4, .visible = cursor_visible };
+}
+bool terminal_cursor_at(uint32_t x, uint32_t y)
+{
+    if (x >= TERMINAL_WIDTH || y >= TERMINAL_HEIGHT) return false;
+    column = x; row = y; update_cursor(); return true;
+}
+void terminal_capture(struct terminal_snapshot *snapshot)
+{
+    for (unsigned i = 0; i < TERMINAL_WIDTH * TERMINAL_HEIGHT; ++i) snapshot->cells[i] = buffer[i];
+    snapshot->state = terminal_state();
+}
+void terminal_restore(const struct terminal_snapshot *snapshot)
+{
+    for (unsigned i = 0; i < TERMINAL_WIDTH * TERMINAL_HEIGHT; ++i) buffer[i] = snapshot->cells[i];
+    terminal_set_color((enum vga_color)snapshot->state.foreground, (enum vga_color)snapshot->state.background);
+    (void)terminal_cursor_at(snapshot->state.x, snapshot->state.y);
+    terminal_cursor_visible(snapshot->state.visible);
 }

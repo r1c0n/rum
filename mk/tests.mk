@@ -1,4 +1,34 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
+.PHONY: test-terminal-host test-terminal
+build/tests/terminal-session-test: tests/terminal-session-test.c kernel/io/terminal.c drivers/display/terminal.c kernel/include/rum/terminal_session.h kernel/include/rum/terminal.h $(ABI_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Itests/handles-include -Itests/include -Ikernel/include -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror $(filter %.c,$^) -o $@
+
+test-terminal-host: build/tests/terminal-session-test build/tests/console-test build/tests/snake-test build/tests/abi-test build/tests/timer-test
+	./build/tests/terminal-session-test
+	./build/tests/console-test
+	./build/tests/snake-test
+	./build/tests/abi-test
+	./build/tests/timer-test
+
+build/tests/user/terminal.o: tests/terminal-user.c $(USER_INCLUDE_STAMP) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+
+build/tests/user/terminal.debug.elf: build/tests/user/terminal.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+
+build/tests/user/terminal.elf: build/tests/user/terminal.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@
+	build/tools/check-user-elf $@ $<
+
+test-terminal: all test-terminal-host build/tests/user/terminal.elf
+	python3 tests/terminal-qemu-test.py --qemu $(QEMU)
+
+test-host: build/tests/terminal-session-test
+test-build: build/tests/terminal-session-test
+test-build: build/tests/user/terminal.elf
+TEST_DEPENDENCIES += build/tests/user/terminal.d
 .PHONY: test-jobs-host test-jobs
 build/tests/jobs-test: tests/jobs-test.c kernel/process/jobs.c kernel/include/rum/jobs.h $(ABI_HEADERS)
 	@mkdir -p $(@D)
@@ -6,6 +36,7 @@ build/tests/jobs-test: tests/jobs-test.c kernel/process/jobs.c kernel/include/ru
 
 test-jobs-host: build/tests/jobs-test build/tests/session-test build/tests/shell-parse-test build/tests/abi-test
 	./build/tests/jobs-test
+	./build/tests/terminal-session-test
 	./build/tests/session-test
 	./build/tests/shell-parse-test
 	./build/tests/abi-test
@@ -69,8 +100,8 @@ TEST_DEPENDENCIES := $(FAULT_OBJECTS:.o=.d) $(PAGING_OBJECTS:.o=.d) $(CPU_OBJECT
 STORAGE_HOST_SOURCES := kernel/mm/heap.c kernel/fs/path.c kernel/fs/fs-types.c kernel/core/memory.c tests/page-backend.c tests/fs-backend.c kernel/fs/fs.c
 TEST_DEPENDENCIES += build/tests/fs-kernel.d build/tests/fs-checks.d build/tests/fs-backend.d
 STORAGE_HOST_HEADERS := kernel/include/rum/heap.h tests/test-files.h kernel/include/rum/fs.h kernel/include/rum/path.h kernel/include/rum/fs_types.h kernel/include/rum/fs_limits.h $(ABI_HEADERS) kernel/include/rum/paging.h kernel/include/rum/pmm.h kernel/include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
-SNAKE_HOST_SOURCES := kernel/recovery/snake.c kernel/recovery/snake_model.c
-SNAKE_HOST_HEADERS := kernel/include/rum/snake.h kernel/include/rum/snake_model.h kernel/include/rum/timer.h
+SNAKE_HOST_SOURCES := kernel/recovery/snake.c apps/snake/model.c
+SNAKE_HOST_HEADERS := kernel/include/rum/snake.h apps/snake/model.h kernel/include/rum/timer.h
 ABI_CASES := args limits hello
 ABI_KERNELS := $(addprefix build/tests/abi-,$(addsuffix .elf,$(ABI_CASES)))
 ABI_OBJECTS := $(ABI_KERNELS:.elf=.o)
@@ -566,7 +597,7 @@ build/tests/storage-test: tests/storage-test.c tests/storage-checks.c tests/stor
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
-build/tests/snake-test: tests/snake-test.c kernel/recovery/snake_model.c kernel/include/rum/snake_model.h kernel/include/rum/memory.h
+build/tests/snake-test: tests/snake-test.c apps/snake/model.c apps/snake/model.h
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
