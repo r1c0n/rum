@@ -19,6 +19,11 @@
 #define RUM_OPEN_CREATE 2u /* Create a missing regular file; requires write. */
 #define RUM_OPEN_TRUNCATE 4u /* Empty an existing unpinned file; requires write. */
 #define RUM_OPEN_APPEND 8u /* Every write selects EOF and writes under one FS operation. */
+#define RUM_OPEN_EXCLUSIVE 16u /* Requires CREATE; refuse any existing object. */
+#define RUM_METADATA_ABI_VERSION 1u
+#define RUM_STAT_HANDLE 1u
+#define RUM_INFO_READ_ONLY_VOLUME 1u
+#define RUM_RENAME_REPLACE 1u /* Explicitly replace a closed regular file. */
 #define RUM_SEEK_SET 0
 #define RUM_SEEK_CUR 1
 #define RUM_SEEK_END 2
@@ -28,6 +33,27 @@
 
 #ifndef __ASSEMBLER__
 #include <stddef.h>
+/* Output only. Identity is opaque, mount-scoped and reusable after deletion;
+   compare it while an open handle pins the object. No wall clock is exposed. */
+struct rum_file_information {
+    uint32_t version, size, kind, flags, size_lo, size_hi;
+    uint32_t volume, generation, object_lo, object_hi, reserved[2];
+};
+struct rum_stat_request {
+    uint32_t version, size;
+    rum_address_t path;
+    rum_handle_t handle;
+    uint32_t flags;
+    rum_address_t data;
+    uint32_t reserved[2];
+};
+struct rum_rename_request {
+    uint32_t version, size;
+    rum_address_t source, destination;
+    uint32_t flags, reserved;
+};
+_Static_assert(sizeof(struct rum_file_information) == 48 && sizeof(struct rum_stat_request) == 32 &&
+               sizeof(struct rum_rename_request) == 24, "metadata ABI layout");
 /* Duplicates share the open description. An explicit target is atomically
    replaced on success; source == target only changes descriptor flags. */
 struct rum_duplicate_request {

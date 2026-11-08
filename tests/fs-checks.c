@@ -26,6 +26,28 @@ void fs_checks(void)
     fs_check(fs_stat_path(NULL, "/missing/../DOCS", &info) == FS_NOT_FOUND &&
              fs_stat_path(NULL, "/ROOT.TXT/..", &info) == FS_NOT_DIRECTORY, "semantic traversal");
     fs_check(fs_context_chdir(&cwd, "../../..") == FS_OK, "root cannot escape");
+    fs_check(fs_replace(NULL, "/FROM.TXT", "abc", 3) == FS_OK && fs_replace(NULL, "/TO.TXT", "z", 1) == FS_OK,
+             "rename setup");
+    unsigned calls = fs_test_backend_calls();
+    fs_check(fs_rename(NULL, "/FROM.TXT", "/BAD?.TXT", false) == FS_INVALID &&
+             fs_test_backend_calls() == calls, "validate both paths before backend access");
+    fs_check(fs_open_flags(NULL, "/FROM.TXT", FS_WRITE, FS_OPEN_EXCLUSIVE, &file) == FS_INVALID &&
+             fs_open_flags(NULL, "/FROM.TXT", FS_WRITE, FS_OPEN_CREATE | FS_OPEN_EXCLUSIVE | FS_OPEN_TRUNCATE, &file) == FS_EXISTS,
+             "exclusive create rejects before truncation");
+    fs_check(fs_rename(NULL, "/FROM.TXT", "/from.txt", false) == FS_INVALID &&
+             fs_rename(NULL, "/FROM.TXT", "/TO.TXT", false) == FS_EXISTS &&
+             fs_rename(NULL, "/FROM.TXT", "/MISSING/../NEW.TXT", false) == FS_NOT_FOUND,
+             "same identity, overwrite refusal and semantic destination traversal");
+    fs_check(fs_open(NULL, "/FROM.TXT", FS_READ, &file) == FS_OK &&
+             fs_rename(NULL, "/FROM.TXT", "/NEW.TXT", false) == FS_BUSY && fs_close(file) == FS_OK,
+             "open source blocks rename");
+    fs_check(fs_open(NULL, "/TO.TXT", FS_READ, &file) == FS_OK &&
+             fs_rename(NULL, "/FROM.TXT", "/TO.TXT", true) == FS_BUSY && fs_close(file) == FS_OK,
+             "open destination blocks replacement");
+    fs_check(fs_rename(NULL, "/FROM.TXT", "/TO.TXT", true) == FS_OK &&
+             fs_stat_path(NULL, "/TO.TXT", &info) == FS_OK && info.size == 3 && !info.read_only_volume &&
+             fs_stat_path(NULL, "/FROM.TXT", &info) == FS_NOT_FOUND && fs_remove(NULL, "/TO.TXT") == FS_OK,
+             "rename replaces the destination and preserves metadata");
     fs_check(fs_context_destroy(&cwd) == FS_OK && fs_stats().references == baseline.references, "context cleanup");
     fs_check(fs_open(NULL, "/", FS_READ, &file) == FS_OK && fs_unmount_disk() == FS_BUSY, "open root pins mount");
     uint64_t cursor = 0; struct fs_entry entry;

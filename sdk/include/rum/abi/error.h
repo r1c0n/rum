@@ -32,5 +32,6 @@
 #define RUM_EPIPE 27 /* A nonempty pipe write has no remaining reader. */
 #define RUM_ESPIPE 28 /* This object does not support seeking. */
 #define RUM_EJOBFULL 29 /* Collect completed jobs before creating more. */
+#define RUM_EXDEV 30 /* A rename cannot cross filesystem mounts. */
 
 #endif

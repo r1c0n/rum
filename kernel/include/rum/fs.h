@@ -24,6 +24,9 @@ struct fs_operations {
        no reentry or disk I/O; release backend-owned caches here if needed. */
     void (*unmount)(void *);
     enum fs_error (*truncate)(void *, uint64_t id, uint64_t size);
+    /* Regular files only; no retained source/destination. replace is explicit. */
+    enum fs_error (*rename)(void *, uint64_t from_parent, const char *from,
+                           uint64_t to_parent, const char *to, bool replace);
 };
 struct fs_backend {
     const struct fs_operations *operations;
@@ -33,7 +36,7 @@ struct fs_backend {
     bool read_only;
 };
 struct fs_identity { enum fs_mount_id mount; uint32_t generation; uint64_t object; };
-struct fs_information { struct fs_identity identity; enum fs_kind kind; uint64_t size; };
+struct fs_information { struct fs_identity identity; enum fs_kind kind; uint64_t size; bool read_only_volume; };
 typedef uint64_t fs_reference; /* Kernel token, not a public process handle. */
 struct fs_context { fs_reference directory; char path[FS_PATH_CAPACITY]; };
 struct fs_statistics { uint32_t objects, references, mounts; };
@@ -50,6 +53,7 @@ enum fs_error fs_open(const struct fs_context *, const char *path, unsigned acce
 #define FS_OPEN_CREATE 2u
 #define FS_OPEN_TRUNCATE 4u
 #define FS_OPEN_APPEND 8u
+#define FS_OPEN_EXCLUSIVE 16u /* Requires CREATE; existing objects return EXISTS. */
 enum fs_error fs_open_flags(const struct fs_context *, const char *, unsigned access, unsigned flags, fs_reference *);
 enum fs_error fs_duplicate(fs_reference, fs_reference *);
 enum fs_error fs_close(fs_reference);
@@ -68,6 +72,7 @@ enum fs_error fs_flush(fs_reference);
 enum fs_error fs_replace(const struct fs_context *, const char *, const void *, size_t);
 enum fs_error fs_remove(const struct fs_context *, const char *);
 enum fs_error fs_mkdir(const struct fs_context *, const char *);
+enum fs_error fs_rename(const struct fs_context *, const char *source, const char *destination, bool replace);
 /* Initialize/clone into a zeroed context. Changes acquire a new directory
    reference before releasing the old one. Destroy once at owner teardown. */
 enum fs_error fs_context_initialize(struct fs_context *);
