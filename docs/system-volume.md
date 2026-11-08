@@ -34,6 +34,11 @@ Existing paths, including symlinks, are refused. Normal startup never formats,
 truncates, replaces or prepares an image. `create-disk` remains a separate
 low-level helper that creates a blank raw image without a filesystem.
 
+After boot, the optional `setup` command creates `/HOME` and `/APPS`. These
+directories are not created by the host preparation script or normal startup.
+See [file tools and workspace](file-tools.md) for copying files and installing
+applications without changing `/RUM`.
+
 ## Files and recovery
 
 Paths are case-insensitive and directory listings use uppercase 8.3 names.

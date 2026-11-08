@@ -23,6 +23,7 @@ the kernel is built as `rum.elf` and packaged in `rum.iso`; an explicitly prepar
 | `drivers/storage/` | ATA PIO storage driver |
 | `sdk/` | Public headers, application runtime, linker script, examples, and validator |
 | `system/` | Userspace shell and standalone command programs |
+| `system/lib/` | Private userspace helpers shared by command ELFs, including bounded file copying |
 | `apps/` | Application entry points |
 | `assets/disk/` | Initial system-disk documentation |
 | `tests/` | Host checks, test backends, guest fixtures, and QEMU automation |

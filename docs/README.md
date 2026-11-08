@@ -8,6 +8,7 @@ programs and persistent files. With no usable disk, rum opens recovery.
 
 - [Shell and commands](shell.md)
 - [Files and paths](filesystems.md)
+- [File tools and workspace](file-tools.md)
 - [FAT16 storage and recovery](fat16.md)
 - [VMware and VirtualBox](virtual-machines.md)
 - [Snake](snake.md)

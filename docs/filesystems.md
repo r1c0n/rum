@@ -32,6 +32,11 @@ the same object. Removal and replacement report busy while an open handle or
 working directory retains the target. Process teardown closes all references.
 The root mount cannot be detached while referenced.
 
+Regular-file rename also requires both affected objects to be closed. Its
+default is no overwrite; replacement is explicit. Public metadata queries
+report kind, size and a mount-scoped identity without opening another handle.
+See [file tools](file-tools.md) and [metadata/rename syscalls](filesystem-syscalls.md#metadata-and-rename).
+
 Reads at EOF return zero bytes. Partial I/O returns transferred bytes; errors
 without progress return the translated syscall error. Seek checks arithmetic
 overflow. See [filesystem syscalls](filesystem-syscalls.md).

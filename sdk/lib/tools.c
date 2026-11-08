@@ -51,6 +51,7 @@ void tool_error(const char *command, rum_result_t result)
     case RUM_ESPIPE: message = "stream does not support seeking"; break;
     case RUM_EJOBFULL: message = "job table is full; use wait to collect completed jobs"; break;
     case RUM_EXDEV: message = "paths are on different filesystems"; break;
+    case RUM_ENOSYS: message = "operation is not supported"; break;
     case RUM_EINVAL: message = "invalid path, name or arguments"; break;
     case RUM_ECHILD: message = "no matching child process"; break;
     case RUM_ESRCH: message = "process does not exist"; break;

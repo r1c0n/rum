@@ -100,6 +100,11 @@ bytes and unsupported controls, including a standalone carriage return, are
 escaped; the file stays unchanged. `write` creates or replaces a file with the
 supplied text.
 
+Use `touch`, `cp`, `mv` and `stat` to manage regular files. Copies and moves
+refuse an existing destination unless `-f` is supplied. `setup` explicitly
+creates `/HOME` and `/APPS`; see [file tools and workspace](file-tools.md)
+for examples, read-only/full-media behavior and running copied applications.
+
 ## Programs and processes
 
 Bare command names search `/RUM` first, then the current directory. Explicit
