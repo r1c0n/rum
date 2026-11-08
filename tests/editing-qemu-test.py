@@ -35,8 +35,9 @@ def run(qemu, disk, ram, iso, screen):
             c.command(malformed, "invalid or oversized command.")
         c.command("cat INVALID.TXT", "file or directory not found.")
         c.command("edit inline", "inline ABI verified\r\n")
+        c.command("edit scroll", "scroll ABI verified\r\n")
         c.type("edit keys\n"); terminal.contains(c, "navigation ready\r\n")
-        for key in ("left", "right", "home", "end", "delete", "up", "down"): c.send(key)
+        for key in ("left", "right", "home", "end", "delete", "up", "down", "pgup", "pgdn"): c.send(key)
         c.wait("navigation ABI verified\r\n/> ")
         c.type("echo ac"); c.send("left"); c.type("b"); c.send("end"); submit(c, "abc\r\n")
         c.type("xecho fixed"); c.send("home"); c.send("delete"); c.send("end"); submit(c, "fixed\r\n")
@@ -62,11 +63,22 @@ def run(qemu, disk, ram, iso, screen):
         c.type("echo " + text); c.send("home"); c.send("right"); c.send("delete"); c.type("c")
         c.send("end"); submit(c, text + "\r\n")
         _, rows = terminal.screen(c, screen); assert "uptime:" in rows[24], rows[24]
+        c.command("clear"); c.command("cat SCROLL.TXT", "oldline079\r\n")
+        c.type("echo ac"); c.send("left")
+        live, _ = terminal.screen(c, screen)
+        c.send("pgup")
+        _, old = terminal.wait_screen(c, screen, lambda r: any("oldline040" in row for row in r[:24]))
+        assert not any("/> echo ac" in row for row in old[:24]) and "uptime:" in old[24]
+        c.send("pgdn")
+        restored, _ = terminal.wait_screen(c, screen, lambda r: any(row.rstrip() == "/> echo ac" for row in r[:24]))
+        assert live[:3840] == restored[:3840], "Page Down must restore every live cell"
+        c.send("pgup"); c.type("b"); c.send("end"); submit(c, "abc\r\n")
         # Direct background writes and completion notices preserve a middle cursor.
         for command in ("start edit notice", "edit notice &"):
             start = c.serial.stat().st_size
             c.command(command, "started edit")
             c.type("echo ac"); c.send("left")
+            c.send("pgup")
             terminal.contains(c, "asynchronous output\r\n", start)
             terminal.contains(c, "exited with status 0.", start)
             terminal.wait_screen(c, screen, lambda r: any(row.rstrip() == "/> echo ac" for row in r[:24]))
@@ -82,7 +94,7 @@ def run(qemu, disk, ram, iso, screen):
     assert images.file_bytes(disk, "/COPY.TXT") == b"a  b  z"
     assert images.file_bytes(disk, "/QUOTED.TXT") == b"a  b  z\n"
     images.audit(disk)
-    print(f"PASS: {ram} MiB shell editing: quoted argv, parse-before-I/O, navigation ABI, history, completion, wrapped lines, asynchronous redraw and cleanup", flush=True)
+    print(f"PASS: {ram} MiB shell editing: quoted argv, parse-before-I/O, navigation/scrollback ABI, history, completion, wrapped lines, asynchronous redraw and cleanup", flush=True)
 
 
 def main():
@@ -92,6 +104,8 @@ def main():
         disk, source, screen = (Path(temporary) / n for n in ("disk.raw", "source", "vga.raw"))
         images.build(disk); images.seed_system(disk, {"EDIT.ELF": ROOT / "build/tests/user/editing.elf"})
         images.command("mmd", "-i", str(disk), "::/DOCS")
+        source.write_bytes(b"".join(f"oldline{i:03d}\n".encode() for i in range(80)))
+        images.command("mcopy", "-i", str(disk), str(source), "::/SCROLL.TXT")
         for path, data in (("/DOCS/NEST.TXT", b"nested completion\n"), ("/SP_CE.TXT", b"literal filename\n"),
                            ("/SP&CE.TXT", b"unsupported FAT spelling\n"),
                            ("/NORTH.TXT", b"other\n")):

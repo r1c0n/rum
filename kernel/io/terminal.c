@@ -20,11 +20,12 @@ static bool task_context(void)
 }
 static void restore(bool forced)
 {
+    terminal_scroll(0);
     if (inline_mode) {
         if (!dirty) terminal_edit_finish();
         terminal_set_color((enum vga_color)saved.state.foreground, (enum vga_color)saved.state.background);
         terminal_cursor_visible(saved.state.visible);
-    } else terminal_restore(&saved);
+    } else { terminal_restore(&saved); terminal_scrollback_enable(true); }
     if (!inline_mode || forced) keyboard_discard_input();
     owner = 0; inline_mode = dirty = false; line_bytes = line_cursor = 0;
     task_event_signal(keyboard_input_event());
@@ -52,10 +53,11 @@ static rum_result_t begin(uint32_t task, bool inline_session)
     terminal_session_reconcile();
     if (!task || task_console_owner_id() != task) return -RUM_EACCES;
     if (owner) return -RUM_EBUSY;
+    terminal_scroll(0);
     if (inline_session) saved.state = terminal_state(); else terminal_capture(&saved);
     owner = task; inline_mode = inline_session; dirty = false; line_bytes = line_cursor = 0;
     if (inline_mode) { terminal_edit_begin(); terminal_cursor_visible(true); }
-    else { terminal_clear(); terminal_cursor_visible(false); }
+    else { terminal_scrollback_enable(false); terminal_clear(); terminal_cursor_visible(false); }
     return 0;
 }
 rum_result_t terminal_session_begin(uint32_t task) { return begin(task, false); }

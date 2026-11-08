@@ -93,6 +93,30 @@ int main(void)
     for (unsigned i = 5; i < sizeof long_line; ++i) assert(character(16 * 80 + 77 + i) == ' ');
     terminal_edit_finish(); assert(terminal_state().x == 2 && terminal_state().y == 17);
     assert(character(24 * 80) == 'u');
+    terminal_initialize(); terminal_status("uptime: scrollback test");
+    terminal_scroll(-1); assert(!terminal_scrolled()); /* Empty history. */
+    for (unsigned i = 0; i < 300; ++i) {
+        char line[8]; snprintf(line, sizeof line, "%03u\n", i);
+        terminal_set_color((enum vga_color)(i % 16), VGA_BLACK); terminal_writestring(line);
+    }
+    assert(character(0) == '2' && character(1) == '7' && character(2) == '7');
+    struct terminal_state state = terminal_state();
+    terminal_scroll(-1); assert(terminal_scrolled());
+    assert(character(0) == '2' && character(1) == '5' && character(2) == '4');
+    assert(screen[0] >> 8 == 254 % 16 && character(24 * 80) == 'u');
+    for (unsigned i = 0; i < 20; ++i) terminal_scroll(-1);
+    assert(character(0) == '0' && character(1) == '2' && character(2) == '1');
+    terminal_writestring("300\n"); /* Evict the oldest row without leaving history. */
+    assert(terminal_scrolled() && character(0) == '0' && character(1) == '2' && character(2) == '2');
+    for (unsigned i = 0; i < 20; ++i) terminal_scroll(1);
+    assert(!terminal_scrolled() && character(0) == '2' && character(1) == '7' && character(2) == '8');
+    assert(terminal_state().x == state.x && terminal_state().y == state.y);
+    terminal_scroll(-1); terminal_status("updated while browsing");
+    assert(character(24 * 80) == 'u');
+    terminal_scroll(0); assert(!terminal_scrolled());
+    terminal_clear(); terminal_scroll(-1); /* Clear preserves previous text. */
+    assert(terminal_scrolled() && character(0) == '2' && character(1) == '7' && character(2) == '8');
+    terminal_scroll(0); assert(character(0) == ' ');
     assert(munmap(mapping, 4096) == 0);
     puts("PASS: console newlines, wrapping, colors, tabs, backspace, scrolling");
     return 0;

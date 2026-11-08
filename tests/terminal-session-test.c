@@ -60,6 +60,17 @@ int main(void)
     assert(((volatile uint16_t *)mapped)[80] == 0x076E); /* Background notice remains. */
     assert(!terminal_session_begin_inline(1)); terminal_session_exit(1);
     assert(discarded == 65 && !terminal_session_owner());
+    terminal_initialize();
+    for (unsigned i = 0; i < 50; ++i) terminal_writestring("shell output\n");
+    terminal_scroll(-1); assert(terminal_scrolled());
+    uint16_t history_page[80 * 24]; memcpy(history_page, mapped, sizeof history_page);
+    assert(!terminal_session_begin(1) && !terminal_scrolled());
+    for (unsigned i = 0; i < 300; ++i) terminal_writestring("application canvas\n");
+    assert(!terminal_session_end(1));
+    terminal_scroll(-1); assert(terminal_scrolled());
+    assert(!memcmp(history_page, mapped, sizeof history_page));
+    assert(!terminal_session_begin_inline(1) && !terminal_scrolled());
+    terminal_scroll(-1); terminal_session_exit(1); assert(!terminal_scrolled());
     assert(munmap(mapped, 4096) == 0);
     puts("PASS: terminal snapshot, colors/cursor, status guard, denied contexts, ownership changes and repeated cleanup");
     return 0;

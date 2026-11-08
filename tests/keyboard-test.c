@@ -6,7 +6,7 @@ int main(void)
 {
     struct keyboard_decoder state = {0};
     assert(keyboard_decode(&state, 0x1E) == 'a');
-    const uint8_t navigation[] = {0x4B, 0x4D, 0x48, 0x50, 0x47, 0x4F, 0x53};
+    const uint8_t navigation[] = {0x4B, 0x4D, 0x48, 0x50, 0x47, 0x4F, 0x53, 0x49, 0x51};
     for (unsigned i = 0; i < sizeof navigation; ++i) {
         assert(!keyboard_decode_event(&state, 0xE0));
         assert(keyboard_decode_event(&state, navigation[i]) == RUM_KEY_LEFT + i);

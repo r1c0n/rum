@@ -10,6 +10,10 @@
 #define RUM_TERM_COLOR 6u
 #define RUM_TERM_READ 7u
 #define RUM_TERM_LINE 8u /* Inline-session printable prompt/line and cursor index. */
+#define RUM_TERM_SCROLL 9u /* Inline session: x is LIVE, UP or DOWN. */
+#define RUM_SCROLL_LIVE 0u
+#define RUM_SCROLL_UP 1u
+#define RUM_SCROLL_DOWN 2u
 #define RUM_TERM_INLINE 1u /* BEGIN: preserve output, commit the edited line on END. */
 #define RUM_TERM_MAX_LINE 514u
 #define RUM_TERM_MAX_CELLS 80u
@@ -24,6 +28,8 @@
 #define RUM_KEY_HOME 0x104u
 #define RUM_KEY_END 0x105u
 #define RUM_KEY_DELETE 0x106u
+#define RUM_KEY_PAGEUP 0x107u
+#define RUM_KEY_PAGEDOWN 0x108u
 #define RUM_TERM_FEATURE_CELLS 1u
 #define RUM_TERM_FEATURE_CURSOR 2u
 #define RUM_TERM_FEATURE_COLOR 4u
@@ -31,10 +37,12 @@
 #define RUM_TERM_FEATURE_TIMED_INPUT 16u
 #define RUM_TERM_FEATURE_KEYS 32u
 #define RUM_TERM_FEATURE_LINE 64u
-#define RUM_TERM_FEATURES 127u
+#define RUM_TERM_FEATURE_SCROLLBACK 128u
+#define RUM_TERM_FEATURES 255u
 #define RUM_TERM_ACTIVE 1u
 #define RUM_TERM_OWNED 2u
 #define RUM_TERM_INLINE_MODE 4u
+#define RUM_TERM_SCROLLED 8u /* QUERY: a historical viewport is displayed. */
 #define RUM_COLOR_BLACK 0u
 #define RUM_COLOR_BLUE 1u
 #define RUM_COLOR_GREEN 2u
@@ -67,6 +75,7 @@ struct rum_terminal_event { uint32_t type, value, tick, reserved; };
 /* All unused fields, flags, now_ticks and reserved words must be zero.
    BEGIN: flags 0 (saved full screen) or INLINE (committed editing surface).
    LINE: count <= MAX_LINE printable bytes at data; x is cursor 0..count.
+   SCROLL: x is RUM_SCROLL_LIVE/UP/DOWN; remaining inputs are zero.
    CURSOR: x/y and flags 0/1 for visibility. COLOR: x/y are colors 0..15.
    CELLS: x/y and one row's count. READ: event capacity and timeout_ms.
    QUERY/READ require writable output storage disjoint from the request.

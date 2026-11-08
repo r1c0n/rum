@@ -13,6 +13,7 @@
 rum_result_t rum_terminal_query(struct rum_terminal_capabilities *);
 rum_result_t rum_terminal_begin(void);
 rum_result_t rum_terminal_begin_inline(void);
+rum_result_t rum_terminal_scroll(uint32_t direction);
 rum_result_t rum_terminal_line(const char *, uint32_t bytes, uint32_t cursor);
 rum_result_t rum_terminal_end(void);
 rum_result_t rum_terminal_cells(uint32_t x, uint32_t y, const struct rum_terminal_cell *, uint32_t count);

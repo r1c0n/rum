@@ -153,6 +153,11 @@ int main(int argc, char **argv)
         }
         if (!result) continue;
         if (result != 1) return 1;
+        if (event.type == RUM_TERM_KEY_EVENT && (event.value == RUM_KEY_PAGEUP || event.value == RUM_KEY_PAGEDOWN)) {
+            if (rum_terminal_scroll(event.value == RUM_KEY_PAGEUP ? RUM_SCROLL_UP : RUM_SCROLL_DOWN) < 0) return 1;
+            continue;
+        }
+        if (rum_terminal_scroll(RUM_SCROLL_LIVE) < 0) return 1;
         enum shell_edit_action action = shell_editor_key(&editor, event.value);
         if (action == SHELL_EDIT_ACCEPT) {
             end_line(); tool_print("\n");

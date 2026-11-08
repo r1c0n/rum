@@ -22,6 +22,10 @@ void terminal_restore(const struct terminal_snapshot *);
 void terminal_edit_begin(void);
 void terminal_edit_render(const char *, uint32_t bytes, uint32_t cursor);
 void terminal_edit_finish(void);
+#define TERMINAL_SCROLLBACK_ROWS 256u
+void terminal_scroll(int direction); /* -1: page up, +1: page down, 0: live. */
+bool terminal_scrolled(void);
+void terminal_scrollback_enable(bool enabled);
 
 void terminal_initialize(void);
 void terminal_clear(void);

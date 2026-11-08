@@ -77,6 +77,8 @@ uint32_t keyboard_decode_event(struct keyboard_decoder *state, uint8_t scancode)
         case 0x47: return RUM_KEY_HOME;
         case 0x4F: return RUM_KEY_END;
         case 0x53: return RUM_KEY_DELETE;
+        case 0x49: return RUM_KEY_PAGEUP;
+        case 0x51: return RUM_KEY_PAGEDOWN;
         default: break;
         }
         if (code == 0x1C) return '\n';

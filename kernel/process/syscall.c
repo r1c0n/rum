@@ -487,7 +487,7 @@ static rum_result_t terminal_control(struct paging_space *space, uint32_t addres
         !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
     unsigned op = request.operation;
     if (request.version != RUM_TERMINAL_ABI_VERSION || request.size != sizeof request ||
-        op < RUM_TERM_QUERY || op > RUM_TERM_LINE || request.now_ticks || request.reserved[0] || request.reserved[1])
+        op < RUM_TERM_QUERY || op > RUM_TERM_SCROLL || request.now_ticks || request.reserved[0] || request.reserved[1])
         return -RUM_EINVAL;
     uint32_t bytes = 0; bool output = false;
     if (op == RUM_TERM_QUERY) {
@@ -510,6 +510,8 @@ static rum_result_t terminal_control(struct paging_space *space, uint32_t addres
         if (request.data || request.count || request.timeout_ms) return -RUM_EINVAL;
         if (op == RUM_TERM_CURSOR) {
             if (request.flags > 1 || request.x >= TERMINAL_WIDTH || request.y >= TERMINAL_HEIGHT) return -RUM_EINVAL;
+        } else if (op == RUM_TERM_SCROLL) {
+            if (request.flags || request.y || request.x > RUM_SCROLL_DOWN) return -RUM_EINVAL;
         } else if (op == RUM_TERM_COLOR) {
             if (request.flags || request.x > 15 || request.y > 15) return -RUM_EINVAL;
         } else if (request.x || request.y || (op == RUM_TERM_BEGIN ? request.flags > RUM_TERM_INLINE : request.flags)) return -RUM_EINVAL;
@@ -526,9 +528,9 @@ static rum_result_t terminal_control(struct paging_space *space, uint32_t addres
             .width = TERMINAL_WIDTH, .height = TERMINAL_HEIGHT, .max_cells = RUM_TERM_MAX_CELLS,
             .max_events = RUM_TERM_MAX_EVENTS, .tick_hz = TIMER_HZ, .ticks = timer_ticks(), .features = RUM_TERM_FEATURES,
             .mode = terminal_session_owner() ? RUM_TERM_ACTIVE | (terminal_session_owned(id) ? RUM_TERM_OWNED : 0) |
-                (terminal_session_inline() ? RUM_TERM_INLINE_MODE : 0) : 0,
+                (terminal_session_inline() ? RUM_TERM_INLINE_MODE : 0) | (terminal_scrolled() ? RUM_TERM_SCROLLED : 0) : 0,
             .cursor_x = state.x, .cursor_y = state.y, .foreground = state.foreground,
-            .background = state.background, .cursor_visible = state.visible };
+            .background = state.background, .cursor_visible = state.visible && !terminal_scrolled() };
         if (!paging_copy_to_user(space, request.data, &caps, sizeof caps)) cpu_halt();
     } else if (op == RUM_TERM_BEGIN) {
         struct process_handles *handles = task_current_handles();
@@ -539,6 +541,10 @@ static rum_result_t terminal_control(struct paging_space *space, uint32_t addres
     } else {
         if (!terminal_session_owned(id)) return -RUM_EACCES;
         if (op == RUM_TERM_END) result = terminal_session_end(id);
+        else if (op == RUM_TERM_SCROLL) {
+            if (!terminal_session_inline()) return -RUM_EACCES;
+            terminal_scroll(request.x == RUM_SCROLL_UP ? -1 : request.x == RUM_SCROLL_DOWN ? 1 : 0);
+        }
         else if (op == RUM_TERM_LINE) {
             if (!terminal_session_inline()) return -RUM_EACCES;
             char text[RUM_TERM_MAX_LINE];
