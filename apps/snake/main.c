@@ -145,10 +145,11 @@ int main(int argc, char **argv)
         if (!quit) result = render();
     }
     save_best();
+    if (result >= 0) tool_print("rum_snake_quit\n");
     rum_result_t ended = rum_terminal_end();
     if (result < 0 || ended < 0) { tool_error("snake", result < 0 ? result : ended); return 1; }
     tool_print("Snake score: "); tool_number((int32_t)snake_model_score(&model));
     tool_print(" | best: "); tool_number((int32_t)best); tool_print("\n");
     if (save_failed) tool_print("Best score could not be saved to disk.\n");
-    tool_print("rum_snake_quit\n"); return 0;
+    return 0;
 }

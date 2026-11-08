@@ -67,7 +67,9 @@ def play(console, path):
         if i: console.send(key)
         wait_screen(console, path, lambda r: r[5 + target[1]][20 + target[0]] == "@", timeout=3)
     contains(console, "snake: score=1\r\n")
-    console.send("q"); console.wait("rum_snake_quit\r\n/> ")
+    console.send("q"); contains(console, "rum_snake_quit\r\n"); console.wait("/> ")
+    _, restored = screen(console, path)
+    assert not any("rum_snake_" in row for row in restored), "\n".join(restored)
 
 
 def run(qemu, disk, ram, iso, path):
@@ -116,7 +118,7 @@ def run(qemu, disk, ram, iso, path):
         console.send("p"); contains(console, "rum_snake_paused\r\n")
         _, rows = wait_screen(console, path, lambda r: "Paused." in r[22])
         assert rows[2][42] == "1", rows[2]
-        console.send("q"); console.wait("rum_snake_quit\r\n/> ")
+        console.send("q"); contains(console, "rum_snake_quit\r\n"); console.wait("/> ")
     print(f"PASS: {ram} MiB terminal: invalid packets, input/canvas guards, fault/cancel restoration, user Snake under CPU load and rebooted score", flush=True)
 
 
