@@ -180,6 +180,13 @@ rum_result_t rum_command_text(char *text, rum_size_t capacity)
 {
     return rum_syscall3(RUM_SYS_COMMAND_TEXT, (rum_address_t)(uintptr_t)text, capacity, 0);
 }
+rum_result_t rum_run_argv_command(const char *path, const struct rum_arguments *arguments, struct rum_process_result *result)
+{
+    struct rum_command_request request = { RUM_COMMAND_ARGV_VERSION, sizeof request,
+        (rum_address_t)(uintptr_t)path, (rum_address_t)(uintptr_t)arguments,
+        (rum_address_t)(uintptr_t)result, RUM_RUN_COMMAND, 0, 0 };
+    return rum_syscall3(RUM_SYS_RUN, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
 rum_result_t rum_session(uint32_t action, const char *path)
 {
     return rum_syscall3(RUM_SYS_SESSION, action, (rum_address_t)(uintptr_t)path, 0);

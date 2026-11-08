@@ -113,15 +113,15 @@ rum_result_t process_spawn_with_handles(const char *path, const struct rum_argum
 }
 
 static rum_result_t run_foreground(const char *path, const struct rum_arguments *arguments,
-                                   const char *command_text, struct process_result *result)
+                                   const char *command_text, bool command, struct process_result *result)
 {
     if (!result) return -RUM_EINVAL;
-    if (command_text && !task_current_is_shell()) return -RUM_EACCES;
+    if (command && !task_current_is_shell()) return -RUM_EACCES;
     *result = (struct process_result){0};
     task_id child;
     rum_result_t error = process_start_foreground(path, arguments, &child);
     if (error) return error;
-    if (command_text && !task_mark_shell_command(child, command_text)) cpu_halt();
+    if (command && !task_mark_shell_command(child, command_text)) cpu_halt();
     struct task_information info;
     if (!task_query(child, &info)) cpu_halt();
     error = task_wait_child(info.process_id, false, &info);
@@ -133,14 +133,18 @@ static rum_result_t run_foreground(const char *path, const struct rum_arguments 
 
 rum_result_t process_run_foreground(const char *path, const struct rum_arguments *arguments, struct process_result *result)
 {
-    return run_foreground(path, arguments, NULL, result);
+    return run_foreground(path, arguments, NULL, false, result);
 }
 
 rum_result_t process_run_command(const char *path, const struct rum_arguments *arguments,
                                 const char *text, struct process_result *result)
 {
     if (!text) return -RUM_EINVAL;
-    return run_foreground(path, arguments, text, result);
+    return run_foreground(path, arguments, text, true, result);
+}
+rum_result_t process_run_argv_command(const char *path, const struct rum_arguments *arguments, struct process_result *result)
+{
+    return run_foreground(path, arguments, NULL, true, result);
 }
 
 static bool add_argument(struct rum_arguments *packet, const char *text, size_t bytes)

@@ -50,6 +50,7 @@ rum_result_t rum_process_list(struct rum_process_entry *, uint32_t capacity, uin
 rum_result_t rum_replace(const char *, const void *, rum_size_t);
 rum_result_t rum_console(uint32_t);
 rum_result_t rum_run_command(const char *, const struct rum_arguments *, const char *, struct rum_process_result *);
+rum_result_t rum_run_argv_command(const char *, const struct rum_arguments *, struct rum_process_result *);
 rum_result_t rum_command_text(char *, rum_size_t);
 rum_result_t rum_session(uint32_t action, const char *path);
 

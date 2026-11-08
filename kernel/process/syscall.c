@@ -200,9 +200,11 @@ static rum_result_t run_child(struct paging_space *space, uint32_t address)
     struct rum_process_result output;
     if (!accessible(space, address, sizeof request, false) ||
         !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
-    bool command = request.version == RUM_COMMAND_ABI_VERSION;
+    bool text_command = request.version == RUM_COMMAND_ABI_VERSION;
+    bool argv_command = request.version == RUM_COMMAND_ARGV_VERSION;
+    bool command = text_command || argv_command;
     if (request.size != sizeof request || request.reserved[1] ||
-        (command ? request.flags != RUM_RUN_COMMAND :
+        (argv_command && request.reserved[0]) || (command ? request.flags != RUM_RUN_COMMAND :
          request.version != RUM_PROCESS_ABI_VERSION || request.flags || request.reserved[0])) return -RUM_EINVAL;
     if (command && !task_current_is_shell()) return -RUM_EACCES;
     if (!accessible(space, request.result, sizeof output, true) ||
@@ -213,7 +215,7 @@ static rum_result_t run_child(struct paging_space *space, uint32_t address)
     rum_result_t error = copy_path(space, request.path, path);
     if (error) return error;
     char text[RUM_COMMAND_TEXT_CAPACITY];
-    if (command) {
+    if (text_command) {
         /* Empty tails are valid; every byte must be printable shell input. */
         unsigned i;
         for (i = 0; i < sizeof text; ++i) {
@@ -233,7 +235,8 @@ static rum_result_t run_child(struct paging_space *space, uint32_t address)
     if (!paging_copy_from_user(space, arguments, request.arguments, sizeof *arguments)) error = -RUM_EFAULT;
     else if (!elf_arguments_valid(arguments)) error = -RUM_EINVAL;
     struct process_result result;
-    if (!error) error = command ? process_run_command(path, arguments, text, &result) :
+    if (!error) error = argv_command ? process_run_argv_command(path, arguments, &result) :
+                                text_command ? process_run_command(path, arguments, text, &result) :
                                 process_run_foreground(path, arguments, &result);
     (void)kfree(arguments);
     if (error) return error;

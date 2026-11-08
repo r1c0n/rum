@@ -43,54 +43,38 @@ static void prompt(void)
 
 static void execute(char *line)
 {
-    for (unsigned i = 0; line[i]; ++i) if (line[i] == '<' || line[i] == '>' || line[i] == '|' || line[i] == '&') {
-        struct shell_pipeline plan;
-        rum_result_t result = shell_parse_pipeline(line, &plan);
-        if (result < 0) tool_print("shell: invalid or oversized pipeline.\n");
-        else shell_run_pipeline(&plan);
-        return;
-    }
-    char *tail = line, *argv[RUM_ABI_ARGUMENT_LIMIT];
-    char *command = tool_word(&tail);
-    if (!command) return;
-    /* Session controls must remain available if the disk can no longer load
-       a command. Both use the public exit ABI and require no filesystem I/O. */
+    unsigned first = 0;
+    while (line[first] == ' ' || line[first] == '\t') ++first;
+    if (!line[first]) return;
+    struct shell_pipeline plan;
+    rum_result_t result = shell_parse_pipeline(line, &plan);
+    if (result < 0) { tool_print("shell: invalid or oversized command.\n"); return; }
+    struct shell_stage *stage = &plan.stages[0];
+    if (plan.count != 1 || stage->redirect_count || plan.background) { shell_run_pipeline(&plan); return; }
+    char *command = stage->argv[0];
     if (equal(command, "exit") || equal(command, "recovery")) {
-        if (*tool_remainder(tail)) { tool_print("Usage: "); tool_print(command); tool_print("\n"); return; }
+        if (stage->argc != 1) { tool_print("Usage: "); tool_print(command); tool_print("\n"); return; }
         rum_exit(equal(command, "recovery") ? RUM_SHELL_RECOVERY_STATUS : 0);
     }
-    int background = equal(command, "start");
-    unsigned slot = 0;
+    int background = equal(command, "start"); unsigned slot = 0;
     if (background) {
-        command = tool_word(&tail);
-        if (!command) { tool_print("Usage: start <program> [arguments]\n"); return; }
+        if (stage->argc == 1) { tool_print("Usage: start <program> [arguments]\n"); return; }
+        --stage->argc;
+        for (unsigned i = 0; i < stage->argc; ++i) stage->argv[i] = stage->argv[i + 1];
+        command = stage->argv[0];
         while (slot < RUM_PROCESS_LIST_LIMIT && children[slot].pid) ++slot;
         if (slot == RUM_PROCESS_LIST_LIMIT) { tool_print("start: too many owned processes.\n"); return; }
     }
-    char text[RUM_COMMAND_TEXT_CAPACITY];
-    tail = tool_remainder(tail);
-    unsigned size = tool_length(tail);
-    for (unsigned i = 0; i <= size; ++i) text[i] = tail[i];
-    int argc = 1;
-    argv[0] = command;
-    char *argument;
-    while ((argument = tool_word(&tail))) {
-        if (argc == RUM_ABI_ARGUMENT_LIMIT) { tool_error("shell", -RUM_E2BIG); return; }
-        argv[argc++] = argument;
-    }
-    struct rum_arguments arguments;
-    char path[RUM_ABI_PATH_CAPACITY];
-    rum_result_t result = tool_arguments(&arguments, argc, argv);
+    struct rum_arguments arguments; char path[RUM_ABI_PATH_CAPACITY];
+    result = tool_arguments(&arguments, (int)stage->argc, stage->argv);
     if (!result) result = tool_program_path(command, path);
     struct rum_process_result child = { .version = RUM_PROCESS_ABI_VERSION, .size = sizeof child };
     if (!result) {
-        result = background ? rum_spawn(path, &arguments) : rum_run_command(path, &arguments, text, &child);
-        /* Bare names search /rum first, then the working directory. Explicit
-           paths bypass the search. The kernel supplies the optional .elf suffix. */
+        result = background ? rum_spawn(path, &arguments) : rum_run_argv_command(path, &arguments, &child);
         if (result == -RUM_ENOENT) {
             int slash = 0;
-            for (unsigned i = 0; command[i]; ++i) if (command[i] == '/') slash = 1;
-            if (!slash) result = background ? rum_spawn(command, &arguments) : rum_run_command(command, &arguments, text, &child);
+            for (unsigned i = 0; command[i]; ++i) slash |= command[i] == '/';
+            if (!slash) result = background ? rum_spawn(command, &arguments) : rum_run_argv_command(command, &arguments, &child);
         }
     }
     if (result < 0) tool_error(command, result);

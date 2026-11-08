@@ -17,6 +17,8 @@ struct shell_pipeline {
     char text[RUM_COMMAND_TEXT_CAPACITY];
     struct shell_stage stages[SHELL_PIPELINE_LIMIT];
 };
+struct shell_completion_context { unsigned start, end; int command; char prefix[RUM_COMMAND_TEXT_CAPACITY]; };
+rum_result_t shell_completion_context(const char *, unsigned cursor, struct shell_completion_context *);
 /* No mutations or syscalls until the complete bounded grammar is accepted. */
 rum_result_t shell_parse_pipeline(const char *, struct shell_pipeline *);
 void shell_run_pipeline(struct shell_pipeline *);

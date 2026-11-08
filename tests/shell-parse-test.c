@@ -15,13 +15,23 @@ int main(int argc, char **argv)
     assert(plan.stages[0].argc == 2 && plan.stages[0].redirect_count == 2 &&
            !strcmp(plan.stages[0].argv[1], "hello"));
     const char *invalid[] = {"", " ", "| cat", "cat |", "cat || cat", "cat >", "cat >>>out",
-        "cat <<in", ">out", "cat <| cat", "echo 'word' | cat", "echo a& | cat", "echo a; | cat"};
+        "cat <<in", ">out", "cat <| cat", "echo 'word", "echo a& | cat", "echo a; | cat", "echo trailing\\", "\"\""};
     for (unsigned i = 0; i < sizeof invalid / sizeof invalid[0]; ++i)
         assert(shell_parse_pipeline(invalid[i], &plan) == -RUM_EINVAL);
     assert(!shell_parse_pipeline("cat|cat|cat|cat", &plan) && plan.count == SHELL_PIPELINE_LIMIT);
     assert(!shell_parse_pipeline("cat<IN.BIN|cat>OUT.BIN& ", &plan) && plan.background && plan.count == 2);
     assert(!shell_parse_pipeline("spin&", &plan) && plan.background && plan.count == 1);
     assert(!shell_parse_pipeline("echo hi", &plan) && !plan.background);
+    assert(!shell_parse_pipeline("echo '' \"\" a\" b\"' c' \\| \"x>y&z\"", &plan));
+    assert(plan.stages[0].argc == 6 && !*plan.stages[0].argv[1] && !*plan.stages[0].argv[2]);
+    assert(!strcmp(plan.stages[0].argv[3], "a b c") && !strcmp(plan.stages[0].argv[4], "|") &&
+           !strcmp(plan.stages[0].argv[5], "x>y&z"));
+    assert(!shell_parse_pipeline("cat \"/DOCS/NOTE.TXT\" >'OUT.TXT'", &plan));
+    assert(!strcmp(plan.stages[0].argv[1], "/DOCS/NOTE.TXT"));
+    struct shell_completion_context context;
+    assert(!shell_completion_context("cat \"DO", 7, &context) && !context.command && !strcmp(context.prefix, "DO"));
+    assert(!shell_completion_context("run he", 6, &context) && context.command);
+    assert(!shell_completion_context("echo > DO", 9, &context) && !context.command && context.start == 7);
     assert(shell_parse_pipeline("spin&echo no", &plan) == -RUM_EINVAL);
     assert(shell_parse_pipeline("spin&&", &plan) == -RUM_EINVAL);
     assert(shell_parse_pipeline("&", &plan) == -RUM_EINVAL);

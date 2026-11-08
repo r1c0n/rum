@@ -110,12 +110,13 @@ rum_result_t tool_program_path(const char *program, char path[RUM_ABI_PATH_CAPAC
 }
 rum_result_t tool_text(char text[RUM_COMMAND_TEXT_CAPACITY], int argc, char **argv)
 {
-    rum_result_t result = rum_command_text(text, RUM_COMMAND_TEXT_CAPACITY);
-    if (result >= 0) return 0;
-    if (result != -RUM_EACCES) return result;
+    return tool_join(text, 1, argc, argv);
+}
+rum_result_t tool_join(char text[RUM_COMMAND_TEXT_CAPACITY], int first, int argc, char **argv)
+{
     unsigned used = 0;
-    for (int i = 1; i < argc; ++i) {
-        if (i > 1) { if (used == RUM_COMMAND_TEXT_CAPACITY - 1) return -RUM_E2BIG; text[used++] = ' '; }
+    for (int i = first; i < argc; ++i) {
+        if (i > first) { if (used == RUM_COMMAND_TEXT_CAPACITY - 1) return -RUM_E2BIG; text[used++] = ' '; }
         for (unsigned j = 0; argv[i][j]; ++j) {
             if (used == RUM_COMMAND_TEXT_CAPACITY - 1) return -RUM_E2BIG;
             text[used++] = argv[i][j];
