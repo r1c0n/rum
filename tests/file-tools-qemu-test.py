@@ -59,6 +59,8 @@ def run(qemu, disk, ram, iso):
         c.command("mv -f /HOME/OTHER.BIN TARGET.BIN", "file or directory is in use.")
         c.command("touch TARGET.BIN")
         c.command(f"kill {pid}", "Cancellation requested")
+        c.command("sync")
+        c.command("sync extra", "Usage: sync")
         c.command("recovery", "Kernel recovery shell."); diag = c.command("diag")
         assert "Handles: 0 descriptors, 0 open descriptions, 0 aliases" in diag and "Processes: 0 | 0 user tables, 0 user pages" in diag, diag
     state = images.audit(disk)
@@ -92,6 +94,7 @@ def main():
             disk.write_bytes(original); run(args.qemu, disk, ram, iso)
         disk.write_bytes(original)
         with shell.boot(args.qemu, 16, "file-tools-readonly", disk=disk, options="rum.disk-readonly") as c:
+            c.command("sync")
             c.command("touch TARGET.BIN")
             c.command("stat TARGET.BIN", "Volume: read-only")
             for command in ("touch NEW.BIN", "cp TARGET.BIN NEW.BIN", "mv TARGET.BIN NEW.BIN", "setup"):
@@ -107,6 +110,7 @@ def main():
             c.command("cp TARGET.BIN NEW.BIN", "filesystem is full.")
             c.command("mv TARGET.BIN /FULL/MOVED.BIN", "filesystem is full.")
             c.command("mv TARGET.BIN RENAMED.BIN")
+            c.command("sync")
             c.command("echo usable", "usable\r\n")
         images.audit(disk)
         assert images.file_bytes(disk, "/RENAMED.BIN") == bytes((i * 17 + 3) & 255 for i in range(1537))
