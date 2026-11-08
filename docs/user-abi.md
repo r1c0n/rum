@@ -83,8 +83,10 @@ Program exited with status 0.
 Program exited with status -37.
 ```
 
-The shell treats spaces and tabs as argument separators and does not implement
-quotes or escapes. The typed program name becomes `argv[0]`. Bare names resolve
+The shell treats unquoted spaces and tabs as argument separators. It supports
+single/double quotes, backslash escapes and empty arguments; see
+[shell syntax](shell.md#quotes-and-arguments). Programs receive decoded `argv`
+without reparsing the source line. The typed program name becomes `argv[0]`. Bare names resolve
 in `/rum` first, then the working directory; paths containing `/` use the working directory or absolute root.
 If the exact filename is absent, the loader tries `.elf`.
 

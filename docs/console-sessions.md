@@ -48,7 +48,8 @@ requests continue to target the cancelling owner until it relinquishes input.
 ## Shell commands and restart
 
 Only the interactive shell can grant command authority through
-`rum_run_command`. That grant belongs to its direct foreground child and the
+`rum_run_argv_command` (or the legacy `rum_run_command`). That grant belongs to
+its direct foreground child and the
 same referenced session. While the shell waits for that command, it may request
 a shell directory change, exit or recovery. Ordinary `RUN` children, spawned
 children and nested commands cannot change the shell's state. A process can

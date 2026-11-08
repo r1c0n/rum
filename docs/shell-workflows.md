@@ -23,7 +23,9 @@ Spaces around operators are optional. Names and paths follow the usual FAT
 the program name, and eight redirections across a line. The input line limit is
 255 bytes. A malformed or oversized line starts no process and opens no file.
 End a command or pipeline with `&` to run it as a [background job](jobs.md).
-Quoting, descriptor prefixes such as `2>` and shell expansion are not supported.
+[Quotes and escapes](shell.md#quotes-and-arguments) preserve literal operators
+and empty arguments through the same parser used for plain commands.
+Descriptor prefixes such as `2>` and shell expansion are not supported.
 
 ## Bytes and errors
 

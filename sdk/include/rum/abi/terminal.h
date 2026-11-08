@@ -59,11 +59,14 @@ struct rum_terminal_capabilities {
     uint32_t features, mode, cursor_x, cursor_y, foreground, background, cursor_visible;
 };
 struct rum_terminal_cell { uint8_t character, foreground, background, reserved; };
-/* Decoded character press; tick records dequeue time, not hardware arrival.
+/* TEXT_EVENT holds decoded ASCII; KEY_EVENT holds a RUM_KEY_* navigation press.
+   Tick records dequeue time, not hardware arrival.
    Ctrl+C follows session policy: foreground children are cancelled; the
    supervised shell receives value 3 instead of being terminated. */
 struct rum_terminal_event { uint32_t type, value, tick, reserved; };
 /* All unused fields, flags, now_ticks and reserved words must be zero.
+   BEGIN: flags 0 (saved full screen) or INLINE (committed editing surface).
+   LINE: count <= MAX_LINE printable bytes at data; x is cursor 0..count.
    CURSOR: x/y and flags 0/1 for visibility. COLOR: x/y are colors 0..15.
    CELLS: x/y and one row's count. READ: event capacity and timeout_ms.
    QUERY/READ require writable output storage disjoint from the request.
