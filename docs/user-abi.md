@@ -166,6 +166,8 @@ callee-saved registers.
 | 27 | `rum_isatty(handle)` | Descriptor; remaining registers zero | 1 console, 0 other, or negative error |
 | 28 | `rum_job_*` | Writable versioned job-control packet; bounded output entries | Job ID, count, completion or zero according to operation; see [jobs](jobs.md) |
 | 29 | `rum_terminal_*` | Writable versioned terminal packet; bounded cell/event buffers | Zero, input count or timeout; see [terminal API](terminal.md) |
+| 30 | `rum_stat(path, info)` / `rum_fstat(handle, info)` | Versioned metadata packet and writable information output | Zero; type, size, volume mode and opaque identity |
+| 31 | `rum_rename(source, destination, flags)` | Versioned rename packet; optional explicit replacement | Zero; same-backend regular files only |
 
 Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
 means success. A negative result is the negation of a `RUM_E*` value from

@@ -7,7 +7,7 @@ const char *fs_error_name(enum fs_error error)
         "not a directory", "is a directory", "already exists", "directory not empty",
         "path too long", "name too long", "path too deep", "mount traversal",
         "offset range", "access mode", "read only", "busy", "out of memory", "out of space",
-        "unsupported operation", "I/O error", "timeout", "device fault"
+        "unsupported operation", "I/O error", "timeout", "device fault", "different filesystems"
     };
     return (unsigned)error < sizeof(names) / sizeof(names[0]) ? names[error] : "unknown error";
 }

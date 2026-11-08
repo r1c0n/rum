@@ -77,7 +77,7 @@ attaches the underlying IDE image normally. It does not change host permissions.
 | Subdirectory | At most 65,536 slots, including deleted and other skipped entries |
 | Names | Common layer's uppercase ASCII 8.3 subset |
 | Reads | Explicit offsets, partial-sector reads, fragmented chains, empty files, and EOF |
-| Mutations | Create, replace, overwrite, append, truncate, delete, mkdir, and empty-directory removal |
+| Mutations | Create, replace, overwrite, append, truncate, delete, regular-file rename, mkdir, and empty-directory removal |
 | Writable-tree audit | At most 65,536 scanned slots across the tree; directory depth at most 16 |
 
 FAT type comes from the derived data-cluster count rather than the boot-sector
@@ -219,6 +219,37 @@ count together with the error. Inspect both fields. `fs_replace`, `fs_truncate`,
 and namespace operations return an error without a byte count; an error after
 publication can mean that the new state reached disk. Failure before any
 attempted write leaves the mount usable and its allocations unchanged.
+
+## Rename ordering
+
+Rename requires closed regular files and rejects read-only attributes or
+associated long-name entries on either affected file. It preserves the source
+contents, attributes and timestamps. A new name in the same directory rewrites
+only the source entry's 11 name bytes and flushes; no directory slot or data
+cluster is allocated, even on full media.
+
+For a move into another directory or an explicit replacement:
+
+1. If the destination directory must grow, zero its new cluster and flush,
+   then persist and flush both FAT copies before publishing the new entry.
+2. Write the destination entry pointing at the source chain and flush.
+3. Mark the source entry deleted and flush.
+4. For replacement, free the old destination chain in both FAT copies and
+   flush each copy. The source data chain itself is never freed or copied.
+
+A power loss between steps 2 and 3 can leave two names pointing at the same
+chain. Replacement can also strand the old destination chain; interrupted
+growth or torn directory/FAT sectors can require host repair. This is not an
+atomic rename or a crash-safe replacement. A reported error can occur after
+the name changed on disk. The existing faulted-mount policy stops further I/O
+after a potentially mutating write failure; it does not undo the operation.
+All slot and sector writes remain bounded by the declared volume.
+
+`make test-rename-host` checks in-place rename, directory moves, replacement
+and directory growth with 512/1024-byte clusters. It validates successful images
+with mtools and an independent chain audit, then injects torn writes and failed
+flushes at every stage. The repair observations are recorded in
+`build/test-artifacts/file-tools/rename-failures.json`.
 
 ## Kernel use and lifetime
 

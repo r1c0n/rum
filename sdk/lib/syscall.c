@@ -56,6 +56,24 @@ rum_result_t rum_terminal_read(struct rum_terminal_event *events, uint32_t capac
     return result;
 }
 
+rum_result_t rum_stat(const char *path, struct rum_file_information *output)
+{
+    struct rum_stat_request request = { .version = RUM_METADATA_ABI_VERSION, .size = sizeof request,
+        .path = (rum_address_t)(uintptr_t)path, .data = (rum_address_t)(uintptr_t)output };
+    return rum_syscall3(RUM_SYS_STAT, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
+rum_result_t rum_fstat(rum_handle_t handle, struct rum_file_information *output)
+{
+    struct rum_stat_request request = { .version = RUM_METADATA_ABI_VERSION, .size = sizeof request,
+        .handle = handle, .flags = RUM_STAT_HANDLE, .data = (rum_address_t)(uintptr_t)output };
+    return rum_syscall3(RUM_SYS_STAT, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
+rum_result_t rum_rename(const char *source, const char *destination, uint32_t flags)
+{
+    struct rum_rename_request request = { RUM_METADATA_ABI_VERSION, sizeof request,
+        (rum_address_t)(uintptr_t)source, (rum_address_t)(uintptr_t)destination, flags, 0 };
+    return rum_syscall3(RUM_SYS_RENAME, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
 rum_result_t rum_pipe(struct rum_pipe_request *request)
 {
     return rum_syscall3(RUM_SYS_PIPE, (rum_address_t)(uintptr_t)request, 0, 0);

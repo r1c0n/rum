@@ -10,7 +10,7 @@ static struct process_handle descriptions[OPEN_DESCRIPTIONS];
 
 _Static_assert(RUM_OPEN_READ == FS_READ && RUM_OPEN_WRITE == FS_WRITE, "access bits");
 _Static_assert(RUM_OPEN_CREATE == FS_OPEN_CREATE && RUM_OPEN_TRUNCATE == FS_OPEN_TRUNCATE &&
-               RUM_OPEN_APPEND == FS_OPEN_APPEND, "open option bits");
+               RUM_OPEN_APPEND == FS_OPEN_APPEND && RUM_OPEN_EXCLUSIVE == FS_OPEN_EXCLUSIVE, "open option bits");
 _Static_assert(RUM_ABI_HANDLE_LIMIT == 32 && RUM_SPAWN_MAPPING_LIMIT <= 32,
                "mapping conflict bitmap covers every descriptor");
 
@@ -41,6 +41,7 @@ rum_result_t process_fs_error(enum fs_error error)
     case FS_NO_MEMORY: return -RUM_ENOMEM;
     case FS_NO_SPACE: return -RUM_ENOSPC;
     case FS_UNSUPPORTED: return -RUM_ENOSYS;
+    case FS_CROSS_DEVICE: return -RUM_EXDEV;
     case FS_TIMEOUT: return -RUM_ETIMEDOUT;
     case FS_IO_ERROR: case FS_DEVICE_FAULT: return -RUM_EIO;
     }
@@ -125,7 +126,8 @@ rum_result_t process_handle_open(struct process_handles *table, const struct fs_
                                  const char *path, unsigned access, unsigned flags)
 {
     if (!table || !path || !access || (access & ~(FS_READ | FS_WRITE)) ||
-        (flags & ~(RUM_OPEN_DIRECTORY | RUM_OPEN_CREATE | RUM_OPEN_TRUNCATE | RUM_OPEN_APPEND)) ||
+        (flags & ~(RUM_OPEN_DIRECTORY | RUM_OPEN_CREATE | RUM_OPEN_TRUNCATE | RUM_OPEN_APPEND | RUM_OPEN_EXCLUSIVE)) ||
+        ((flags & RUM_OPEN_EXCLUSIVE) && !(flags & RUM_OPEN_CREATE)) ||
         ((flags & RUM_OPEN_DIRECTORY) && (access != FS_READ || flags != RUM_OPEN_DIRECTORY)) ||
         ((flags & ~RUM_OPEN_DIRECTORY) && !(access & FS_WRITE))) return -RUM_EINVAL;
     unsigned slot = 3;

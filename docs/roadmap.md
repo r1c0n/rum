@@ -330,26 +330,35 @@ ELF/16 MiB and GRUB ISO/64 MiB. Tests use disposable disks.
 
 ### 7. File tools and persistent workspace
 
-- [ ] Add `touch`, `cp`, `mv`, and `stat` programs with clear overwrite rules,
+- [x] Add `touch`, `cp`, `mv`, and `stat` programs with clear overwrite rules,
   checked sizes, and public filesystem error messages.
-- [ ] Add public metadata queries and same-backend regular-file rename where
+- [x] Add public metadata queries and same-backend regular-file rename where
   required by those tools. Document rename write ordering and interruption
   windows without promising crash-safe replacement.
-- [ ] Make `touch` preserve existing contents and define its timestamp
+- [x] Make `touch` preserve existing contents and define its timestamp
   behavior within the capabilities of the current filesystem and clock.
-- [ ] Prevent accidental self-copy and define open-object, read-only, and
+- [x] Prevent accidental self-copy and define open-object, read-only, and
   destination-exists behavior before mutation.
-- [ ] Keep cross-mount moves explicit: copy and flush successfully before
+- [x] Keep cross-mount moves explicit: copy and flush successfully before
   deleting the source, and report partial outcomes honestly.
-- [ ] Provide an opt-in setup command for `/HOME` and `/APPS`. Never
+- [x] Provide an opt-in setup command for `/HOME` and `/APPS`. Never
   create, format, or replace a user disk as a side effect of normal boot.
-- [ ] Document how to run copied applications without making `/rum` writable
+- [x] Document how to run copied applications without making `/rum` writable
   or searching user-controlled directories ahead of system tools by default.
 
 Test empty and multi-cluster files, exact binary copies, naming limits,
 cross-mount failures, busy files, overwrite refusal, and full media. Validate
 renames and copied bytes with host FAT tools after QEMU exits. Directory moves
 and general crash recovery are not required.
+
+See [file tools and workspace](file-tools.md), [metadata and rename
+syscalls](filesystem-syscalls.md#metadata-and-rename), and
+[FAT rename ordering](fat16.md#rename-ordering). Run
+`./rum test --suite file-tools -j4` for focused host and QEMU checks. The host
+checks model explicit cross-volume copy moves; current QEMU boots expose one
+FAT16 root. Successful disk mutations are checked with host FAT tools and
+independent allocation audits, and copied applications are launched after a
+separate reboot. All images are disposable.
 
 ### 8. 0.6.0 integration and release
 

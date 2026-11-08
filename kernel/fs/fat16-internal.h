@@ -50,4 +50,5 @@ enum fs_error fat16_remove_node(void *, uint64_t, const char *);
 enum fs_error fat16_mkdir_node(void *, uint64_t, const char *);
 enum fs_error fat16_flush(void *);
 enum fs_error fat16_truncate_file(void *, uint64_t, uint64_t);
+enum fs_error fat16_rename_file(void *, uint64_t, const char *, uint64_t, const char *, bool);
 #endif

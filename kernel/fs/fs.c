@@ -141,7 +141,8 @@ static struct fs_information information(const struct location *location)
 {
     const struct fs_node *node = &location->nodes[location->depth];
     return (struct fs_information){ .identity = { location->mount, mounts[location->mount].generation, node->id },
-                                    .kind = node->kind, .size = node->size };
+                                    .kind = node->kind, .size = node->size,
+                                    .read_only_volume = mounts[location->mount].backend.read_only };
 }
 
 static bool retained(enum fs_mount_id mount, uint64_t id)
@@ -255,7 +256,8 @@ enum fs_error fs_open_flags(const struct fs_context *context, const char *path, 
                             unsigned flags, fs_reference *result)
 {
     if (!result || !access || (access & ~(FS_READ | FS_WRITE)) ||
-        (flags & ~(FS_OPEN_CREATE | FS_OPEN_TRUNCATE | FS_OPEN_APPEND)) ||
+        (flags & ~(FS_OPEN_CREATE | FS_OPEN_TRUNCATE | FS_OPEN_APPEND | FS_OPEN_EXCLUSIVE)) ||
+        ((flags & FS_OPEN_EXCLUSIVE) && !(flags & FS_OPEN_CREATE)) ||
         (flags && !(access & FS_WRITE))) return FS_INVALID;
     *result = 0;
     struct fs_path plan;
@@ -263,6 +265,7 @@ enum fs_error fs_open_flags(const struct fs_context *context, const char *path, 
     if (error != FS_OK || (error = enter()) != FS_OK) return error;
     struct location location;
     error = resolve(context, &plan, plan.input.count, &location);
+    if (error == FS_OK && (flags & FS_OPEN_EXCLUSIVE)) { leave(); return FS_EXISTS; }
     if (error == FS_NOT_FOUND && (flags & FS_OPEN_CREATE) && plan.input.count && !plan.input.directory) {
         error = resolve(context, &plan, plan.input.count - 1, &location);
         if (error == FS_OK) {
@@ -525,6 +528,50 @@ enum fs_error fs_replace(const struct fs_context *context, const char *path, con
 }
 enum fs_error fs_remove(const struct fs_context *context, const char *path) { return mutate(context, path, NULL, 0, REMOVE); }
 enum fs_error fs_mkdir(const struct fs_context *context, const char *path) { return mutate(context, path, NULL, 0, MKDIR); }
+
+enum fs_error fs_rename(const struct fs_context *context, const char *source, const char *destination, bool replace)
+{
+    /* Parse both complete paths before the first backend lookup. Keep original
+       traversal semantics: missing/../name is still missing. */
+    struct fs_path from, to;
+    enum fs_error error = preflight(context, source, &from);
+    if (error == FS_OK) error = preflight(context, destination, &to);
+    if (error != FS_OK) return error;
+    if (!from.input.count || !to.input.count || from.input.directory || to.input.directory) return FS_INVALID;
+    const char *old = from.input.text + from.input.offsets[from.input.count - 1];
+    const char *name = to.input.text + to.input.offsets[to.input.count - 1];
+    if (equal(old, ".") || equal(old, "..") || equal(name, ".") || equal(name, "..")) return FS_INVALID;
+    error = enter();
+    if (error != FS_OK) return error;
+    struct location parent, target;
+    error = resolve(context, &from, from.input.count - 1, &parent);
+    if (error == FS_OK) error = resolve(context, &to, to.input.count - 1, &target);
+    if (error == FS_OK && parent.mount != target.mount) error = FS_CROSS_DEVICE;
+    if (error == FS_OK && (parent.nodes[parent.depth].kind != FS_DIRECTORY || target.nodes[target.depth].kind != FS_DIRECTORY))
+        error = FS_NOT_DIRECTORY;
+    if (error == FS_OK) {
+        struct fs_backend *backend = &mounts[parent.mount].backend;
+        struct fs_node node = {0}, existing = {0};
+        if (backend->read_only) error = FS_READ_ONLY;
+        else error = backend->operations->lookup(backend->context, parent.nodes[parent.depth].id, old, &node);
+        if (error == FS_OK && !valid_node(&node)) error = FS_IO_ERROR;
+        if (error == FS_OK && node.kind != FS_FILE) error = FS_IS_DIRECTORY;
+        if (error == FS_OK && retained(parent.mount, node.id)) error = FS_BUSY;
+        if (error == FS_OK) {
+            error = backend->operations->lookup(backend->context, target.nodes[target.depth].id, name, &existing);
+            if (error == FS_OK) {
+                if (!valid_node(&existing)) error = FS_IO_ERROR;
+                else if (existing.id == node.id) error = FS_INVALID;
+                else if (!replace) error = FS_EXISTS;
+                else if (existing.kind != FS_FILE) error = FS_IS_DIRECTORY;
+                else if (retained(parent.mount, existing.id)) error = FS_BUSY;
+            } else if (error == FS_NOT_FOUND) error = FS_OK;
+        }
+        if (error == FS_OK) error = backend->operations->rename ? backend->operations->rename(backend->context,
+            parent.nodes[parent.depth].id, old, target.nodes[target.depth].id, name, replace) : FS_UNSUPPORTED;
+    }
+    leave(); return error;
+}
 
 enum fs_error fs_context_initialize(struct fs_context *context)
 {

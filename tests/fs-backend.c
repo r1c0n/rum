@@ -183,8 +183,21 @@ static enum fs_error truncate_node(void *context, uint64_t id, uint64_t size)
     if (size > node->size) memset((node->large ? node->large : node->data) + node->size, 0, size - node->size);
     node->size = (size_t)size; return FS_OK;
 }
+static enum fs_error rename_node(void *context, uint64_t old_parent, const char *old,
+                                 uint64_t parent, const char *name, bool replace_existing)
+{
+    (void)context; ++calls; ++data_calls;
+    if (fs_test_backend_failure != FS_OK) return fs_test_backend_failure;
+    struct node *source = by_name(old_parent, old), *target = by_name(parent, name);
+    if (!source) return FS_NOT_FOUND;
+    if (source->pins || (target && target->pins)) return FS_BUSY;
+    if (target && !replace_existing) return FS_EXISTS;
+    if (target) { if (target->large) (void)kfree(target->large); *target = (struct node){0}; }
+    size_t n = 0; while (name[n]) ++n;
+    source->parent = parent; memcpy(source->name, name, n + 1); return FS_OK;
+}
 static const struct fs_operations operations = {
-    lookup, stat_node, retain, release, read_node, write_node, replace, remove_node, mkdir_node, readdir_node, flush, NULL, truncate_node
+    lookup, stat_node, retain, release, read_node, write_node, replace, remove_node, mkdir_node, readdir_node, flush, NULL, truncate_node, rename_node
 };
 static const struct fs_backend backend = { .operations = &operations, .root = 1, .naming = FS_NAMES_FAT83 };
 

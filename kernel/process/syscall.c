@@ -97,7 +97,8 @@ static rum_result_t open_file(struct paging_space *space, struct process_handles
         !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
     if (request.version != RUM_FS_ABI_VERSION || request.size != sizeof request || request.reserved ||
         !request.access || (request.access & ~(RUM_OPEN_READ | RUM_OPEN_WRITE)) ||
-        (request.flags & ~(RUM_OPEN_DIRECTORY | RUM_OPEN_CREATE | RUM_OPEN_TRUNCATE | RUM_OPEN_APPEND)) ||
+        (request.flags & ~(RUM_OPEN_DIRECTORY | RUM_OPEN_CREATE | RUM_OPEN_TRUNCATE | RUM_OPEN_APPEND | RUM_OPEN_EXCLUSIVE)) ||
+        ((request.flags & RUM_OPEN_EXCLUSIVE) && !(request.flags & RUM_OPEN_CREATE)) ||
         ((request.flags & RUM_OPEN_DIRECTORY) && (request.access != RUM_OPEN_READ || request.flags != RUM_OPEN_DIRECTORY)) ||
         ((request.flags & ~RUM_OPEN_DIRECTORY) && !(request.access & RUM_OPEN_WRITE))) return -RUM_EINVAL;
     char path[RUM_ABI_PATH_CAPACITY];
@@ -105,6 +106,54 @@ static rum_result_t open_file(struct paging_space *space, struct process_handles
     return error ? error : process_handle_open(table, task_current_filesystem(), path, request.access, request.flags);
 }
 
+static rum_result_t file_information(struct paging_space *space, struct process_handles *table, uint32_t address)
+{
+    struct rum_stat_request request;
+    if (!accessible(space, address, sizeof request, false) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    if (request.version != RUM_METADATA_ABI_VERSION || request.size != sizeof request ||
+        request.flags > RUM_STAT_HANDLE || request.reserved[0] || request.reserved[1] ||
+        (request.flags ? request.path != 0 : request.handle != 0)) return -RUM_EINVAL;
+    if (!accessible(space, request.data, sizeof(struct rum_file_information), true) ||
+        ((uint64_t)request.data < (uint64_t)address + sizeof request &&
+         (uint64_t)address < (uint64_t)request.data + sizeof(struct rum_file_information))) return -RUM_EFAULT;
+    struct process_handle *handle = NULL; char path[RUM_ABI_PATH_CAPACITY];
+    if (request.flags) {
+        handle = process_handle_get(table, request.handle);
+        if (!handle || (handle->kind != HANDLE_FILE && handle->kind != HANDLE_DIRECTORY)) return -RUM_EBADF;
+    } else {
+        rum_result_t error = copy_path(space, request.path, path);
+        if (error) return error;
+    }
+    if (!process_filesystem_context()) return -RUM_EBUSY;
+    struct fs_information info;
+    enum fs_error error = handle ? fs_stat(handle->reference, &info) : fs_stat_path(task_current_filesystem(), path, &info);
+    if (error != FS_OK) return process_fs_error(error);
+    struct rum_file_information output = {
+        .version = RUM_METADATA_ABI_VERSION, .size = sizeof output,
+        .kind = info.kind == FS_FILE ? RUM_ENTRY_FILE : RUM_ENTRY_DIRECTORY,
+        .flags = info.read_only_volume ? RUM_INFO_READ_ONLY_VOLUME : 0,
+        .size_lo = (uint32_t)info.size, .size_hi = (uint32_t)(info.size >> 32),
+        .volume = (uint32_t)info.identity.mount + 1, .generation = info.identity.generation,
+        .object_lo = (uint32_t)info.identity.object, .object_hi = (uint32_t)(info.identity.object >> 32)
+    };
+    if (!paging_copy_to_user(space, request.data, &output, sizeof output)) cpu_halt();
+    return 0;
+}
+static rum_result_t rename_file(struct paging_space *space, uint32_t address)
+{
+    struct rum_rename_request request;
+    if (!accessible(space, address, sizeof request, false) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    if (request.version != RUM_METADATA_ABI_VERSION || request.size != sizeof request ||
+        (request.flags & ~RUM_RENAME_REPLACE) || request.reserved) return -RUM_EINVAL;
+    char source[RUM_ABI_PATH_CAPACITY], destination[RUM_ABI_PATH_CAPACITY];
+    rum_result_t error = copy_path(space, request.source, source);
+    if (!error) error = copy_path(space, request.destination, destination);
+    if (error) return error;
+    if (!process_filesystem_context()) return -RUM_EBUSY;
+    return process_fs_error(fs_rename(task_current_filesystem(), source, destination, request.flags != 0));
+}
 static rum_result_t create_pipe(struct paging_space *space, struct process_handles *table, uint32_t address)
 {
     struct rum_pipe_request request;
@@ -612,6 +661,10 @@ void syscall_dispatch(struct exception_frame *frame)
     case RUM_SYS_READ: case RUM_SYS_WRITE:
         result = transfer(space, handles, frame->ebx, frame->ecx, frame->edx, frame->eax == RUM_SYS_WRITE); break;
     case RUM_SYS_OPEN: result = open_file(space, handles, frame->ebx); break;
+    case RUM_SYS_STAT:
+        result = frame->ecx || frame->edx ? -RUM_EINVAL : file_information(space, handles, frame->ebx); break;
+    case RUM_SYS_RENAME:
+        result = frame->ecx || frame->edx ? -RUM_EINVAL : rename_file(space, frame->ebx); break;
     case RUM_SYS_CLOSE: result = process_handle_close(handles, frame->ebx); break;
     case RUM_SYS_TERMINAL:
         result = frame->ecx || frame->edx ? -RUM_EINVAL : terminal_control(space, frame->ebx); break;

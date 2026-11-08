@@ -493,3 +493,59 @@ enum fs_error fat16_flush(void *context)
     if (!fat16_volume.info.writable) return FS_OK;
     return finish(flush_device(), true);
 }
+
+enum fs_error fat16_rename_file(void *context, uint64_t from_parent, const char *from,
+                               uint64_t to_parent, const char *to, bool replace)
+{
+    (void)context;
+    enum fs_error error = fs_name_check(FS_NAMES_FAT83, from);
+    if (error == FS_OK) error = fs_name_check(FS_NAMES_FAT83, to);
+    if (error == FS_OK) error = writable();
+    if (error != FS_OK) return error;
+    struct target source, destination;
+    error = find_target(from_parent, from, &source);
+    if (error != FS_OK) return error;
+    if (!source.exists) return FS_NOT_FOUND;
+    if (source.old.node.kind != FS_FILE) return FS_IS_DIRECTORY;
+    if (pinned(source.id)) return FS_BUSY;
+    if (source.entry[11] & 1) return FS_ACCESS;
+    if (source.long_name) return FS_UNSUPPORTED;
+    error = find_target(to_parent, to, &destination);
+    /* A same-directory new name can use the source slot on full media. */
+    if (error == FS_NO_SPACE && from_parent == to_parent) {
+        memset(&destination, 0, sizeof destination); error = FS_OK;
+    }
+    if (error != FS_OK) return error;
+    if (destination.exists) {
+        if (destination.id == source.id) return FS_INVALID;
+        if (!replace) return FS_EXISTS;
+        if (destination.old.node.kind != FS_FILE) return FS_IS_DIRECTORY;
+        if (pinned(destination.id)) return FS_BUSY;
+        if (destination.entry[11] & 1) return FS_ACCESS;
+        if (destination.long_name) return FS_UNSUPPORTED;
+    }
+    unsigned char renamed[ENTRY_BYTES], encoded[ENTRY_BYTES];
+    make_entry(encoded, to, false, 0, 0);
+    memcpy(renamed, source.entry, sizeof renamed); memcpy(renamed, encoded, 11);
+    bool started = false;
+    if (from_parent == to_parent && !destination.exists) {
+        error = entry_write(source.id, renamed, &started);
+        if (error == FS_OK) error = flush_device();
+        return finish(error, started);
+    }
+    unsigned char *fat = fat_copy();
+    if (!fat) return FS_NO_MEMORY;
+    /* Publish a complete new name before deleting the old name. A power loss
+       in between can leave duplicate names sharing a chain: host repair is
+       required. Never free the replaced chain before both metadata flushes. */
+    error = grow_directory(&destination, fat, &started);
+    if (error == FS_OK && destination.grow) error = flush_device();
+    if (error == FS_OK && destination.grow) error = persist_fat(fat, &started);
+    if (error == FS_OK) error = publish(&destination, renamed, &started);
+    if (error == FS_OK) { source.entry[0] = 0xe5; error = entry_write(source.id, source.entry, &started); }
+    if (error == FS_OK) error = flush_device();
+    if (error == FS_OK && destination.exists) {
+        free_chain(fat, &destination.old); error = persist_fat(fat, &started);
+    }
+    (void)kfree(fat); return finish(error, started);
+}

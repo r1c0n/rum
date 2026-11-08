@@ -22,6 +22,9 @@ rum_result_t rum_terminal_color(uint32_t foreground, uint32_t background);
 rum_result_t rum_terminal_read(struct rum_terminal_event *, uint32_t capacity, uint32_t milliseconds, uint32_t *ticks);
 
 rum_result_t rum_open(const char *path, uint32_t access, uint32_t flags);
+rum_result_t rum_stat(const char *, struct rum_file_information *);
+rum_result_t rum_fstat(rum_handle_t, struct rum_file_information *);
+rum_result_t rum_rename(const char *, const char *, uint32_t flags);
 rum_result_t rum_close(rum_handle_t);
 rum_result_t rum_isatty(rum_handle_t);
 rum_result_t rum_job_create(const char *, uint32_t flags);

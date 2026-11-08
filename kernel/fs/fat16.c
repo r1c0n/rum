@@ -278,6 +278,7 @@ static const struct fs_operations operations = {
     .read = read_file, .readdir = readdir_node, .unmount = detach,
     .write = fat16_write_file, .replace = fat16_replace_file, .remove = fat16_remove_node,
     .mkdir = fat16_mkdir_node, .flush = fat16_flush, .truncate = fat16_truncate_file,
+    .rename = fat16_rename_file,
 };
 
 static enum fs_error geometry(struct block_device *device, unsigned char *boot)

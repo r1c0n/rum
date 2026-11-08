@@ -37,6 +37,12 @@ filesystem operation, even across separate open descriptions. Truncate-open
 rejects an already open identity with EBUSY. See [redirection and pipelines](shell-workflows.md)
 for the complete flag, capability and partial-failure contracts.
 
+`RUM_OPEN_EXCLUSIVE` (16) requires CREATE and write access. It returns EEXIST
+for any existing object before acquiring a file reference or truncating it.
+Checking and creation share one serialized filesystem operation, so a race
+cannot turn a no-overwrite copy into replacement. Unknown flag combinations
+and EXCLUSIVE without CREATE return EINVAL.
+
 `rum_replace(path, data, bytes)` creates
 or replaces a whole file, up to 65,536 bytes. Zero bytes creates an empty file
 and ignores the data pointer. An open file identity cannot be replaced. A
@@ -135,7 +141,7 @@ previous directory. Processes inherit their creator's directory independently.
 The same [path rules](filesystems.md#path-rules) apply to every filesystem call:
 255 path bytes, 63 component bytes and 16 names below a mount root. FAT names
 use uppercase-compatible 8.3 spelling. Repeated separators and `.` are accepted;
-`..` cannot escape `/`. Use an absolute `/` path to return to RAM from disk.
+`..` cannot escape `/`.
 No valid disk means paths inside `/` return `-RUM_ENODEV`.
 
 `rum_mkdir(path)` creates one disk directory; missing parents are not created.
@@ -143,7 +149,45 @@ No valid disk means paths inside `/` return `-RUM_ENODEV`.
 whole-file replacement of an open identity returns `-RUM_EBUSY`, including
 aliases, directory handles and working directories. Byte writes through an
 open handle remain allowed. Close the handles and leave a directory before
-removing it. RAM supports files in its flat root, but cannot create directories.
+removing it.
+
+## Metadata and rename
+
+`rum_stat(path, info)` and `rum_fstat(handle, info)` use syscall 30 and
+`RUM_METADATA_ABI_VERSION` 1. Success fills the complete 48-byte
+`rum_file_information`: version, size, kind, flags, byte size low/high, opaque
+volume ID, mount generation, object ID low/high, and two zero reserved words.
+Flags currently contain only `RUM_INFO_READ_ONLY_VOLUME`. There are no public
+timestamps or per-file attribute fields. Directory size is zero on FAT16.
+
+The input-only 32-byte `rum_stat_request` contains version, size, path address,
+handle, flags, output address and two reserved words. Path queries require zero
+flags and handle. Handle queries require `RUM_STAT_HANDLE` and a zero path.
+Only filesystem file/directory descriptors support fstat; other or invalid
+descriptors return EBADF. The full writable output must not overlap the request.
+Buffers and packets may cross accessible user pages. Failed queries leave the
+output unchanged and consume no descriptor or file offset.
+
+Identity is mount-scoped and opaque. A pinned open file can be compared with a
+path query to detect equivalent paths or backend aliases. IDs can be reused
+after deletion, and remounting changes generation; do not store them as durable
+file IDs. Metadata queries themselves do not pin an object.
+
+`rum_rename(source, destination, flags)` uses syscall 31 and a 24-byte input-only
+`rum_rename_request`: metadata version, size, both path addresses, flags and
+zero reserved. The two unused argument registers must be zero for both new
+syscalls. Unknown flags, versions, sizes and reserved fields return EINVAL.
+Both complete paths are copied and parsed before backend lookup or mutation.
+
+Rename supports regular files within one backend. Flags 0 refuses an existing
+destination with EEXIST; `RUM_RENAME_REPLACE` permits replacing a closed regular
+file. Open source/destination identities return EBUSY. Directory moves are
+unsupported, equivalent source/destination identities are rejected with EINVAL,
+and a cross-mount rename returns EXDEV before any backend mutation. Read-only
+volumes return EROFS; FAT read-only attributes return EACCES. Successful rename
+flushes metadata. Errors may follow publication: see
+[FAT rename ordering](fat16.md#rename-ordering). Existing syscall numbers and
+version-1 filesystem packets retain their contracts.
 
 ## Wire packets and result codes
 
@@ -157,8 +201,12 @@ layouts declared in `sdk/include/rum/abi/filesystem.h`:
 | `rum_open_request` | 24 | version, size, path address, access, flags, reserved |
 | `rum_seek_request` | 32 | version, size, displacement low/high, whence, reserved, position low/high |
 | `rum_directory_entry` | 88 | version, size, kind, file size low/high, reserved, then 64 name bytes |
+| `rum_stat_request` | 32 | metadata version, size, path, handle, flags, output address, reserved[2] |
+| `rum_file_information` | 48 | output metadata version, size, kind, flags, byte size low/high, volume, generation, object low/high, reserved[2] |
+| `rum_rename_request` | 24 | metadata version, size, source, destination, flags, reserved |
 
-Version is `RUM_FS_ABI_VERSION` (1), size must exactly match, and reserved words
+Original packets use `RUM_FS_ABI_VERSION` (1); the new metadata/rename packets
+use `RUM_METADATA_ABI_VERSION` (1). Size must exactly match and reserved words
 must be zero. Seek's position fields must be zero on input; its displacement
 is two's-complement high/low words. A seek packet must be readable and writable
 in its entirety before the offset can change. Directory packets likewise need
@@ -176,6 +224,7 @@ Results use rum-specific negative `RUM_E*` codes, without setting `errno`:
 | `EACCES`, `EROFS`, `ENOSYS` | Backend access restriction, read-only mount, unsupported operation |
 | `ENOMEM`, `ENOSPC`, `EMFILE` | Heap exhaustion, backend/global table capacity, process handle capacity |
 | `ENODEV`, `EIO`, `ETIMEDOUT` | Missing mount, I/O/device fault, bounded hardware timeout |
+| `EXDEV` | Rename attempted between different filesystem mounts |
 
 ## Flush and cleanup
 
