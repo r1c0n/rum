@@ -44,7 +44,7 @@ def run(qemu, disk, ram, iso):
         console.command("echo x | nonzero", "Program exited with status -37.")
         console.command("nonzero | cat")  # Normal result is the rightmost stage.
         for command in ("echo bad >", "echo x || cat", "echo x|cat|cat|cat|cat", "|cat >INVALID.TXT"):
-            console.command(command, "shell: invalid or oversized pipeline.")
+            console.command(command, "shell: invalid or oversized command.")
         console.command("cd / > INVALID.TXT", "session commands cannot use pipes or redirection.")
         console.command("cat <MISSING.TXT > NEVER.TXT", "file or directory not found.")
         console.command("echo changed > OUT.TXT <MISSING.TXT", "file or directory not found.")
