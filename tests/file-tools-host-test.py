@@ -18,6 +18,28 @@ def main():
         disk = Path(temporary) / "disk.raw"
         for cluster in (1, 2):
             images.build(disk, cluster); original = disk.read_bytes(); baseline = images.audit(disk)
+            g = baseline["geometry"]
+            for special in ("rename-readonly", "rename-readonly-dest", "rename-lfn", "root-full"):
+                data = bytearray(original)
+                if special.startswith("rename-readonly"):
+                    path = "/KEEP.BIN" if special.endswith("dest") else "/TARGET.BIN"
+                    data[baseline["slots"][path] + 11] |= 1
+                elif special == "rename-lfn":
+                    end = next(o for o in range(g["root"] * 512, g["root"] * 512 + g["entries"] * 32, 32) if not data[o])
+                    slot = baseline["slots"]["/TARGET.BIN"]
+                    data[slot + 32:end + 64] = data[slot:end + 32]
+                    lfn = bytearray(32); lfn[0] = 0x41; lfn[11] = 0x0f; data[slot:slot + 32] = lfn
+                else:
+                    for index in range(g["entries"]):
+                        offset = g["root"] * 512 + index * 32
+                        if data[offset] in (0, 0xe5): data[offset:offset + 32] = images.entry(f"E{index:07}.TXT")
+                disk.write_bytes(data)
+                trace, _ = writes.execute(disk, "rename" if special == "root-full" else special)
+                if special != "root-full": assert disk.read_bytes() == data and not trace
+                else:
+                    images.audit(disk)
+                    assert images.file_bytes(disk, "/RENAMED.BIN") == baseline["files"]["/TARGET.BIN"]
+                print(f"PASS: rename {special}, {cluster * 512}-byte clusters", flush=True)
             for operation, destination in (("rename", "/RENAMED.BIN"), ("rename-move", "/VOID/MOVED.BIN"),
                                            ("rename-replace", "/KEEP.BIN"), ("rename-grow", "/FULL/MOVED.BIN")):
                 disk.write_bytes(original); events, result = writes.execute(disk, operation)

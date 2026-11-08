@@ -1,4 +1,34 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
+.PHONY: test-file-tools test-file-tools-host test-rename-host
+build/tests/file-copy-test: tests/file-copy-test.c system/lib/file-copy.c system/lib/files.h $(ABI_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror $(filter %.c,$^) -o $@
+build/tests/file-move.o: system/commands/mv.c system/lib/files.h $(ABI_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror -Dmain=file_move_main -c $< -o $@
+build/tests/file-move-test: tests/file-move-test.c build/tests/file-move.o system/lib/files.h $(ABI_HEADERS)
+	$(HOST_CC) -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror $(filter %.c %.o,$^) -o $@
+test-rename-host: build/tests/fat16-write-test
+	python3 tests/file-tools-host-test.py
+test-file-tools-host: build/tests/file-copy-test build/tests/file-move-test build/tests/fs-test build/tests/handles-test build/tests/abi-test test-rename-host
+	./build/tests/file-copy-test
+	./build/tests/file-move-test
+	./build/tests/fs-test
+	./build/tests/handles-test
+	./build/tests/abi-test
+build/tests/user/file-tools.o: tests/file-tools-user.c $(USER_INCLUDE_STAMP) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/tests/user/file-tools.debug.elf: build/tests/user/file-tools.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+build/tests/user/file-tools.elf: build/tests/user/file-tools.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@
+	build/tools/check-user-elf $@ $<
+test-file-tools: all test-file-tools-host build/tests/user/file-tools.elf
+	python3 tests/file-tools-qemu-test.py --qemu $(QEMU)
+test-host: build/tests/file-copy-test build/tests/file-move-test test-rename-host
+test-build: build/tests/file-copy-test build/tests/file-move-test build/tests/user/file-tools.elf
+TEST_DEPENDENCIES += build/tests/user/file-tools.d
 .PHONY: test-editing-host test-editing
 build/tests/shell-editor-test: tests/shell-editor-test.c system/shell/editor.c system/shell/shell.h $(ABI_HEADERS)
 	@mkdir -p $(@D)
@@ -709,6 +739,8 @@ test-host: build/tests/block-test build/tests/console-test build/tests/memory-te
 	./build/tests/shell-editor-test
 	./build/tests/shell-complete-test
 	./build/tests/terminal-session-test
+	./build/tests/file-copy-test
+	./build/tests/file-move-test
 	./build/tests/pipe-test
 	./build/tests/fs-test
 	./build/tests/ata-test

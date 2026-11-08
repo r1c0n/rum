@@ -85,8 +85,9 @@ int main(int argc, char **argv)
                 assert(error == FS_NO_MEMORY && !writes && !events && !fat16_info().faulted);
                 test_page_budget(-1);
             } else if (!strcmp(argv[2], "attribute") || !strcmp(argv[2], "hidden") ||
-                       !strcmp(argv[2], "lfn") || !strcmp(argv[2], "orphan")) {
-                enum fs_error expected = !strcmp(argv[2], "attribute") ? FS_ACCESS :
+                       !strcmp(argv[2], "lfn") || !strcmp(argv[2], "orphan") ||
+                       !strncmp(argv[2], "rename-readonly", 15) || !strcmp(argv[2], "rename-lfn")) {
+                enum fs_error expected = !strcmp(argv[2], "attribute") || !strncmp(argv[2], "rename-readonly", 15) ? FS_ACCESS :
                     !strcmp(argv[2], "hidden") ? FS_NOT_EMPTY : FS_UNSUPPORTED;
                 assert(error == expected && !writes && !events && !fat16_info().faulted);
             } else assert(error == FS_OK);

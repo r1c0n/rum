@@ -31,6 +31,8 @@ enum fs_error fat16_write_operation(const char *name, size_t *transferred)
     if (equal(name, "rename-move")) return fs_rename(NULL, "/TARGET.BIN", "/VOID/MOVED.BIN", false);
     if (equal(name, "rename-replace")) return fs_rename(NULL, "/TARGET.BIN", "/KEEP.BIN", true);
     if (equal(name, "rename-grow")) return fs_rename(NULL, "/TARGET.BIN", "/FULL/MOVED.BIN", false);
+    if (equal(name, "rename-readonly") || equal(name, "rename-lfn")) return fs_rename(NULL, "/TARGET.BIN", "/NEW.BIN", false);
+    if (equal(name, "rename-readonly-dest")) return fs_rename(NULL, "/TARGET.BIN", "/KEEP.BIN", true);
     if (equal(name, "create") || equal(name, "reject") || equal(name, "full") || equal(name, "oom") ||
         equal(name, "readfail") || equal(name, "endclear") || equal(name, "orphan"))
         return fs_replace(NULL, "/NEW.BIN", expected, 4097);

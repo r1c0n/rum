@@ -24,6 +24,7 @@ SUITES = {
     "jobs": "test-jobs",
     "terminal": "test-terminal",
     "editing": "test-editing",
+    "file-tools": "test-file-tools",
 }
 BOOT_ACTIONS = {"run", "run-kernel", "debug", "panic"}
 DISK_ACTIONS = BOOT_ACTIONS - {"panic"} | {"create-disk", "prepare-disk"}
