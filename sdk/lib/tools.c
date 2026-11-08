@@ -20,6 +20,12 @@ void tool_number(int32_t value)
     do { digits[n++] = (char)('0' + magnitude % 10); magnitude /= 10; } while (magnitude);
     while (n) tool_output(&digits[--n], 1);
 }
+void tool_unsigned(uint64_t value)
+{
+    char digits[20]; unsigned n = 0;
+    do { digits[n++] = (char)('0' + value % 10); value /= 10; } while (value);
+    while (n) tool_output(&digits[--n], 1);
+}
 void tool_error(const char *command, rum_result_t result)
 {
     const char *message;

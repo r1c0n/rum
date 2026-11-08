@@ -6,6 +6,7 @@ unsigned tool_length(const char *);
 void tool_output(const void *, unsigned bytes);
 void tool_print(const char *);
 void tool_number(int32_t);
+void tool_unsigned(uint64_t);
 void tool_error(const char *, rum_result_t);
 char *tool_word(char **);
 char *tool_remainder(char *);
