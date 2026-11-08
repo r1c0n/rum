@@ -93,7 +93,11 @@ int main(int argc, char **argv)
     rum_result_t result = rum_terminal_query(&caps);
     if (result < 0) { tool_error("snake", result); return 1; }
     if (caps.width < WIDTH || caps.height < HEIGHT || !caps.tick_hz || caps.max_cells < WIDTH ||
-        caps.max_events < RUM_TERM_MAX_EVENTS || (caps.features & RUM_TERM_FEATURES) != RUM_TERM_FEATURES) {
+        caps.max_events < RUM_TERM_MAX_EVENTS ||
+        (caps.features & (RUM_TERM_FEATURE_CELLS | RUM_TERM_FEATURE_CURSOR | RUM_TERM_FEATURE_COLOR |
+                          RUM_TERM_FEATURE_CHARACTERS | RUM_TERM_FEATURE_TIMED_INPUT)) !=
+                        (RUM_TERM_FEATURE_CELLS | RUM_TERM_FEATURE_CURSOR | RUM_TERM_FEATURE_COLOR |
+                         RUM_TERM_FEATURE_CHARACTERS | RUM_TERM_FEATURE_TIMED_INPUT)) {
         tool_print("snake: unsupported terminal.\n"); return 1;
     }
     result = rum_terminal_begin();

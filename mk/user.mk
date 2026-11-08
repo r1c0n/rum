@@ -47,6 +47,14 @@ build/user/objects/shell-pipeline.o: system/shell/pipeline.c system/shell/shell.
 
 build/user/debug/shell.elf: build/user/objects/shell-parse.o build/user/objects/shell-pipeline.o
 USER_DEPENDENCIES += build/user/objects/shell-parse.d build/user/objects/shell-pipeline.d
+build/user/objects/shell-editor.o: system/shell/editor.c system/shell/shell.h $(USER_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/user/objects/shell-complete.o: system/shell/complete.c system/shell/shell.h $(USER_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/user/debug/shell.elf: build/user/objects/shell-editor.o build/user/objects/shell-complete.o
+USER_DEPENDENCIES += build/user/objects/shell-editor.d build/user/objects/shell-complete.d
 
 build/user/objects/snake-model.o: apps/snake/model.c apps/snake/model.h $(USER_RULES)
 	@mkdir -p $(@D)

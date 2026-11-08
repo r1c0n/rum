@@ -19,6 +19,9 @@ struct terminal_state terminal_state(void);
 bool terminal_cursor_at(uint32_t x, uint32_t y);
 void terminal_capture(struct terminal_snapshot *);
 void terminal_restore(const struct terminal_snapshot *);
+void terminal_edit_begin(void);
+void terminal_edit_render(const char *, uint32_t bytes, uint32_t cursor);
+void terminal_edit_finish(void);
 
 void terminal_initialize(void);
 void terminal_clear(void);

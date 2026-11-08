@@ -17,6 +17,16 @@ rum_result_t rum_terminal_end(void)
 {
     struct rum_terminal_request request = { .operation = RUM_TERM_END }; return terminal_call(&request);
 }
+rum_result_t rum_terminal_begin_inline(void)
+{
+    struct rum_terminal_request request = { .operation = RUM_TERM_BEGIN, .flags = RUM_TERM_INLINE };
+    return terminal_call(&request);
+}
+rum_result_t rum_terminal_line(const char *text, uint32_t bytes, uint32_t cursor)
+{
+    struct rum_terminal_request request = { .operation = RUM_TERM_LINE, .count = bytes, .x = cursor,
+        .data = (rum_address_t)(uintptr_t)text }; return terminal_call(&request);
+}
 rum_result_t rum_terminal_cells(uint32_t x, uint32_t y, const struct rum_terminal_cell *cells, uint32_t count)
 {
     struct rum_terminal_request request = { .operation = RUM_TERM_CELLS, .x = x, .y = y, .count = count,

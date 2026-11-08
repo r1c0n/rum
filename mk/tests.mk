@@ -1,4 +1,18 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
+.PHONY: test-editing-host test-editing
+build/tests/shell-editor-test: tests/shell-editor-test.c system/shell/editor.c system/shell/shell.h $(ABI_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror $(filter %.c,$^) -o $@
+build/tests/shell-complete-test: tests/shell-complete-test.c system/shell/complete.c system/shell/parse.c system/shell/shell.h $(ABI_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror $(filter %.c,$^) -o $@
+test-editing-host: build/tests/shell-editor-test build/tests/shell-complete-test build/tests/shell-parse-test build/tests/keyboard-test test-terminal-host
+	./build/tests/shell-editor-test
+	./build/tests/shell-complete-test
+	./build/tests/shell-parse-test
+	./build/tests/keyboard-test
+test-host: build/tests/shell-editor-test build/tests/shell-complete-test
+test-build: build/tests/shell-editor-test build/tests/shell-complete-test
 .PHONY: test-terminal-host test-terminal
 build/tests/terminal-session-test: tests/terminal-session-test.c kernel/io/terminal.c drivers/display/terminal.c kernel/include/rum/terminal_session.h kernel/include/rum/terminal.h $(ABI_HEADERS)
 	@mkdir -p $(@D)
