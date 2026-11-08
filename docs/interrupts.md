@@ -99,8 +99,8 @@ consumed without producing text.
 
 Decoded characters enter a 128-slot ring buffer with 127 usable entries. If the
 buffer is full, the newest character is dropped and the diagnostic drop counter
-increases. IRQ1 never echoes or edits text; the shell's standard-input syscall
-or the kernel Snake/recovery loop consumes queued characters in task context.
+increases. IRQ1 never echoes or edits text; standard-input reads, public terminal
+event reads and the recovery loop consume characters in task context.
 
 A decoded character also signals a keyboard-specific task event. Blocking
 standard-input reads wait on this event rather than the general work event, so

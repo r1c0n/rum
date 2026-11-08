@@ -46,6 +46,12 @@ foreground transfer and collection. Only the initial shell creates and joins
 jobs; marked foreground command programs may manage that shell's jobs. All
 operations use versioned fixed-width packets and public identifiers.
 
+The [terminal API](../docs/terminal.md) adds capability queries, colored text
+cells, cursor control and bounded timed character input. Interactive state
+requires foreground ownership and is restored automatically on exit or fault.
+`apps/snake/` demonstrates a complete game using public syscalls and an
+application-local model, without kernel headers or device access.
+
 User programs compile against this public tree and generated ABI copies only.
 The kernel uses the same canonical ABI definitions alongside its private
 `kernel/include/rum/` headers. Never copy kernel-private structures into the SDK

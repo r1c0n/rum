@@ -111,6 +111,9 @@ Synchronous filesystem work and bounded ATA polling can delay scheduling until
 the operation finishes and execution reaches a safe boundary. There is no
 real-time latency guarantee.
 
+The normal user Snake waits on the keyboard event with an absolute input
+deadline. Terminal input does not subscribe to the periodic recovery work event.
+
 ## Timed waits
 
 `task_wait_for` stores its event pointer and optional deadline in the calling

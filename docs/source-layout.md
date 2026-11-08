@@ -11,9 +11,9 @@ the kernel is built as `rum.elf` and packaged in `rum.iso`; an explicitly prepar
 | `kernel/core/` | Initialization in `init.c` and freestanding memory primitives |
 | `kernel/process/` | Task scheduling, process lifecycle, referenced console sessions, handles, ELF loading, and syscall dispatch |
 | `kernel/mm/` | Physical allocation and kernel heap |
-| `kernel/io/` | Block-device operations, request serialization and bounded pipe streams |
+| `kernel/io/` | Block-device operations, request serialization, pipes and interactive terminal leases |
 | `kernel/fs/` | Paths, mounts, retained objects, the persistent FAT16 root |
-| `kernel/recovery/` | Kernel recovery command loop and current Snake engine |
+| `kernel/recovery/` | Recovery command loop and diskless Snake controller |
 | `kernel/debug/` | Ownership snapshots, diagnostics, and panic reports |
 | `kernel/include/rum/` | Private kernel interfaces and architecture/resource contracts |
 | `hal/pc/` | Legacy PC IRQ routing, PIC controller, and PIT timing |
@@ -45,10 +45,10 @@ The HAL directory groups the current PC implementations. It does not introduce
 a new dynamic driver model, hardware target, or interrupt ABI. Existing private
 interfaces remain in use, including the legacy PIC routing contract.
 
-The userspace Snake entry is `apps/snake/main.c`. It currently invokes the
-kernel game through the console ABI. The game engine remains under
-`kernel/recovery/` until the public input and terminal interfaces can support
-the full userspace port.
+The userspace Snake entry is `apps/snake/main.c`, with its own loop, rendering,
+score I/O and public terminal calls. Its pure `model.c`/`model.h` rules are
+compiled independently into the user ELF and kernel recovery controller.
+No private kernel headers or cross-privilege game state are shared.
 
 `system/shell/main.c` owns the interactive prompt and plain command launches.
 `parse.c` validates bounded workflow syntax, and `pipeline.c` prepares streams,

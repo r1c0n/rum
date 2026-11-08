@@ -8,15 +8,15 @@ it does not cancel the waiting parent or unrelated processes.
 
 At the interactive shell prompt, Ctrl+C is an input character that clears the
 current line. The shell cannot be cancelled through the ordinary child-control
-interface. Snake uses the same foreground ownership checks while its kernel
-engine runs.
+interface. The user Snake program uses the same foreground ownership checks
+through the [terminal API](terminal.md).
 
 ## Input and output
 
 `rum_spawn` creates a nonforeground child. It joins its parent's session but
 receives no console ownership. A positive-length read on standard input returns
-`-RUM_EACCES` immediately, even when keys are queued. Console clear and Snake
-requests also require ownership. Such a child cannot acquire the console by
+`-RUM_EACCES` immediately, even when keys are queued. Console clear and interactive
+terminal sessions also require ownership. Such a child cannot acquire the console by
 calling `rum_run`; that launch returns `-RUM_EBUSY` before loading a program.
 Zero-length reads retain their existing no-transfer behavior.
 
@@ -27,6 +27,12 @@ can interleave, and a line longer than one chunk is not atomic. There is no
 per-process terminal. [Redirection](shell-workflows.md) replaces selected
 standard descriptors with files or pipes. The shell redraws an edited line
 after a child completion notice; arbitrary program output can still interrupt it.
+
+An interactive terminal session additionally saves the text surface, cursor
+and colors for restoration after exit, cancellation, a fault or input-owner
+transfer. While it is active, other processes' console writes reach COM1 but
+do not alter its VGA frame. See [terminal sessions](terminal.md) for limits and
+the decoded character-event API.
 
 The keyboard queue is shared. Ownership is checked again after an input wait
 wakes, before any character is removed. Keys left after a child's exit remain

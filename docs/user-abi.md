@@ -149,7 +149,7 @@ callee-saved registers.
 | 12 | `rum_flush(handle)` | Filesystem handle | Zero |
 | 13 | `rum_run(path, arguments, result)` | Versioned launch packet | Zero; sanitized child result |
 | 14 | `rum_replace(path, data, bytes)` | Versioned whole-file packet | Zero |
-| 15 | `rum_console(action)` | Clear or Snake selector | Zero |
+| 15 | `rum_console(action)` | Clear selector; retired Snake selector returns ENOSYS | Zero |
 | 16 | `rum_command_text(buffer, capacity)` | Exact command argument tail | Bytes including NUL; command child only |
 | 17 | `rum_session(action, path)` | Session directory change, exit or recovery | Zero; command child only |
 | 18 | `rum_spawn(path, args)` | Versioned nonforeground launch packet | Positive child PID |
@@ -163,6 +163,7 @@ callee-saved registers.
 | 26 | `rum_pipe(request)` | Writable versioned pipe packet with zero input flags/output fields | Zero; separate read/write descriptors and limits |
 | 27 | `rum_isatty(handle)` | Descriptor; remaining registers zero | 1 console, 0 other, or negative error |
 | 28 | `rum_job_*` | Writable versioned job-control packet; bounded output entries | Job ID, count, completion or zero according to operation; see [jobs](jobs.md) |
+| 29 | `rum_terminal_*` | Writable versioned terminal packet; bounded cell/event buffers | Zero, input count or timeout; see [terminal API](terminal.md) |
 
 Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
 means success. A negative result is the negation of a `RUM_E*` value from
