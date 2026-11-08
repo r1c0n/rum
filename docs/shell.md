@@ -13,6 +13,7 @@ foreground program or clears the current line.
 | Home / End | Move to the start or end of the command |
 | Backspace / Delete | Remove the character before or at the cursor |
 | Up / Down | Browse history; Down past the newest entry restores the draft and cursor |
+| Page Up / Page Down | Browse older output or return toward the live screen |
 | Tab | Complete a program or path, or list matching names |
 
 Typing inserts at the cursor. The prompt itself cannot be edited. History keeps
@@ -20,6 +21,14 @@ the last 16 nonblank commands in memory, skips consecutive duplicates and resets
 when the shell restarts. Editing a recalled command does not change its stored
 entry. Background output and job notices appear above a redrawn prompt, keeping
 your unfinished command and cursor position.
+
+Scrollback keeps the last 256 scrolled text rows, including their colors, until
+reboot. Page Up/Page Down move 23 rows at a time. The cursor is hidden while
+viewing old output, and the uptime bar stays live. Typing or another editing key
+returns to the current prompt without changing the unfinished command. New job
+notifications also return to the live prompt. `clear` clears the visible text
+but keeps it in scrollback. Fullscreen user applications do not add their
+canvases to shell scrollback.
 
 For focused checks, use `.\rum.ps1 test -Suite editing -Jobs 4` on Windows or
 `./rum test --suite editing -j4` in Ubuntu/WSL. These use disposable disks.

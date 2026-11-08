@@ -22,6 +22,7 @@ int main(int argc, char **argv)
         "End a command or pipeline with & to run it as a background job.\n"
         "Quote arguments with '...' or \"...\"; backslash escapes the next character.\n"
         "Edit with arrows, Home/End and Delete; Up/Down recall history, Tab completes.\n"
+        "Page Up/Page Down browse output; typing returns to the prompt.\n"
         "Programs are available in /rum.\n");
     return 0;
 }

@@ -90,7 +90,7 @@ The decoder supports a US QWERTY keyboard with:
 - Letters, digits, punctuation, and Space.
 - Both Shift keys and Caps Lock.
 - Enter, keypad Enter, Tab, and Backspace.
-- Extended Left, Right, Up, Down, Home, End and Delete key presses.
+- Extended Left, Right, Up, Down, Home, End, Delete, Page Up and Page Down presses.
 
 Function keys, keyboard LEDs, Num Lock behavior, and alternate
 layouts are unsupported. Ctrl+C requests foreground-process cancellation; other

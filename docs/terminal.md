@@ -80,6 +80,19 @@ that produce no console output. No new terminal memory is allocated per key or
 notification. Serial output mirrors append/backspace input and uses ANSI
 erase-line/cursor-left sequences for full redraws.
 
+`rum_terminal_scroll(direction)` changes the inline session's VGA viewport.
+Use `RUM_SCROLL_UP` or `RUM_SCROLL_DOWN` for a page of 23 rows with one row of
+overlap, or `RUM_SCROLL_LIVE` to return directly. Requests clamp to the oldest
+retained row or live output. The kernel retains 256 scrolled rows with colors
+in a fixed ring; older rows are overwritten. No disk data is stored. Stream
+output still targets a separate live screen, and the uptime row stays live.
+QUERY sets `RUM_TERM_SCROLLED` and reports the cursor as hidden while browsing;
+cursor coordinates still refer to the live screen. END or ownership cleanup
+returns to the live screen. Fullscreen sessions suspend history collection and
+retain the existing shell history when their saved screen is restored. A
+scroll operation without an owned inline session returns EACCES. Serial output
+remains a stream; scrollback browsing only changes the VGA viewport.
+
 ## Runtime calls
 
 | Call | Behavior |
@@ -88,6 +101,7 @@ erase-line/cursor-left sequences for full redraws.
 | `rum_terminal_begin()` | Acquire a foreground interactive session |
 | `rum_terminal_begin_inline()` | Acquire a foreground inline editing surface |
 | `rum_terminal_line(text, bytes, cursor)` | Replace the inline prompt/line and position its cursor |
+| `rum_terminal_scroll(direction)` | Page through retained output, or return to the live screen |
 | `rum_terminal_end()` | Restore fullscreen state, or commit an inline line, and release |
 | `rum_terminal_cells(x, y, cells, count)` | Draw a bounded horizontal span without moving the cursor |
 | `rum_terminal_cursor(x, y, visible)` | Move within the text area and set visibility to 0 or 1 |
@@ -111,7 +125,8 @@ validated in full before a character is consumed.
 Each 16-byte event contains type, value, tick and zero reserved.
 `RUM_TERM_TEXT_EVENT` holds a decoded ASCII character press, including Enter,
 Backspace and Tab, without kernel echo or line buffering. `RUM_TERM_KEY_EVENT`
-holds `RUM_KEY_LEFT`, `RIGHT`, `UP`, `DOWN`, `HOME`, `END` or `DELETE` (each with
+holds `RUM_KEY_LEFT`, `RIGHT`, `UP`, `DOWN`, `HOME`, `END`, `DELETE`, `PAGEUP`
+or `PAGEDOWN` (each with
 the `RUM_KEY_` prefix). Key releases and modifier-event records are not exposed.
 Legacy byte reads skip navigation events. Ctrl+C
 cancels a foreground child or job according to console policy; the supervised
@@ -137,6 +152,7 @@ registers must also be zero.
 - QUERY uses a writable 60-byte `rum_terminal_capabilities` output at data.
 - BEGIN accepts flags 0 for fullscreen or `RUM_TERM_INLINE`; END takes no fields.
 - LINE uses count for printable bytes at data and x for cursor index; other fields are zero.
+- SCROLL uses x for LIVE (0), UP (1) or DOWN (2); all other input fields are zero.
 - CELLS uses x, y, count and readable cell storage at data.
 - CURSOR uses x/y and flags 0 or 1 for visibility.
 - COLOR uses x/y for foreground/background indices.
@@ -150,7 +166,8 @@ requests neither draw a partial span nor consume input, and errors leave user
 outputs unchanged. Every success fills now_ticks. No public structure contains
 a kernel pointer or hardware address.
 
-QUERY features include `RUM_TERM_FEATURE_KEYS` and `RUM_TERM_FEATURE_LINE`;
+QUERY features include `RUM_TERM_FEATURE_KEYS`, `RUM_TERM_FEATURE_LINE` and
+`RUM_TERM_FEATURE_SCROLLBACK`;
 applications should test the bits they need. Mode includes `RUM_TERM_ACTIVE`,
 `RUM_TERM_OWNED` for the caller, and `RUM_TERM_INLINE_MODE` for an inline surface.
 LINE requires an inline session; using it with fullscreen ownership returns EACCES.
