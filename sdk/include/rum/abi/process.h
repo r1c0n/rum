@@ -8,6 +8,7 @@
 #define RUM_ABI_ARGUMENT_BYTES 4096 /* Includes every string's NUL. */
 #define RUM_PROCESS_ABI_VERSION 1
 #define RUM_COMMAND_ABI_VERSION 2
+#define RUM_COMMAND_ARGV_VERSION 3 /* Same packet, text/reserved both zero. */
 #define RUM_LIFECYCLE_ABI_VERSION 1
 #define RUM_SPAWN_MAPPED_VERSION 1
 #define RUM_SPAWN_MAPPING_LIMIT RUM_ABI_HANDLE_LIMIT
@@ -75,7 +76,9 @@ struct rum_run_request {
     rum_address_t path, arguments, result;
     uint32_t flags, reserved[2];
 };
-/* Initial interactive shell only: argv retains its normal layout; text is
+/* Initial interactive shell only: version 3 uses argv exclusively and text
+   must be zero. Legacy version 2 retains raw text: argv has its normal layout;
+   text is
    the exact unparsed argument tail, copied before launch (max 255 bytes).
    The direct child may request a session directory change or shell exit. */
 struct rum_command_request {

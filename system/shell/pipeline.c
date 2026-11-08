@@ -40,7 +40,7 @@ static void close_owned(rum_result_t *handles, unsigned count)
 }
 void shell_run_pipeline(struct shell_pipeline *plan)
 {
-    /* Session-changing commands need the legacy, synchronous command authority.
+    /* Session-changing commands need direct synchronous command authority.
        Reject them before opening or truncating any redirection target. */
     for (unsigned i = 0; i < plan->count; ++i) {
         const char *name = plan->stages[i].argv[0];

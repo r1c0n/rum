@@ -10,6 +10,7 @@ static size_t row;
 static size_t column;
 static uint8_t color;
 static bool cursor_visible;
+static size_t edit_row, edit_column, edit_length;
 
 static uint16_t entry(char character)
 {
@@ -158,4 +159,26 @@ void terminal_restore(const struct terminal_snapshot *snapshot)
     terminal_set_color((enum vga_color)snapshot->state.foreground, (enum vga_color)snapshot->state.background);
     (void)terminal_cursor_at(snapshot->state.x, snapshot->state.y);
     terminal_cursor_visible(snapshot->state.visible);
+}
+void terminal_edit_begin(void) { edit_row = row; edit_column = column; edit_length = 0; }
+void terminal_edit_render(const char *text, uint32_t bytes, uint32_t cursor)
+{
+    size_t extent = bytes > edit_length ? bytes : edit_length;
+    size_t last = edit_row + (edit_column + extent) / VGA_WIDTH;
+    if (last >= TEXT_HEIGHT) {
+        size_t shift = last - TEXT_HEIGHT + 1;
+        for (size_t y = 0; y < TEXT_HEIGHT - shift; ++y)
+            for (size_t x = 0; x < VGA_WIDTH; ++x) buffer[y * VGA_WIDTH + x] = buffer[(y + shift) * VGA_WIDTH + x];
+        for (size_t y = TEXT_HEIGHT - shift; y < TEXT_HEIGHT; ++y) clear_row(y);
+        edit_row -= shift;
+    }
+    for (size_t i = 0; i < extent; ++i) buffer[edit_row * VGA_WIDTH + edit_column + i] = entry(i < bytes ? text[i] : ' ');
+    edit_length = bytes;
+    row = edit_row + (edit_column + cursor) / VGA_WIDTH; column = (edit_column + cursor) % VGA_WIDTH;
+    update_cursor();
+}
+void terminal_edit_finish(void)
+{
+    row = edit_row + (edit_column + edit_length) / VGA_WIDTH; column = (edit_column + edit_length) % VGA_WIDTH;
+    update_cursor();
 }

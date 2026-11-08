@@ -1,4 +1,30 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
+.PHONY: test-editing-host test-editing
+build/tests/shell-editor-test: tests/shell-editor-test.c system/shell/editor.c system/shell/shell.h $(ABI_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror $(filter %.c,$^) -o $@
+build/tests/shell-complete-test: tests/shell-complete-test.c system/shell/complete.c system/shell/parse.c system/shell/shell.h $(ABI_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror $(filter %.c,$^) -o $@
+test-editing-host: build/tests/shell-editor-test build/tests/shell-complete-test build/tests/shell-parse-test build/tests/keyboard-test test-terminal-host
+	./build/tests/shell-editor-test
+	./build/tests/shell-complete-test
+	./build/tests/shell-parse-test
+	./build/tests/keyboard-test
+test-host: build/tests/shell-editor-test build/tests/shell-complete-test
+test-build: build/tests/shell-editor-test build/tests/shell-complete-test
+build/tests/user/editing.o: tests/editing-user.c $(USER_INCLUDE_STAMP) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/tests/user/editing.debug.elf: build/tests/user/editing.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+build/tests/user/editing.elf: build/tests/user/editing.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@
+	build/tools/check-user-elf $@ $<
+test-editing: all test-editing-host build/tests/user/editing.elf
+	python3 tests/editing-qemu-test.py --qemu $(QEMU)
+test-build: build/tests/user/editing.elf
+TEST_DEPENDENCIES += build/tests/user/editing.d
 .PHONY: test-terminal-host test-terminal
 build/tests/terminal-session-test: tests/terminal-session-test.c kernel/io/terminal.c drivers/display/terminal.c kernel/include/rum/terminal_session.h kernel/include/rum/terminal.h $(ABI_HEADERS)
 	@mkdir -p $(@D)
@@ -34,7 +60,7 @@ build/tests/jobs-test: tests/jobs-test.c kernel/process/jobs.c kernel/include/ru
 	@mkdir -p $(@D)
 	$(HOST_CC) -Itests/include -Ikernel/include -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror tests/jobs-test.c kernel/process/jobs.c -o $@
 
-test-jobs-host: build/tests/jobs-test build/tests/session-test build/tests/shell-parse-test build/tests/abi-test
+test-jobs-host: build/tests/jobs-test build/tests/session-test build/tests/shell-parse-test build/tests/terminal-session-test build/tests/abi-test
 	./build/tests/jobs-test
 	./build/tests/terminal-session-test
 	./build/tests/session-test
@@ -680,6 +706,9 @@ test-host: build/tests/block-test build/tests/console-test build/tests/memory-te
 	./build/tests/jobs-test
 	./build/tests/path-test
 	./build/tests/shell-parse-test
+	./build/tests/shell-editor-test
+	./build/tests/shell-complete-test
+	./build/tests/terminal-session-test
 	./build/tests/pipe-test
 	./build/tests/fs-test
 	./build/tests/ata-test

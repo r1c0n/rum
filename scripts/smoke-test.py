@@ -656,7 +656,8 @@ def guest_keyboard(stream, serial):
             time.sleep(0.02)
 
     def type_text(text):
-        special = {" ": "spc", "\n": "ret", "\t": "tab", "\b": "backspace", ".": "dot", "/": "slash", "-": "minus"}
+        special = {" ": "spc", "\n": "ret", "\t": "tab", "\b": "backspace", ".": "dot", "/": "slash", "-": "minus",
+                   "'": "apostrophe", "\\": "backslash", ";": "semicolon", "=": "equal", ",": "comma"}
         for character in text:
             if character in special:
                 send(special[character])
@@ -668,6 +669,8 @@ def guest_keyboard(stream, serial):
                 send("shift", {"<": "comma", ">": "dot", "|": "backslash"}[character])
             elif character in "&%":
                 send("shift", {"&": "7", "%": "5"}[character])
+            elif character == '"':
+                send("shift", "apostrophe")
             elif "A" <= character <= "Z":
                 send("shift", character.lower())
             elif "a" <= character <= "z" or character.isdigit():

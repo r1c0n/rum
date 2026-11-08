@@ -17,7 +17,8 @@ changing one subsystem; see the relevant subsystem documentation.
 Use `./rum test --suite host` or `.\rum.ps1 test -Suite host` for host checks.
 Other groups include `user`, `package`, `shell`, `storage`, `block`, `fat16`,
 `fat16-write`, `filesystem`, `preemption`, `lifecycle`, `sleep`, `console` and
-`integration`, `handles`, `pipes`, `workflows`, `jobs` and `terminal`. Run `help` for the full option list.
+`integration`, `handles`, `pipes`, `workflows`, `jobs`, `terminal` and `editing`.
+Run `help` for the full option list.
 
 * Portable host tests cover memory, paths, handles, ABI layouts, terminal and
   keyboard rules, sessions, recovery commands, Snake and the ATA port model.

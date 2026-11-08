@@ -216,20 +216,24 @@ primitives to preserve its synchronous foreground behavior.
 
 ## Standalone commands and session control
 
-The supervised initial shell can use `rum_run_command(path, args, text, result)`
+The supervised initial shell uses `rum_run_argv_command(path, args, result)`
 instead of `rum_run`. It uses syscall 13 with a 32-byte `rum_command_request`:
-version `RUM_COMMAND_ABI_VERSION` (2), the exact structure size, the same path,
-arguments and result addresses, flags `RUM_RUN_COMMAND`, a `text` address, and
-zero `reserved`. The original version-1 packet remains supported unchanged.
+version `RUM_COMMAND_ARGV_VERSION` (3), the exact structure size, the same path,
+arguments and result addresses, flags `RUM_RUN_COMMAND`, and zero `text` and
+`reserved`. The shell supplies already parsed arguments. Normal commands,
+including `echo` and `write`, do not depend on a second raw-text channel.
 
-`text` is the unparsed argument tail, at most 255 printable ASCII bytes plus
-NUL. It preserves spaces for `echo` and `write`, while `argc` and `argv` retain
-the usual split argument layout. The kernel validates and copies it before
-launch. Ordinary programs cannot request this launch mode.
+The legacy `rum_run_command(path, args, text, result)` uses version
+`RUM_COMMAND_ABI_VERSION` (2) with an unparsed argument tail, at most 255
+printable ASCII bytes plus NUL. The kernel still validates and copies it for
+older callers. Version-1 ordinary RUN packets also remain supported unchanged.
+Only the supervised shell may use either command launch version.
 
-The direct command child may call `rum_command_text(buffer, capacity)` (16).
+The direct version-2 command child may call `rum_command_text(buffer, capacity)` (16).
 It validates the full writable range and returns bytes including NUL. A short
-or zero capacity returns `-RUM_ERANGE`; other processes receive `-RUM_EACCES`.
+or zero capacity returns `-RUM_ERANGE`; version-3 and other processes receive
+`-RUM_EACCES`. Both command versions grant the same direct session-control
+authority; possession of a raw tail is separate from that authority.
 
 `rum_session(action, path)` (17) accepts `RUM_SESSION_CHDIR` with a bounded path,
 or `RUM_SESSION_EXIT`/`RUM_SESSION_RECOVERY` with a null path. The unused third
@@ -316,7 +320,9 @@ visible until collection. The snapshot grants no control authority.
 For the supervised shell only, a positive-length console read returns
 `-RUM_EINTR` when a direct child completion is pending. It consumes no keyboard
 bytes. The shell drains `rum_wait(ANY, NOHANG, ...)`, reports each completion,
-redraws its partial line and retries input. Child exit and keyboard input signal
+redraws its partial line and retries input. The shell's public terminal event
+read has the same completion behavior, and also returns EINTR when background
+output requires a line redraw. Child exit and keyboard input signal
 the shell's activity event; PIT ticks do not poll or wake it. Other processes
 retain their existing blocking input behavior.
 

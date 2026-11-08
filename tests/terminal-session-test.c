@@ -7,6 +7,7 @@
 #include <rum/task.h>
 #include <rum/keyboard.h>
 #include <rum/abi/error.h>
+#include <rum/serial.h>
 
 uint32_t handle_test_flags = 0x200u;
 static bool in_irq;
@@ -17,6 +18,9 @@ uint32_t task_console_owner_id(void) { return input_owner; }
 void keyboard_discard_input(void) { ++discarded; }
 struct task_event *keyboard_input_event(void) { return &input; }
 void task_event_signal(struct task_event *event) { ++event->sequence; }
+void task_notify_shell_input(void) {}
+void serial_putchar(char c) { (void)c; }
+void serial_writestring(const char *s) { (void)s; }
 int main(void)
 {
     void *mapped = mmap((void *)0xB8000, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
@@ -46,6 +50,16 @@ int main(void)
         assert(((volatile uint16_t *)mapped)[24 * 80] == 0x0875);
         assert(discarded == iteration + 1 && input.sequence == iteration + 1);
     }
+    assert(!terminal_session_begin_inline(1) && terminal_session_inline());
+    terminal_session_line("> abc", 5, 2);
+    assert(terminal_session_output(2) && terminal_session_redraw());
+    terminal_writestring("notice\n");
+    terminal_session_line("> abc", 5, 3);
+    assert(!terminal_session_redraw() && terminal_state().x == 3 && terminal_state().y == 2);
+    assert(!terminal_session_end(1) && discarded == 64 && terminal_state().x == 5);
+    assert(((volatile uint16_t *)mapped)[80] == 0x076E); /* Background notice remains. */
+    assert(!terminal_session_begin_inline(1)); terminal_session_exit(1);
+    assert(discarded == 65 && !terminal_session_owner());
     assert(munmap(mapped, 4096) == 0);
     puts("PASS: terminal snapshot, colors/cursor, status guard, denied contexts, ownership changes and repeated cleanup");
     return 0;

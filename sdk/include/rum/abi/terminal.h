@@ -9,18 +9,32 @@
 #define RUM_TERM_CURSOR 5u
 #define RUM_TERM_COLOR 6u
 #define RUM_TERM_READ 7u
+#define RUM_TERM_LINE 8u /* Inline-session printable prompt/line and cursor index. */
+#define RUM_TERM_INLINE 1u /* BEGIN: preserve output, commit the edited line on END. */
+#define RUM_TERM_MAX_LINE 514u
 #define RUM_TERM_MAX_CELLS 80u
 #define RUM_TERM_MAX_EVENTS 32u
 #define RUM_TERM_MAX_WAIT_MS 60000u
 #define RUM_TERM_TEXT_EVENT 1u
+#define RUM_TERM_KEY_EVENT 2u
+#define RUM_KEY_LEFT 0x100u
+#define RUM_KEY_RIGHT 0x101u
+#define RUM_KEY_UP 0x102u
+#define RUM_KEY_DOWN 0x103u
+#define RUM_KEY_HOME 0x104u
+#define RUM_KEY_END 0x105u
+#define RUM_KEY_DELETE 0x106u
 #define RUM_TERM_FEATURE_CELLS 1u
 #define RUM_TERM_FEATURE_CURSOR 2u
 #define RUM_TERM_FEATURE_COLOR 4u
 #define RUM_TERM_FEATURE_CHARACTERS 8u
 #define RUM_TERM_FEATURE_TIMED_INPUT 16u
-#define RUM_TERM_FEATURES 31u
+#define RUM_TERM_FEATURE_KEYS 32u
+#define RUM_TERM_FEATURE_LINE 64u
+#define RUM_TERM_FEATURES 127u
 #define RUM_TERM_ACTIVE 1u
 #define RUM_TERM_OWNED 2u
+#define RUM_TERM_INLINE_MODE 4u
 #define RUM_COLOR_BLACK 0u
 #define RUM_COLOR_BLUE 1u
 #define RUM_COLOR_GREEN 2u
@@ -45,11 +59,14 @@ struct rum_terminal_capabilities {
     uint32_t features, mode, cursor_x, cursor_y, foreground, background, cursor_visible;
 };
 struct rum_terminal_cell { uint8_t character, foreground, background, reserved; };
-/* Decoded character press; tick records dequeue time, not hardware arrival.
+/* TEXT_EVENT holds decoded ASCII; KEY_EVENT holds a RUM_KEY_* navigation press.
+   Tick records dequeue time, not hardware arrival.
    Ctrl+C follows session policy: foreground children are cancelled; the
    supervised shell receives value 3 instead of being terminated. */
 struct rum_terminal_event { uint32_t type, value, tick, reserved; };
 /* All unused fields, flags, now_ticks and reserved words must be zero.
+   BEGIN: flags 0 (saved full screen) or INLINE (committed editing surface).
+   LINE: count <= MAX_LINE printable bytes at data; x is cursor 0..count.
    CURSOR: x/y and flags 0/1 for visibility. COLOR: x/y are colors 0..15.
    CELLS: x/y and one row's count. READ: event capacity and timeout_ms.
    QUERY/READ require writable output storage disjoint from the request.

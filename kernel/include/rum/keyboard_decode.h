@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <rum/abi/terminal.h>
 
 /* Controller-translated scan code set 1; a US QWERTY layout. */
 struct keyboard_decoder {
@@ -13,5 +14,6 @@ struct keyboard_decoder {
 
 /* Return an ASCII character for a make code, or zero for non-text events. */
 char keyboard_decode(struct keyboard_decoder *state, uint8_t scancode);
+uint32_t keyboard_decode_event(struct keyboard_decoder *state, uint8_t scancode);
 
 #endif

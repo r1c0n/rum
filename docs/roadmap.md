@@ -306,22 +306,27 @@ supported size and encoding limits.
 
 ### 6. Shell parsing and line editing
 
-- [ ] Add single and double quotes plus documented escaping rules, preserving
+- [x] Add single and double quotes plus documented escaping rules, preserving
   empty arguments and literal operator characters.
-- [ ] Use one bounded parser for normal commands, pipelines, and redirections;
+- [x] Use one bounded parser for normal commands, pipelines, and redirections;
   reject incomplete syntax before launching anything.
-- [ ] Pass parsed `argv` to commands without depending on a privileged raw-text
+- [x] Pass parsed `argv` to commands without depending on a privileged raw-text
   shortcut. Define `echo` and `write` spacing under the new parser and document
   changes from their earlier raw-tail behavior.
-- [ ] Add cursor movement, Home/End, Delete, and bounded in-memory history.
-- [ ] Add bounded completion for program names and filesystem paths, respecting
+- [x] Add cursor movement, Home/End, Delete, and bounded in-memory history.
+- [x] Add bounded completion for program names and filesystem paths, respecting
   each backend's naming and traversal limits.
-- [ ] Redraw the prompt and current line after asynchronous job notifications.
+- [x] Redraw the prompt and current line after asynchronous job notifications.
 
 Test quoted paths, empty arguments, escaped separators, unmatched quotes,
 maximum line/argument sizes, history limits, completion across the disk root, and
 notifications arriving during editing. Variables, globbing, command substitution,
 and script execution remain outside this release.
+
+See [shell syntax and controls](shell.md) and the [terminal API](terminal.md).
+Run `./rum test --suite editing -j4` for bounded host checks and real QEMU
+keyboard, completion, exact-file-byte and asynchronous redraw checks through
+ELF/16 MiB and GRUB ISO/64 MiB. Tests use disposable disks.
 
 ### 7. File tools and persistent workspace
 

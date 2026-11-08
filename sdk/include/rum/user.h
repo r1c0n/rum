@@ -12,6 +12,8 @@
 #include <rum/abi/terminal.h>
 rum_result_t rum_terminal_query(struct rum_terminal_capabilities *);
 rum_result_t rum_terminal_begin(void);
+rum_result_t rum_terminal_begin_inline(void);
+rum_result_t rum_terminal_line(const char *, uint32_t bytes, uint32_t cursor);
 rum_result_t rum_terminal_end(void);
 rum_result_t rum_terminal_cells(uint32_t x, uint32_t y, const struct rum_terminal_cell *, uint32_t count);
 rum_result_t rum_terminal_cursor(uint32_t x, uint32_t y, uint32_t visible);
@@ -50,6 +52,7 @@ rum_result_t rum_process_list(struct rum_process_entry *, uint32_t capacity, uin
 rum_result_t rum_replace(const char *, const void *, rum_size_t);
 rum_result_t rum_console(uint32_t);
 rum_result_t rum_run_command(const char *, const struct rum_arguments *, const char *, struct rum_process_result *);
+rum_result_t rum_run_argv_command(const char *, const struct rum_arguments *, struct rum_process_result *);
 rum_result_t rum_command_text(char *, rum_size_t);
 rum_result_t rum_session(uint32_t action, const char *path);
 

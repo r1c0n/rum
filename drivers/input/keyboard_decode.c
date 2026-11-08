@@ -23,7 +23,7 @@ static const char shifted[128] = {
     [0x33]='<', [0x34]='>', [0x35]='?'
 };
 
-char keyboard_decode(struct keyboard_decoder *state, uint8_t scancode)
+uint32_t keyboard_decode_event(struct keyboard_decoder *state, uint8_t scancode)
 {
     if (state->pause_remaining) {
         --state->pause_remaining;
@@ -69,7 +69,16 @@ char keyboard_decode(struct keyboard_decoder *state, uint8_t scancode)
     if (released || control || state->left_alt || state->right_alt)
         return 0;
     if (extended) {
-        /* Ignore navigation and Print Screen's fake shifts. */
+        switch (code) {
+        case 0x4B: return RUM_KEY_LEFT;
+        case 0x4D: return RUM_KEY_RIGHT;
+        case 0x48: return RUM_KEY_UP;
+        case 0x50: return RUM_KEY_DOWN;
+        case 0x47: return RUM_KEY_HOME;
+        case 0x4F: return RUM_KEY_END;
+        case 0x53: return RUM_KEY_DELETE;
+        default: break;
+        }
         if (code == 0x1C) return '\n';
         if (code == 0x35) return '/';
         return 0;
@@ -83,4 +92,9 @@ char keyboard_decode(struct keyboard_decoder *state, uint8_t scancode)
         character = shifted[code];
     }
     return character;
+}
+char keyboard_decode(struct keyboard_decoder *state, uint8_t scancode)
+{
+    uint32_t value = keyboard_decode_event(state, scancode);
+    return value < 128 ? (char)value : 0;
 }

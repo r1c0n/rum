@@ -17,6 +17,16 @@ rum_result_t rum_terminal_end(void)
 {
     struct rum_terminal_request request = { .operation = RUM_TERM_END }; return terminal_call(&request);
 }
+rum_result_t rum_terminal_begin_inline(void)
+{
+    struct rum_terminal_request request = { .operation = RUM_TERM_BEGIN, .flags = RUM_TERM_INLINE };
+    return terminal_call(&request);
+}
+rum_result_t rum_terminal_line(const char *text, uint32_t bytes, uint32_t cursor)
+{
+    struct rum_terminal_request request = { .operation = RUM_TERM_LINE, .count = bytes, .x = cursor,
+        .data = (rum_address_t)(uintptr_t)text }; return terminal_call(&request);
+}
 rum_result_t rum_terminal_cells(uint32_t x, uint32_t y, const struct rum_terminal_cell *cells, uint32_t count)
 {
     struct rum_terminal_request request = { .operation = RUM_TERM_CELLS, .x = x, .y = y, .count = count,
@@ -179,6 +189,13 @@ rum_result_t rum_run_command(const char *path, const struct rum_arguments *argum
 rum_result_t rum_command_text(char *text, rum_size_t capacity)
 {
     return rum_syscall3(RUM_SYS_COMMAND_TEXT, (rum_address_t)(uintptr_t)text, capacity, 0);
+}
+rum_result_t rum_run_argv_command(const char *path, const struct rum_arguments *arguments, struct rum_process_result *result)
+{
+    struct rum_command_request request = { RUM_COMMAND_ARGV_VERSION, sizeof request,
+        (rum_address_t)(uintptr_t)path, (rum_address_t)(uintptr_t)arguments,
+        (rum_address_t)(uintptr_t)result, RUM_RUN_COMMAND, 0, 0 };
+    return rum_syscall3(RUM_SYS_RUN, (rum_address_t)(uintptr_t)&request, 0, 0);
 }
 rum_result_t rum_session(uint32_t action, const char *path)
 {

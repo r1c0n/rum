@@ -45,6 +45,7 @@ struct process_state {
     char name[RUM_PROCESS_NAME_CAPACITY];
     struct console_member console;
     char command_text[RUM_COMMAND_TEXT_CAPACITY];
+    bool command_has_text;
 };
 
 struct task {
@@ -439,9 +440,9 @@ static void cancel_job_members(struct kernel_job *job)
 
 bool task_mark_shell_command(task_id id, const char *text)
 {
-    if (!task_current_is_shell() || !id || !text || irq_in_handler()) return false;
+    if (!task_current_is_shell() || !id || irq_in_handler()) return false;
     size_t bytes = 0;
-    while (bytes < RUM_COMMAND_TEXT_CAPACITY && text[bytes]) ++bytes;
+    while (text && bytes < RUM_COMMAND_TEXT_CAPACITY && text[bytes]) ++bytes;
     if (bytes == RUM_COMMAND_TEXT_CAPACITY) return false;
     uint32_t saved = cpu_interrupt_save();
     bool marked = false;
@@ -449,7 +450,8 @@ bool task_mark_shell_command(task_id id, const char *text)
         tasks[i].process->parent == current->id && tasks[i].process->kind == TASK_PROCESS &&
         tasks[i].state == TASK_RUNNABLE) {
         if (!console_grant_command(&current->process->console, &tasks[i].process->console)) break;
-        memcpy(tasks[i].process->command_text, text, bytes + 1);
+        tasks[i].process->command_has_text = text != NULL;
+        if (text) memcpy(tasks[i].process->command_text, text, bytes + 1);
         marked = true; break;
     }
     cpu_interrupt_restore(saved);
@@ -458,7 +460,8 @@ bool task_mark_shell_command(task_id id, const char *text)
 
 const char *task_current_command_text(void)
 {
-    return task_current_is_process() && console_command_shell(&current->process->console) ? current->process->command_text : NULL;
+    return task_current_is_process() && current->process->command_has_text &&
+        console_command_shell(&current->process->console) ? current->process->command_text : NULL;
 }
 
 rum_result_t task_session_control(unsigned action, const char *path)

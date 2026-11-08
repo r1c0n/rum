@@ -12,7 +12,7 @@
 #define QUEUE_SIZE 128u
 
 static struct keyboard_decoder decoder;
-static volatile char queue[QUEUE_SIZE];
+static volatile uint32_t queue[QUEUE_SIZE];
 static volatile uint32_t head, tail, dropped;
 static struct task_event input_event;
 
@@ -64,7 +64,7 @@ static void keyboard_interrupt(void)
         if (!(status & 1)) break;
         uint8_t scancode = inb(PS2_DATA);
         if (status & 0xE0) continue;
-        char character = keyboard_decode(&decoder, scancode);
+        uint32_t character = keyboard_decode_event(&decoder, scancode);
         if (!character) continue;
         if (character == '\x03' && task_cancel_foreground()) {
             task_event_signal(task_work_event());
@@ -110,6 +110,16 @@ bool keyboard_initialize(void)
 }
 
 bool keyboard_read(char *character)
+{
+    uint32_t flags = cpu_interrupt_save();
+    bool available = false;
+    while (tail != head) {
+        uint32_t value = queue[tail]; tail = (tail + 1) & (QUEUE_SIZE - 1);
+        if (value < 128) { *character = (char)value; available = true; break; }
+    }
+    cpu_interrupt_restore(flags); return available;
+}
+bool keyboard_read_event(uint32_t *character)
 {
     uint32_t flags = cpu_interrupt_save();
     bool available = tail != head;

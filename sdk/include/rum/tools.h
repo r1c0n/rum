@@ -11,8 +11,9 @@ char *tool_word(char **);
 char *tool_remainder(char *);
 rum_result_t tool_arguments(struct rum_arguments *, int argc, char **argv);
 rum_result_t tool_program_path(const char *, char path[RUM_ABI_PATH_CAPACITY]);
-/* Preserves raw text for shell invocations; joins argv for direct RUN callers. */
+/* Join parsed arguments with one separator; preserve bytes within each arg. */
 rum_result_t tool_text(char text[RUM_COMMAND_TEXT_CAPACITY], int argc, char **argv);
+rum_result_t tool_join(char text[RUM_COMMAND_TEXT_CAPACITY], int first, int argc, char **argv);
 void tool_child_status(const struct rum_process_result *, int always);
 rum_result_t tool_job_id(const char *, uint32_t *);
 int main(int argc, char **argv);

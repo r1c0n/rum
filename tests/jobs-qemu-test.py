@@ -69,7 +69,7 @@ def run(qemu, disk, ram, iso):
         bad = launch(console, "spin | fault | cat")
         console.command(f"wait {bad}", "Program stopped after a user fault.")
         console.command("spin | absent | cat &", "file or directory not found.")
-        console.command("echo wrong >INVALID.TXT & cat", "invalid or oversized pipeline.")
+        console.command("echo wrong >INVALID.TXT & cat", "invalid or oversized command.")
         survivor = launch(console, "spin")
         for command in ("cat INPUT.BIN | spin", "spin | cat > BLOCK.BIN", "wflow diskloop ACTIVE.BIN"):
             job = launch(console, command)

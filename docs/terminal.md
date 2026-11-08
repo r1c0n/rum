@@ -1,7 +1,8 @@
 # Terminal API
 
 User programs can draw colored text, position the cursor and wait for decoded
-keyboard characters through `<rum/user.h>`. The kernel owns VGA memory, the
+keyboard characters and navigation keys through `<rum/user.h>`. The kernel owns
+VGA memory, the
 keyboard queue, hardware ports and input routing. Applications receive geometry,
 palette indices, characters and clock observations instead of device addresses.
 
@@ -47,11 +48,37 @@ modifiers. This prevents queued game input from becoming a shell command. It
 does not overwrite the reserved status row, including updates made while the
 application was running.
 
-Console output from the owner reaches VGA and COM1 normally. While an interactive
+Console output from the owner reaches VGA and COM1 normally. While a fullscreen
 session owns the display, other processes' console writes still reach COM1 but
 do not change the application's VGA cells or cursor. These bytes are not queued
 for later replay. This keeps background output from corrupting a live drawing.
 When no interactive session exists, normal console output behavior is unchanged.
+
+## Inline editing sessions
+
+`rum_terminal_begin_inline()` starts an editing surface at the current cursor
+without saving or clearing the screen. Submit the complete printable prompt
+and command with `rum_terminal_line(text, bytes, cursor)`: `bytes` is 0–514
+and `cursor` is an index from 0 through `bytes`. The buffer need not end in NUL.
+Zero bytes ignores its address. The driver wraps and scrolls within the text
+area, clears the previous line's leftover cells and positions the cursor.
+Validation finishes before drawing; the status row remains protected.
+
+END commits the displayed line and places the cursor at its end. Unlike a
+fullscreen END, it preserves queued input so pasted commands can continue.
+Exit, fault or loss of input ownership releases the mode and discards queued
+input. Begin/end restrictions and automatic cleanup otherwise match fullscreen
+sessions. Finish the inline session before ordinary stream output or launching
+a child; acquire a fresh inline session to render the next prompt.
+
+Other processes' console writes remain visible in inline mode. The first
+write moves below the edited line and marks it for redraw. READ then returns
+EINTR without consuming keyboard events. The shell ends the session, drains
+completion notices and begins a new surface at the current cursor, supplying
+its saved prompt, command and cursor index. It similarly handles completions
+that produce no console output. No new terminal memory is allocated per key or
+notification. Serial output mirrors append/backspace input and uses ANSI
+erase-line/cursor-left sequences for full redraws.
 
 ## Runtime calls
 
@@ -59,11 +86,13 @@ When no interactive session exists, normal console output behavior is unchanged.
 | --- | --- |
 | `rum_terminal_query(caps)` | Fill geometry, features, limits, clock and cursor/color state |
 | `rum_terminal_begin()` | Acquire a foreground interactive session |
-| `rum_terminal_end()` | Restore and release the caller's session |
+| `rum_terminal_begin_inline()` | Acquire a foreground inline editing surface |
+| `rum_terminal_line(text, bytes, cursor)` | Replace the inline prompt/line and position its cursor |
+| `rum_terminal_end()` | Restore fullscreen state, or commit an inline line, and release |
 | `rum_terminal_cells(x, y, cells, count)` | Draw a bounded horizontal span without moving the cursor |
 | `rum_terminal_cursor(x, y, visible)` | Move within the text area and set visibility to 0 or 1 |
 | `rum_terminal_color(foreground, background)` | Set palette indices for ordinary stream output |
-| `rum_terminal_read(events, capacity, milliseconds, ticks)` | Read character events, optionally waiting for a bounded duration |
+| `rum_terminal_read(events, capacity, milliseconds, ticks)` | Read character/key events, optionally waiting for a bounded duration |
 
 Cells contain character, foreground, background and a zero reserved byte. The
 character must be printable ASCII (32–126), and colors use the 16 `RUM_COLOR_*`
@@ -79,10 +108,12 @@ deadline. A short read is normal; no events are fabricated to fill the capacity.
 On zero or error, event storage stays unchanged. Nonempty output buffers are
 validated in full before a character is consumed.
 
-Each 16-byte event contains type, value, tick and zero reserved. The current
-type is `RUM_TERM_TEXT_EVENT`: a decoded character press, including Enter,
-Backspace and Tab, without kernel echo or line buffering. Arrow/navigation
-keys, key releases and modifier-event records are not yet exposed. Ctrl+C
+Each 16-byte event contains type, value, tick and zero reserved.
+`RUM_TERM_TEXT_EVENT` holds a decoded ASCII character press, including Enter,
+Backspace and Tab, without kernel echo or line buffering. `RUM_TERM_KEY_EVENT`
+holds `RUM_KEY_LEFT`, `RIGHT`, `UP`, `DOWN`, `HOME`, `END` or `DELETE` (each with
+the `RUM_KEY_` prefix). Key releases and modifier-event records are not exposed.
+Legacy byte reads skip navigation events. Ctrl+C
 cancels a foreground child or job according to console policy; the supervised
 shell instead receives character value 3.
 
@@ -104,7 +135,8 @@ field, reserved word and output-only now_ticks must be zero. Unused syscall
 registers must also be zero.
 
 - QUERY uses a writable 60-byte `rum_terminal_capabilities` output at data.
-- BEGIN and END take no additional fields.
+- BEGIN accepts flags 0 for fullscreen or `RUM_TERM_INLINE`; END takes no fields.
+- LINE uses count for printable bytes at data and x for cursor index; other fields are zero.
 - CELLS uses x, y, count and readable cell storage at data.
 - CURSOR uses x/y and flags 0 or 1 for visibility.
 - COLOR uses x/y for foreground/background indices.
@@ -118,7 +150,13 @@ requests neither draw a partial span nor consume input, and errors leave user
 outputs unchanged. Every success fills now_ticks. No public structure contains
 a kernel pointer or hardware address.
 
-The kernel uses one fixed saved screen and no per-operation allocations.
+QUERY features include `RUM_TERM_FEATURE_KEYS` and `RUM_TERM_FEATURE_LINE`;
+applications should test the bits they need. Mode includes `RUM_TERM_ACTIVE`,
+`RUM_TERM_OWNED` for the caller, and `RUM_TERM_INLINE_MODE` for an inline surface.
+LINE requires an inline session; using it with fullscreen ownership returns EACCES.
+
+The kernel uses one fixed saved screen and one bounded inline line cache, with
+no per-operation allocations.
 Updates run in task context; IRQ handlers only decode/queue input, signal
 events and account time. Snapshot restoration runs with interrupts enabled
 outside registry updates. `diag` reports `Terminal: normal` after cleanup.

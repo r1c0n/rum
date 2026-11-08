@@ -90,17 +90,19 @@ The decoder supports a US QWERTY keyboard with:
 - Letters, digits, punctuation, and Space.
 - Both Shift keys and Caps Lock.
 - Enter, keypad Enter, Tab, and Backspace.
+- Extended Left, Right, Up, Down, Home, End and Delete key presses.
 
-Navigation keys, function keys, keyboard LEDs, Num Lock behavior, and alternate
+Function keys, keyboard LEDs, Num Lock behavior, and alternate
 layouts are unsupported. Ctrl+C requests foreground-process cancellation; other
 Ctrl and Alt combinations are ignored. At the supervised shell, Ctrl+C is
 queued as input to discard the current line. Pause and Print Screen sequences are
 consumed without producing text.
 
-Decoded characters enter a 128-slot ring buffer with 127 usable entries. If the
-buffer is full, the newest character is dropped and the diagnostic drop counter
+Decoded characters and navigation keys enter a 128-slot ring buffer with 127
+usable entries. If the buffer is full, the newest event is dropped and the diagnostic drop counter
 increases. IRQ1 never echoes or edits text; standard-input reads, public terminal
-event reads and the recovery loop consume characters in task context.
+event reads and the recovery loop consume input in task context. Legacy byte
+reads skip navigation events; public terminal reads expose typed key events.
 
 A decoded character also signals a keyboard-specific task event. Blocking
 standard-input reads wait on this event rather than the general work event, so

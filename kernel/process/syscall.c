@@ -200,9 +200,11 @@ static rum_result_t run_child(struct paging_space *space, uint32_t address)
     struct rum_process_result output;
     if (!accessible(space, address, sizeof request, false) ||
         !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
-    bool command = request.version == RUM_COMMAND_ABI_VERSION;
+    bool text_command = request.version == RUM_COMMAND_ABI_VERSION;
+    bool argv_command = request.version == RUM_COMMAND_ARGV_VERSION;
+    bool command = text_command || argv_command;
     if (request.size != sizeof request || request.reserved[1] ||
-        (command ? request.flags != RUM_RUN_COMMAND :
+        (argv_command && request.reserved[0]) || (command ? request.flags != RUM_RUN_COMMAND :
          request.version != RUM_PROCESS_ABI_VERSION || request.flags || request.reserved[0])) return -RUM_EINVAL;
     if (command && !task_current_is_shell()) return -RUM_EACCES;
     if (!accessible(space, request.result, sizeof output, true) ||
@@ -213,7 +215,7 @@ static rum_result_t run_child(struct paging_space *space, uint32_t address)
     rum_result_t error = copy_path(space, request.path, path);
     if (error) return error;
     char text[RUM_COMMAND_TEXT_CAPACITY];
-    if (command) {
+    if (text_command) {
         /* Empty tails are valid; every byte must be printable shell input. */
         unsigned i;
         for (i = 0; i < sizeof text; ++i) {
@@ -233,7 +235,8 @@ static rum_result_t run_child(struct paging_space *space, uint32_t address)
     if (!paging_copy_from_user(space, arguments, request.arguments, sizeof *arguments)) error = -RUM_EFAULT;
     else if (!elf_arguments_valid(arguments)) error = -RUM_EINVAL;
     struct process_result result;
-    if (!error) error = command ? process_run_command(path, arguments, text, &result) :
+    if (!error) error = argv_command ? process_run_argv_command(path, arguments, &result) :
+                                text_command ? process_run_command(path, arguments, text, &result) :
                                 process_run_foreground(path, arguments, &result);
     (void)kfree(arguments);
     if (error) return error;
@@ -462,12 +465,13 @@ static rum_result_t terminal_events(struct rum_terminal_event *events, uint32_t 
     for (;;) {
         if (task_current_cancelled()) return -RUM_EINTR;
         if (!terminal_session_owned(task_current_id())) return -RUM_EACCES;
-        struct task_event *event = keyboard_input_event();
+        if (terminal_session_redraw() || (task_current_is_shell() && task_shell_has_completion())) return -RUM_EINTR;
+        struct task_event *event = task_current_is_shell() ? task_shell_input_event() : keyboard_input_event();
         uint32_t observed = task_event_sequence(event), count = 0;
-        char c;
-        while (count < capacity && keyboard_read(&c)) {
-            events[count++] = (struct rum_terminal_event){ .type = RUM_TERM_TEXT_EVENT,
-                .value = (unsigned char)c, .tick = timer_ticks() };
+        uint32_t value;
+        while (count < capacity && keyboard_read_event(&value)) {
+            events[count++] = (struct rum_terminal_event){ .type = value < 128 ? RUM_TERM_TEXT_EVENT : RUM_TERM_KEY_EVENT,
+                .value = value, .tick = timer_ticks() };
         }
         if (count) return (rum_result_t)count;
         if (!milliseconds) return 0;
@@ -483,7 +487,7 @@ static rum_result_t terminal_control(struct paging_space *space, uint32_t addres
         !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
     unsigned op = request.operation;
     if (request.version != RUM_TERMINAL_ABI_VERSION || request.size != sizeof request ||
-        op < RUM_TERM_QUERY || op > RUM_TERM_READ || request.now_ticks || request.reserved[0] || request.reserved[1])
+        op < RUM_TERM_QUERY || op > RUM_TERM_LINE || request.now_ticks || request.reserved[0] || request.reserved[1])
         return -RUM_EINVAL;
     uint32_t bytes = 0; bool output = false;
     if (op == RUM_TERM_QUERY) {
@@ -498,13 +502,17 @@ static rum_result_t terminal_control(struct paging_space *space, uint32_t addres
             return -RUM_EINVAL;
         if (request.timeout_ms > RUM_TERM_MAX_WAIT_MS) return -RUM_ERANGE;
         bytes = request.count * sizeof(struct rum_terminal_event); output = true;
+    } else if (op == RUM_TERM_LINE) {
+        if (request.flags || request.y || request.timeout_ms || request.count > RUM_TERM_MAX_LINE || request.x > request.count)
+            return -RUM_EINVAL;
+        bytes = request.count;
     } else {
         if (request.data || request.count || request.timeout_ms) return -RUM_EINVAL;
         if (op == RUM_TERM_CURSOR) {
             if (request.flags > 1 || request.x >= TERMINAL_WIDTH || request.y >= TERMINAL_HEIGHT) return -RUM_EINVAL;
         } else if (op == RUM_TERM_COLOR) {
             if (request.flags || request.x > 15 || request.y > 15) return -RUM_EINVAL;
-        } else if (request.flags || request.x || request.y) return -RUM_EINVAL;
+        } else if (request.x || request.y || (op == RUM_TERM_BEGIN ? request.flags > RUM_TERM_INLINE : request.flags)) return -RUM_EINVAL;
     }
     if (bytes && (!accessible(space, request.data, bytes, output) ||
         (output && (uint64_t)request.data < (uint64_t)address + sizeof request &&
@@ -517,7 +525,8 @@ static rum_result_t terminal_control(struct paging_space *space, uint32_t addres
         struct rum_terminal_capabilities caps = { .version = RUM_TERMINAL_ABI_VERSION, .size = sizeof caps,
             .width = TERMINAL_WIDTH, .height = TERMINAL_HEIGHT, .max_cells = RUM_TERM_MAX_CELLS,
             .max_events = RUM_TERM_MAX_EVENTS, .tick_hz = TIMER_HZ, .ticks = timer_ticks(), .features = RUM_TERM_FEATURES,
-            .mode = terminal_session_owner() ? RUM_TERM_ACTIVE | (terminal_session_owned(id) ? RUM_TERM_OWNED : 0) : 0,
+            .mode = terminal_session_owner() ? RUM_TERM_ACTIVE | (terminal_session_owned(id) ? RUM_TERM_OWNED : 0) |
+                (terminal_session_inline() ? RUM_TERM_INLINE_MODE : 0) : 0,
             .cursor_x = state.x, .cursor_y = state.y, .foreground = state.foreground,
             .background = state.background, .cursor_visible = state.visible };
         if (!paging_copy_to_user(space, request.data, &caps, sizeof caps)) cpu_halt();
@@ -526,10 +535,17 @@ static rum_result_t terminal_control(struct paging_space *space, uint32_t addres
         struct process_handle *in = process_handle_get(handles, RUM_STDIN), *out = process_handle_get(handles, RUM_STDOUT);
         if (!task_current_owns_console() || !in || !out || in->kind != HANDLE_INPUT || out->kind != HANDLE_OUTPUT)
             return -RUM_EACCES;
-        result = terminal_session_begin(id);
+        result = request.flags & RUM_TERM_INLINE ? terminal_session_begin_inline(id) : terminal_session_begin(id);
     } else {
         if (!terminal_session_owned(id)) return -RUM_EACCES;
         if (op == RUM_TERM_END) result = terminal_session_end(id);
+        else if (op == RUM_TERM_LINE) {
+            if (!terminal_session_inline()) return -RUM_EACCES;
+            char text[RUM_TERM_MAX_LINE];
+            if (bytes && !paging_copy_from_user(space, text, request.data, bytes)) return -RUM_EFAULT;
+            for (uint32_t i = 0; i < bytes; ++i) if (text[i] < 32 || text[i] > 126) return -RUM_EINVAL;
+            terminal_session_line(text, bytes, request.x);
+        }
         else if (op == RUM_TERM_CURSOR) {
             (void)terminal_cursor_at(request.x, request.y); terminal_cursor_visible(request.flags != 0);
         } else if (op == RUM_TERM_COLOR) {
