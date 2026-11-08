@@ -51,6 +51,10 @@ int main(void)
     assert(keyboard_decode(&state, 0x1D) == 0);
     assert(keyboard_decode(&state, 0x1E) == 0);
     assert(keyboard_decode(&state, 0x2E) == '\x03');
+    assert(keyboard_decode(&state, 0x26) == '\x0c');
+    assert(keyboard_decode(&state, 0xA6) == 0);
+    assert(keyboard_decode(&state, 0x16) == '\x15');
+    assert(keyboard_decode(&state, 0x96) == 0);
     assert(keyboard_decode(&state, 0xAE) == 0);
     assert(keyboard_decode(&state, 0x9D) == 0);
     assert(keyboard_decode(&state, 0x38) == 0);
@@ -59,6 +63,8 @@ int main(void)
     assert(keyboard_decode(&state, 0xE0) == 0);
     assert(keyboard_decode(&state, 0x1D) == 0);
     assert(keyboard_decode(&state, 0x1E) == 0);
+    assert(keyboard_decode(&state, 0x26) == '\x0c');
+    assert(keyboard_decode(&state, 0x16) == '\x15');
     assert(keyboard_decode(&state, 0xE0) == 0);
     assert(keyboard_decode(&state, 0x9D) == 0);
     assert(keyboard_decode(&state, 0x1E) == 'a');

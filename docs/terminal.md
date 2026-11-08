@@ -132,6 +132,11 @@ Legacy byte reads skip navigation events. Ctrl+C
 cancels a foreground child or job according to console policy; the supervised
 shell instead receives character value 3.
 
+Ctrl+L and Ctrl+U arrive as text events with values 12 and 21. The userspace
+shell uses them to clear the screen while preserving its draft, or clear the
+whole draft. Other programs choose their own behavior for these bytes; IRQ
+handlers never implement screen clearing or line editing.
+
 Capabilities and successful reads provide a wrapping 32-bit tick observation
 and tick rate (currently 100 Hz). Event ticks record dequeue time, rather than
 hardware arrival time. Use unsigned subtraction for short elapsed intervals.

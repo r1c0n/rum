@@ -45,6 +45,9 @@ def run(qemu, disk, ram, iso, screen):
         c.send("up"); submit(c, "ok\r\n")
         # Down restores the unsubmitted line and its middle cursor, not history's end.
         c.type("echo drft"); c.send("left"); c.send("left"); c.send("up"); c.send("down"); c.type("a"); submit(c, "draft\r\n")
+        c.type("discard the whole line"); c.send("left"); c.send("ctrl", "u")
+        c.type("echo clean"); submit(c, "clean\r\n")
+        c.send("up"); c.send("ctrl", "u"); c.type("echo fresh"); submit(c, "fresh\r\n")
         c.type("discard this"); c.send("ctrl", "c"); c.wait("^C\r\n/> ")
         c.type("hell"); c.send("tab"); submit(c, "Hello from rum userspace!\r\n")
         c.type("he"); c.send("tab"); c.send("tab")
@@ -72,7 +75,10 @@ def run(qemu, disk, ram, iso, screen):
         c.send("pgdn")
         restored, _ = terminal.wait_screen(c, screen, lambda r: any(row.rstrip() == "/> echo ac" for row in r[:24]))
         assert live[:3840] == restored[:3840], "Page Down must restore every live cell"
-        c.send("pgup"); c.type("b"); c.send("end"); submit(c, "abc\r\n")
+        c.send("pgup"); c.send("ctrl", "l")
+        _, cleared = terminal.wait_screen(c, screen, lambda r: r[0].rstrip() == "/> echo ac" and not any(row.strip() for row in r[1:24]))
+        assert "uptime:" in cleared[24], cleared[24]
+        c.type("b"); c.send("end"); submit(c, "abc\r\n")
         # Direct background writes and completion notices preserve a middle cursor.
         for command in ("start edit notice", "edit notice &"):
             start = c.serial.stat().st_size

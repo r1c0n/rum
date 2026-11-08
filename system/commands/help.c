@@ -14,6 +14,7 @@ int main(int argc, char **argv)
         "mv [-f] [--copy] <src> <dst> Move a regular file\n"
         "stat <path>       Show file type, size and volume mode\n"
         "setup             Create /HOME and /APPS if missing\n"
+        "sync              Flush the mounted volume\n"
         "run <program> [arguments] Run a program; Ctrl+C cancels\n"
         "start <program> [arguments] Start without waiting\n"
         "ps                List processes\nkill <pid>        Request cancellation\n"
@@ -28,6 +29,7 @@ int main(int argc, char **argv)
         "Quote arguments with '...' or \"...\"; backslash escapes the next character.\n"
         "Edit with arrows, Home/End and Delete; Up/Down recall history, Tab completes.\n"
         "Page Up/Page Down browse output; typing returns to the prompt.\n"
+        "Ctrl+L clears the screen; Ctrl+U clears the current command.\n"
         "Programs are available in /rum.\n");
     return 0;
 }

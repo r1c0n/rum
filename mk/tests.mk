@@ -1,4 +1,10 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
+build/tests/sync-command.o: system/commands/sync.c sdk/include/rum/tools.h sdk/include/rum/user.h $(ABI_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror -Dmain=sync_main -c $< -o $@
+build/tests/sync-test: tests/sync-test.c build/tests/sync-command.o $(ABI_HEADERS)
+	$(HOST_CC) -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror $(filter %.c %.o,$^) -o $@
+test-host test-build: build/tests/sync-test
 .PHONY: test-file-tools test-file-tools-host test-rename-host
 build/tests/file-copy-test: tests/file-copy-test.c system/lib/file-copy.c system/lib/files.h $(ABI_HEADERS)
 	@mkdir -p $(@D)
@@ -10,9 +16,10 @@ build/tests/file-move-test: tests/file-move-test.c build/tests/file-move.o syste
 	$(HOST_CC) -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror $(filter %.c %.o,$^) -o $@
 test-rename-host: build/tests/fat16-write-test
 	python3 tests/file-tools-host-test.py
-test-file-tools-host: build/tests/file-copy-test build/tests/file-move-test build/tests/fs-test build/tests/handles-test build/tests/abi-test test-rename-host
+test-file-tools-host: build/tests/file-copy-test build/tests/file-move-test build/tests/sync-test build/tests/fs-test build/tests/handles-test build/tests/abi-test test-rename-host
 	./build/tests/file-copy-test
 	./build/tests/file-move-test
+	./build/tests/sync-test
 	./build/tests/fs-test
 	./build/tests/handles-test
 	./build/tests/abi-test
@@ -741,6 +748,7 @@ test-host: build/tests/block-test build/tests/console-test build/tests/memory-te
 	./build/tests/terminal-session-test
 	./build/tests/file-copy-test
 	./build/tests/file-move-test
+	./build/tests/sync-test
 	./build/tests/pipe-test
 	./build/tests/fs-test
 	./build/tests/ata-test

@@ -30,6 +30,8 @@ enum shell_edit_action shell_editor_key(struct shell_editor *e, uint32_t key)
 {
     if (key == '\n' || key == '\r') return SHELL_EDIT_ACCEPT;
     if (key == 3) { shell_editor_reset(e); return SHELL_EDIT_CANCEL; }
+    if (key == 12) return SHELL_EDIT_CLEAR;
+    if (key == 21) { shell_editor_reset(e); return SHELL_EDIT_CHANGED; }
     if (key == '\t') return SHELL_EDIT_COMPLETE;
     if (key == RUM_KEY_LEFT) { if (!e->cursor) return SHELL_EDIT_NONE; --e->cursor; }
     else if (key == RUM_KEY_RIGHT) { if (e->cursor == e->length) return SHELL_EDIT_NONE; ++e->cursor; }

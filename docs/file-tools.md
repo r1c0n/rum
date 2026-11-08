@@ -32,6 +32,7 @@ disk preparation do not create this workspace for you.
 | `mv [-f] source destination` | Rename a closed regular file within the mounted filesystem |
 | `mv [-f] --copy source destination` | Explicitly copy, flush and close successfully, then remove the source |
 | `stat path` | Show file/directory type, byte size and volume write mode |
+| `sync` | Flush the mounted volume; print an error and return failure if flushing fails |
 
 `cp` and `mv` refuse an existing destination by default. `-f` permits replacing
 a closed regular file. Directories cannot be copied, moved or overwritten;
@@ -109,6 +110,12 @@ A same-directory rename to an unused name edits the source slot and needs no
 free data clusters. Cross-directory moves may need a free slot or directory
 cluster. These are [FAT16 write guarantees](fat16.md#rename-ordering), with
 documented repair windows after power loss or failed I/O.
+
+`sync` opens the root directory, flushes its filesystem and closes the handle,
+including after a flush error. Success is silent; arguments are rejected.
+On a read-only volume it succeeds without a disk write. FAT mutations already
+flush as documented, so `sync` is an explicit flush request and does not add
+journaling, atomic replacement or recovery from interrupted writes.
 
 Run `.\rum.ps1 test -Suite file-tools -Jobs 4` on Windows, or
 `./rum test --suite file-tools -j4` in Ubuntu/WSL. The focused group checks

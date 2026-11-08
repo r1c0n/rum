@@ -64,8 +64,11 @@ uint32_t keyboard_decode_event(struct keyboard_decoder *state, uint8_t scancode)
         return 0;
     }
     bool control = state->left_ctrl || state->right_ctrl;
-    if (!released && !extended && control && !state->left_alt && !state->right_alt &&
-        code == 0x2E) return '\x03'; /* Ctrl+C */
+    if (!released && !extended && control && !state->left_alt && !state->right_alt) {
+        if (code == 0x2E) return '\x03'; /* Ctrl+C */
+        if (code == 0x26) return '\x0c'; /* Ctrl+L */
+        if (code == 0x16) return '\x15'; /* Ctrl+U */
+    }
     if (released || control || state->left_alt || state->right_alt)
         return 0;
     if (extended) {
