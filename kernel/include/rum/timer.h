@@ -19,5 +19,6 @@ bool timer_duration_ticks(uint32_t milliseconds, uint32_t *result);
 
 void timer_initialize(void);
 uint32_t timer_ticks(void);
+bool timer_running(void); /* At least one IRQ observed since initialization. */
 
 #endif

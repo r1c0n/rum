@@ -8,6 +8,7 @@
 #include "test-files.h"
 #include <rum/serial.h>
 #include <rum/terminal.h>
+#include <rum/timer.h>
 #include "fat16-write-checks.h"
 #include "../kernel/fs/fat16-internal.h"
 
@@ -103,6 +104,10 @@ void kernel_main(uint32_t magic, uint32_t information)
     fat16_write_check(count >= 3, "write fixture arguments");
     char *mode = tokens[count - 3];
     fail_at = integer(tokens[count - 2]); tear = (unsigned)integer(tokens[count - 1]);
+    /* Exercise post-boot I/O with the production elapsed-time poll deadline.
+       The scheduler tolerates timer IRQs before its own initialization. */
+    timer_initialize(); pic_unmask(0); cpu_interrupt_enable();
+    while (!timer_running()) __asm__ volatile("hlt" : : : "memory");
     fat16_write_check(tear <= 512 && ata_initialize().error == BLOCK_OK, "write fixture ATA and failure extent");
     ata = ata_device();
     struct block_device device = { .sector_count = ata->sector_count, .sector_size = 512, .online = true,

@@ -1,5 +1,7 @@
 #include <rum/ata.h>
 #include <rum/io.h>
+#include <rum/cpu.h>
+#include <rum/timer.h>
 
 #define ATA_DATA 0x170
 #define ATA_ERROR 0x171
@@ -33,11 +35,25 @@ enum poll_phase { POLL_IDLE, POLL_DATA, POLL_COMPLETE };
 static struct block_result poll_limit(enum poll_phase phase, unsigned limit)
 {
     uint8_t status = 0;
-    for (unsigned i = 0; i < limit; ++i) {
+    uint32_t flags = cpu_interrupt_save(); cpu_interrupt_restore(flags);
+    bool timed = (flags & 0x200u) && timer_running();
+    uint32_t started = timer_ticks(), previous = started;
+    uint32_t duration = TIMER_HZ * (limit == ATA_FLUSH_POLL_LIMIT ? 30u : 1u);
+    /* Count-only bounds depend on CPU speed and can expire before a healthy
+       virtual disk completes host fsync. Once IRQ time is available, use one
+       fixed deadline. A finite watchdog still catches a stopped/masked clock. */
+    unsigned watchdog = timed ? ATA_FLUSH_POLL_LIMIT : limit;
+    unsigned remaining = watchdog, sample = 0;
+    while (remaining--) {
         status = inb(ATA_CONTROL);
         if (status == 0 || status == 0xff) {
             disk.online = false;
             return (struct block_result){ .error = BLOCK_NO_DEVICE, .status = status };
+        }
+        if (timed && !(++sample & 1023u)) {
+            uint32_t now = timer_ticks();
+            if ((uint32_t)(now - started) >= duration) break;
+            if (now != previous) { remaining = watchdog; previous = now; }
         }
         if (status & ATA_BSY) continue; /* Other bits are invalid while busy. */
         if (status & ATA_DF) {
