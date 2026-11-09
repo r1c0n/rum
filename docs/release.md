@@ -11,13 +11,18 @@ publish a disk that has been used for personal files or testing.
 In Ubuntu/WSL, from a clean committed checkout:
 
 ```sh
-python3 scripts/release-check.py
+python3 scripts/release-check.py --jobs 4 --workers 4
 ```
 
 The checker copies tracked sources to a new temporary directory, builds with
 bounded parallelism and runs the complete host/QEMU suite. Tests validate
 persistent root files across separate boots, read-only/malformed/full disks,
 process isolation, cancellation, cleanup and injected storage failures.
+The production-shell scenario pipes binary ELF bytes to a file, appends quoted
+text, copies and renames files, cancels a blocked pipeline, collects a child
+fault and restarts the shell with an active job. Every resource ledger returns
+to its recovery baseline. A separate boot reads identical saved bytes and runs
+the copied application from `/APPS`.
 The exact ISO extracted from the package is booted too. No caller's disk is
 used and the original build directory is not cleaned.
 
@@ -41,7 +46,10 @@ python3 tests/release-host-test.py --release build/release-check/<commit>-<time>
 
 It packages with the host's native Python, verifies source/archive bytes and
 boots the extracted ISO using a temporary copy of the validated system disk.
-It checks program launch, process tools, cancellation, recovery and cleanup.
+It checks pipelines, file tools, job cancellation/fault/restart, userspace Snake,
+recovery and resource cleanup, then reboots the same temporary disk to recover
+the saved text and launch the copied application. It also audits FAT ownership
+and verifies that the pristine source disk's hash has not changed.
 The original system disk is never booted writable. Source changes beyond
 README/docs require a new clean release check.
 

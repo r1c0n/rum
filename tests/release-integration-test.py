@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import struct
 import tempfile
@@ -17,11 +18,53 @@ shell = module_from_spec(spec)
 spec.loader.exec_module(shell)
 shell.ARTIFACTS = ARTIFACTS
 images = shell.images
+WORKFLOW_BYTES = b"island  bytes\nliteral | > &\n"
+
+
+def background(console, command):
+    output = console.command(command + " &", "started")
+    match = re.search(r"\[(\d+)\] started ", output)
+    assert match, output
+    return int(match[1])
+
+
+def workflows(console):
+    """One production scenario shared by release and native-host ISO checks."""
+    console.command("setup", "Workspace ready: /HOME and /APPS.")
+    console.command("echo 'island  bytes' | cat > /HOME/NOTES.TXT")
+    console.command("echo 'literal | > &' >> /HOME/NOTES.TXT")
+    console.command("cp /HOME/NOTES.TXT /HOME/COPY.TXT")
+    console.command("mv /HOME/COPY.TXT /HOME/SAVED.TXT")
+    console.command("cat /HOME/SAVED.TXT", WORKFLOW_BYTES.decode().replace("\n", "\r\n"))
+    console.command("cat /RUM/HELLO.ELF | cat > /HOME/EXACT.ELF")
+    console.command("cp /HOME/EXACT.ELF /APPS/HELLO.ELF")
+    console.command("/APPS/HELLO.ELF", "Hello from rum userspace!")
+    blocked = background(console, "spin | cat > /HOME/CANCEL.BIN")
+    console.type(f"fg {blocked}\n"); console.wait(f"Foreground job {blocked}.\r\n")
+    console.send("ctrl", "c"); console.wait("Program cancelled.\r\n/> ")
+    failed = background(console, "spin | fault | cat > /HOME/FAULT.BIN")
+    console.command(f"wait {failed}", "Program stopped after a user fault.")
+    abandoned = background(console, "spin | cat > /HOME/RESTART.BIN")
+    console.command("exit", "Type 'help' for commands.")
+    console.command("jobs", "No jobs.")
+    console.command(f"fg {abandoned}", "job not found.")
+    console.command("sync")
+
+
+def resource_baseline(console):
+    diagnostic = console.command("diag")
+    for expected in ("Processes: 0 | 0 user tables, 0 user pages",
+                     "Sessions: 0 live, 0 closing, 0 members | 0 session refs, 0 process refs",
+                     "Handles: 0 descriptors, 0 open descriptions, 0 aliases",
+                     "Jobs: 0 live, 0 running, 0 completed, 0 active waits",
+                     "Pipes: 0 live, 0 buffered bytes | 0 read ends, 0 write ends, 0 active operations, 0 waiters",
+                     "Terminal: normal"):
+        assert expected in diagnostic, diagnostic
 
 
 def recovery(console, active_shell=True):
     if active_shell: console.command("recovery", "Kernel recovery shell.")
-    console.command("diag", "Processes: 0 | 0 user tables, 0 user pages")
+    resource_baseline(console)
     console.command("mem", "Heap:")
     console.type("snake\n"); console.wait("rum_snake_started\r\n")
     console.send("q"); console.wait("> ")
@@ -55,12 +98,24 @@ def matrix(qemu, ram, iso, temporary):
     original_files = images.audit(disk)["files"]
     note = "rum release bytes  with spaces  "
     with shell.boot(qemu, ram, prefix + "-write", disk=disk, iso=iso) as console:
-        console.command("write /notes.txt " + note)
+        console.command('write /notes.txt "' + note + '"')
         console.command("cat /notes.txt", "\r\n" + note + "\r\n> ")
+        workflows(console)
+        recovery(console)
     assert images.file_bytes(disk, "/NOTES.TXT") == note.encode()
+    state = images.audit(disk)
+    for name in ("/HOME/NOTES.TXT", "/HOME/SAVED.TXT"):
+        assert state["files"][name] == WORKFLOW_BYTES and images.file_bytes(disk, name) == WORKFLOW_BYTES
+    for name in ("/HOME/EXACT.ELF", "/APPS/HELLO.ELF"):
+        assert state["files"][name] == original_files["/RUM/HELLO.ELF"]
+        assert images.file_bytes(disk, name) == original_files["/RUM/HELLO.ELF"]
+    for name in ("/HOME/CANCEL.BIN", "/HOME/FAULT.BIN", "/HOME/RESTART.BIN"):
+        assert state["files"][name] == b""
     saved = disk.read_bytes()
     with shell.boot(qemu, ram, prefix + "-reboot", disk=disk, iso=iso) as console:
         console.command("cat /notes.txt", "\r\n" + note + "\r\n> ")
+        console.command("cat /HOME/SAVED.TXT", WORKFLOW_BYTES.decode().replace("\n", "\r\n"))
+        console.command("/APPS/HELLO.ELF", "Hello from rum userspace!")
     assert disk.read_bytes() == saved
     saved_files = images.audit(disk)["files"]
     assert all(saved_files[name] == data for name, data in original_files.items())
@@ -149,6 +204,9 @@ def packaged(qemu, archive):
                 console.command("hello", "Hello from rum userspace!")
                 console.command("cat /README.TXT")
                 console.command("ls /rum", "SHELL.ELF")
+                console.command("echo 'packaged | bytes' | cat > CHECK.TXT")
+                console.command("cat CHECK.TXT", "packaged | bytes\r\n")
+                console.command("sync")
         return hashlib.sha256(image.read_bytes()).hexdigest()
 
 
