@@ -1,404 +1,334 @@
 # rum roadmap
 
-rum has protected user processes, a versioned syscall ABI, persistent FAT16
-storage, and a userspace shell with standalone commands. The next releases
-build on those interfaces: concurrent processes first, then programs that can
-work together through files and pipes.
-
-The 32-bit x86 BIOS target, GRUB Multiboot boot path, direct ELF boot, and VGA
-text interface remain supported. The kernel owns hardware, protection,
-scheduling, and filesystems. Programs use public headers and syscalls; they
-never access kernel memory, VGA memory, keyboard queues, or hardware ports.
-
-Each numbered step should remain buildable and keep existing commands,
-persistent files, diagnostics, fault recovery, and Snake working. Add tests
-for new ownership rules and failure paths before moving to the next dependency.
-
-## 0.5.0 — multitasking and process control
-
-The goal is to run independent user programs without allowing a CPU-bound
-program to stop the rest of the system. Introduce user-process preemption and
-separate launch, wait, and termination operations. Kernel execution remains
-cooperative at explicitly safe points.
-
-### 1. Scheduling and ownership prerequisites
-
-- [x] Separate process-owned resources from the initial thread's execution,
-  stack, scheduling state, and wait registration while retaining one thread
-  per process and the current public ABI.
-- [x] Audit interrupt entry/return, syscall entry/return, context switching, and
-  cancellation before allowing a timer interrupt to select another process.
-- [x] Document which task, process, filesystem, handle, console, and memory
-  structures are shared, and what protects each update.
-- [x] Define safe scheduling points. Never switch in an IRQ handler, during a
-  short interrupt-disabled update, while holding a lock, or while exposing
-  partially constructed resources.
-- [x] Audit blocking callbacks and bounded ATA polling. Keep filesystem and
-  driver operations serialized, and release ownership before a task sleeps.
-- [x] Define runnable, waiting, and exited states, scheduler limits, and the
-  ownership of stacks, address spaces, working directories, and exit records.
-- [x] Preserve the existing user CPU policy, guarded stacks, and kernel fault
-  behavior while introducing the new scheduling paths.
-
-Test event wakeups racing with waits, cancellation during a syscall, and
-failure partway through process construction. Add assertions for forbidden
-scheduling contexts and compare ownership counts before and after cleanup.
-
-The ownership model, protected operations, and synchronization audit are
-recorded in [Scheduling safety](scheduling.md).
-
-### 2. Timer-driven user-process preemption
-
-- [x] Use PIT ticks to request rescheduling and define a documented time slice.
-- [x] Switch a user process at a trusted outer interrupt return to user mode;
-  nested interrupts and interrupts from kernel mode only record pending work.
-- [x] Preserve the complete user register frame and update task identity, CR3,
-  and TSS state together before restoring the selected context.
-- [x] Implement fair round-robin selection among runnable tasks, with an idle
-  path when none are ready.
-- [x] Apply pending scheduling requests at safe kernel boundaries without
-  adding arbitrary kernel preemption.
-- [x] Keep IRQ handlers bounded and allocation-free, and avoid treating every
-  timer tick as a reason to wake unrelated input or filesystem waiters.
-
-Run two CPU-bound programs that never yield and verify both make progress.
-Check register preservation, private address spaces, user CPU restrictions,
-stack guards, timer wraparound, and cancellation while processes alternate.
-Document that bounded synchronous kernel I/O can still delay scheduling.
-
-### 3. Separate spawn, wait, and termination interfaces
-
-- [x] Add fixed-width, versioned spawn, wait, and termination requests to the
-  public ABI and user runtime.
-- [x] Make spawn return a process identifier after complete construction;
-  failure must publish no runnable child and retain no temporary resources.
-- [x] Support waiting for a specific child and checking for completion without
-  blocking. Define how a parent waits for any child as well.
-- [x] Return signed exit status, fault category, or cancellation without
-  exposing kernel addresses or private process records.
-- [x] Define who may request termination. Permit child control and explicitly
-  authorized shell-session control rather than arbitrary process access.
-- [x] Define orphan adoption, abandoned exit-record cleanup, identifier
-  exhaustion, and rejection of stale or unrelated identifiers.
-- [x] Preserve existing foreground RUN behavior and compatible command-launch
-  packets while implementing them through the new lifecycle operations.
-
-Validate every packet, flag, path, argument, and output buffer before creating
-or changing a process. Test failed loads, invalid identifiers, double waits,
-parent exit, child exit before wait, and result-copy failures. An invalid wait
-result buffer must not discard a child's exit record.
-
-### 4. Sleeping and cancellable event waits
-
-- [x] Expose yield and bounded timed sleep through the public runtime.
-- [x] Use checked duration conversion and wrap-safe clock comparisons; define
-  zero-duration sleep and the maximum supported interval.
-- [x] Let input, child completion, and timer deadlines block only the caller.
-- [x] Preserve the event-sequence protocol so a signal between checking a
-  predicate and attaching a waiter cannot be lost.
-- [x] Wake a cancelled task without freeing its active stack or address space,
-  and finish termination at an existing safe boundary.
-- [x] Remove wait registrations and deadline references on every exit path.
-
-Test wakeups before and after registration, several waiters on one event,
-cancelled sleepers, deadline overflow, and repeated sleep/exit cycles. Idle
-should sleep when there is no runnable work; blocked tasks should not busy-poll.
-
-### 5. Foreground console ownership and shell supervision
-
-- [x] Replace assumptions about one nested foreground chain with an explicit,
-  referenced shell session and foreground owner.
-- [x] Give keyboard input and Ctrl+C only to the foreground process or the
-  interactive shell; nonforeground processes must not consume shell input.
-- [x] Define the result of a background console read and how console output
-  from several processes is serialized.
-- [x] Transfer ownership on foreground launch and restore it after normal
-  exit, fault, cancellation, or a failed launch.
-- [x] Restrict directory-change, exit, and recovery requests to an authorized
-  shell command; ordinary concurrent children cannot modify the shell.
-- [x] Define cleanup of session-owned children on shell restart and preserve
-  the existing restart limit and kernel recovery path.
-
-Test competing input readers, nested launches, a child fault during input,
-Ctrl+C during disk work, and shell restart with live children. Recovery must
-remain reachable without leaving a dead process as the console owner.
-
-See [Console sessions](console-sessions.md) for ownership, output, restart and
-cleanup rules, along with the focused test command.
-
-### 6. Process tools and minimal concurrent launch
-
-- [x] Add a bounded public process-list query with identifiers, names, state,
-  and parent relationships, omitting addresses and kernel pointers.
-- [x] Build standalone `ps`, `kill`, and `sleep` programs using only public
-  headers and the runtime.
-- [x] Add a minimal shell `start <program>` form that launches a nonforeground
-  child and returns to the prompt; reserve full job syntax for 0.6.0.
-- [x] Track and reap those children without blocking line input. Notify the
-  shell when an owned child finishes and report its result once.
-- [x] Keep existing foreground commands, program lookup, working-directory
-  behavior, and user-facing error messages compatible.
-- [x] Document process limits, termination permissions, output interleaving,
-  and the distinction between starting a child and waiting for it.
-
-Start a CPU-bound child, use `ps` while it runs, run another program, and terminate
-only the selected child. Test registry exhaustion, malformed process queries,
-completion while the shell waits for input, and multiple rapidly exiting children.
-
-See [Running concurrent programs](process-tools.md) for command examples, limits
-and the focused test command.
-
-### 7. 0.5.0 integration and release
-
-- [x] Stress several runnable, sleeping, and input-waiting processes while
-  reading and writing FAT files.
-- [x] Verify address-space isolation and register preservation across many
-  timer-driven switches.
-- [x] Repeat spawn, wait, fault, and cancellation until process, handle,
-  object, heap, and physical-page counts return to their baseline.
-- [x] Exercise parent exit, orphan cleanup, failed publication, pending I/O,
-  and shell restart with outstanding children.
-- [x] Run the complete host and QEMU suite through both boot paths and
-  supported RAM sizes, including missing disks, read-only mounts, malformed
-  volumes, and full media.
-- [x] Update process, scheduler, console, ABI, and troubleshooting guides.
-- [x] Verify Windows and Linux packaging and boot the exact packaged ISO.
-
-0.5.0 is ready when two CPU-bound user programs make progress independently,
-the shell remains usable while a nonforeground child runs, and cancelling or
-faulting one process leaves the others alive. Persistent bytes must still
-survive a separate boot, and diskless boot must retain recovery and Snake.
-
-See [Building a release](release.md) for clean-source validation, host package
-checks and the evidence saved with each candidate.
-
-## 0.6.0 — shell workflows and userspace tools
-
-The goal is to connect programs through standard streams and make everyday
-file work convenient. Complete shared-handle and pipe semantics before adding
-pipelines or job syntax. Programs remain separate ELFs in `/RUM` on the
-persistent root disk, alongside user files and optional applications.
-
-### 1. Shared open objects and descriptor inheritance
-
-- [x] Separate handle-table entries from referenced open-file descriptions.
-  Duplicated handles share offset, access mode, and pending I/O error state;
-  separate opens keep independent offsets.
-- [x] Add descriptor duplication and explicit spawn-time stream mappings.
-  Allow files and future pipes to occupy standard handles 0–2.
-- [x] Define close-on-spawn behavior and inherit only descriptors requested
-  by a validated launch packet.
-- [x] Validate source handles, target numbers, modes, reserved fields, and
-  mapping conflicts before publishing a child.
-- [x] Keep backend objects pinned until the final shared reference closes;
-  retain the documented busy-object rules for removal and replacement.
-- [x] Roll back every acquired reference on failed duplication, spawn, exit,
-  user fault, and cancellation.
-
-Test shared offsets, independent opens, closing one alias, standard-handle
-replacement, table exhaustion, conflicting mappings, and partial launch
-failure. Extend ownership diagnostics to count open descriptions and aliases.
-
-See [shared handles and child streams](shared-handles.md) for API contracts and
-`./rum test --suite handles` for the focused host and ring-3 checks.
-
-### 2. Bounded pipes and stream I/O
-
-- [x] Add a versioned pipe-creation request returning separate read and write
-  handles with a documented fixed buffer capacity.
-- [x] Route pipe transfers through the existing read/write interface with
-  exact byte counts, partial transfers, and zero-length semantics.
-- [x] Block readers on an empty pipe while writers remain, and block writers
-  on a full pipe while readers remain.
-- [x] Return EOF only after all writers close and buffered bytes are consumed;
-  return a public broken-pipe error when no readers remain.
-- [x] Reject seeking and directory operations on pipes, and define ordering
-  and any atomic-write limit for multiple writers.
-- [x] Wake waiters on transfer, final close, fault, and cancellation without
-  losing events or releasing a pipe that still has live references.
-
-Compare binary payloads larger than the pipe capacity byte for byte. Cover
-several readers/writers, last-end closure, cancelled blocked tasks, inherited
-aliases, handle exhaustion, and repeated pipelines returning counts to baseline.
-
-See [pipes and stream I/O](pipes.md) for the API, capacity, atomic-write limit
-and endpoint lifetime rules. Run `./rum test --suite pipes -j4` for the focused
-host and ring-3 checks.
-
-### 3. File redirection and pipeline launch
-
-- [x] Extend file opening with explicit create, truncate, and append behavior,
-  including backend capability checks and documented busy-object rules.
-- [x] Keep append positioning and writes serialized across concurrent open
-  descriptions. Preserve backend size limits and partial-failure reporting.
-- [x] Parse `<`, `>`, `>>`, and `|` in userspace with explicit bounds on commands,
-  arguments, redirections, and pipeline length.
-- [x] Prepare pipes and stream mappings, spawn every pipeline stage before
-  waiting, and close the shell's unused pipe endpoints promptly.
-- [x] Define foreground input ownership for a pipeline and cancel and reap
-  all of its stages on Ctrl+C; step 4 adds the shell's job registry.
-- [x] Define redirection order, standard error behavior, and the pipeline's
-  reported status.
-- [x] Terminate and reap already-started stages if later setup fails. Document
-  that an earlier file truncation or committed write cannot be rolled back.
-- [x] Make `cat` offer a byte-preserving stream mode for redirection and pipes
-  while retaining a safe display mode for the console.
-
-Test empty and binary files, append, failed opens, full/read-only media,
-pipelines longer than one pipe buffer, missing executables, and a failed middle
-stage. Verify exact resulting file bytes and ensure no inherited endpoint
-keeps a completed pipeline waiting forever.
-
-See [redirection and pipelines](shell-workflows.md) for grammar, API and failure
-contracts. Run `./rum test --suite workflows -j4` for the focused host and QEMU
-checks, including host-byte comparisons and read-only/full disks.
-
-### 4. Background jobs and foreground control
-
-- [x] Track a bounded job as one process or a pipeline, with one shell-session
-  identity and a defined lifecycle.
-- [x] Add `&` launch syntax and standalone `jobs`, `fg`, and `wait` commands using
-  public session interfaces.
-- [x] Transfer console ownership to a foreground job and return it when every
-  stage finishes or the job is cancelled.
-- [x] Deliver Ctrl+C to the foreground job's active stages, leaving the shell
-  and unrelated jobs running.
-- [x] Report job completion once, preserve each stage's result for cleanup,
-  and define the user-visible pipeline result.
-- [x] Define shell exit/restart policy for outstanding jobs and handle job-table
-  exhaustion without leaking children or descriptors.
-
-Test foreground pipelines, background pipelines, concurrent completions,
-background attempts to read the console, `fg` on an exited job, and cancellation
-while a stage is blocked in pipe or file I/O. Stop/resume, Ctrl+Z, and a general
-Unix signal model remain later work.
-
-See [background jobs](jobs.md) for commands, ownership, limits and the public
-ABI. Run `./rum test --suite jobs -j4` for focused host and QEMU checks through
-both boot paths, with real keyboard input and disposable FAT images.
-
-### 5. Public terminal input and userspace Snake
-
-- [x] Add fixed-width terminal capability queries and bounded cursor, color,
-  text-update, and noncanonical keyboard-input operations.
-- [x] Restrict interactive terminal state changes and keyboard reads to the
-  foreground owner; validate all positions, lengths, flags, and user buffers.
-- [x] Define input events and timed waits needed by interactive programs,
-  keeping PS/2 queues and VGA addresses private to the kernel.
-- [x] Restore terminal mode, cursor, colors, and input ownership after normal
-  exit, cancellation, a user fault, or partial setup.
-- [x] Move the game loop, board, scoring, and rendering into `snake.elf` using
-  only public terminal, timing, and process interfaces.
-- [x] Retain a recovery-shell game path so missing or rejected system disks
-  do not remove diskless recovery functionality.
-
-Test Snake under competing CPU load, invalid terminal packets, background
-access attempts, rapid input, and faults while a terminal mode is active.
-Ordinary output and the shell prompt must remain usable afterward.
-
-See the [terminal API](terminal.md) and [Snake guide](snake.md) for controls,
-ownership and cleanup. Run `./rum test --suite terminal -j4` for focused host
-and QEMU checks, including user-game scoring, reboot persistence and recovery.
-
-A small bounded text editor is a stretch goal after these interfaces are
-stable. It should preserve the original file when saving fails and state its
-supported size and encoding limits.
-
-### 6. Shell parsing and line editing
-
-- [x] Add single and double quotes plus documented escaping rules, preserving
-  empty arguments and literal operator characters.
-- [x] Use one bounded parser for normal commands, pipelines, and redirections;
-  reject incomplete syntax before launching anything.
-- [x] Pass parsed `argv` to commands without depending on a privileged raw-text
-  shortcut. Define `echo` and `write` spacing under the new parser and document
-  changes from their earlier raw-tail behavior.
-- [x] Add cursor movement, Home/End, Delete, and bounded in-memory history.
-- [x] Add bounded completion for program names and filesystem paths, respecting
-  each backend's naming and traversal limits.
-- [x] Redraw the prompt and current line after asynchronous job notifications.
-
-Test quoted paths, empty arguments, escaped separators, unmatched quotes,
-maximum line/argument sizes, history limits, completion across the disk root, and
-notifications arriving during editing. Variables, globbing, command substitution,
-and script execution remain outside this release.
-
-See [shell syntax and controls](shell.md) and the [terminal API](terminal.md).
-Run `./rum test --suite editing -j4` for bounded host checks and real QEMU
-keyboard, completion, exact-file-byte and asynchronous redraw checks through
-ELF/16 MiB and GRUB ISO/64 MiB. Tests use disposable disks.
-
-### 7. File tools and persistent workspace
-
-- [x] Add `touch`, `cp`, `mv`, and `stat` programs with clear overwrite rules,
-  checked sizes, and public filesystem error messages.
-- [x] Add public metadata queries and same-backend regular-file rename where
-  required by those tools. Document rename write ordering and interruption
-  windows without promising crash-safe replacement.
-- [x] Make `touch` preserve existing contents and define its timestamp
-  behavior within the capabilities of the current filesystem and clock.
-- [x] Prevent accidental self-copy and define open-object, read-only, and
-  destination-exists behavior before mutation.
-- [x] Keep cross-mount moves explicit: copy and flush successfully before
-  deleting the source, and report partial outcomes honestly.
-- [x] Provide an opt-in setup command for `/HOME` and `/APPS`. Never
-  create, format, or replace a user disk as a side effect of normal boot.
-- [x] Document how to run copied applications without making `/rum` writable
-  or searching user-controlled directories ahead of system tools by default.
-
-Test empty and multi-cluster files, exact binary copies, naming limits,
-cross-mount failures, busy files, overwrite refusal, and full media. Validate
-renames and copied bytes with host FAT tools after QEMU exits. Directory moves
-and general crash recovery are not required.
-
-See [file tools and workspace](file-tools.md), [metadata and rename
-syscalls](filesystem-syscalls.md#metadata-and-rename), and
-[FAT rename ordering](fat16.md#rename-ordering). Run
-`./rum test --suite file-tools -j4` for focused host and QEMU checks. The host
-checks model explicit cross-volume copy moves; current QEMU boots expose one
-FAT16 root. Successful disk mutations are checked with host FAT tools and
-independent allocation audits, and copied applications are launched after a
-separate reboot. All images are disposable.
-
-### 8. 0.6.0 integration and release
-
-- [x] Create, copy, append to, and read persistent files through shell
-  redirection and pipelines, then recover identical bytes after a separate boot.
-- [x] Exercise background jobs and foreground cancellation while pipes and
-  file handles remain open.
-- [x] Inject setup, allocation, pipe, block, and filesystem failures at each
-  ownership transfer and confirm the shell and recovery path remain usable.
-- [x] Verify every pipeline, cancelled job, child fault, and shell restart
-  releases descriptors, open descriptions, pipes, process records, and pages.
-- [x] Run the complete host and QEMU suite through both boot paths and
-  supported RAM sizes, including diskless and rejected-volume boots.
-- [x] Document shell grammar, stream semantics, job control, terminal APIs,
-  naming limits, save/flush behavior, and interrupted-write expectations.
-- [x] Verify Windows and Linux packages, keep the ISO standalone, and boot
-  the exact packaged artifact without bundling a mutable user disk.
-
-0.6.0 is ready when the shell can run a pipeline, redirect its exact output to
-a persistent file, and manage a background job without losing foreground input.
-A fault or Ctrl+C must close every pipe endpoint and restore the prompt. Snake
-must run in userspace, and the saved file must survive another QEMU boot.
-
-The release gate passed for 0.6.0. See the
-[validation record](release.md#060-validation-record) for source identity,
-host checks, timings and the validated ISO checksum.
+rum 0.6.0 provides protected user processes, timer-driven scheduling, persistent
+FAT16 storage, a userspace shell, pipelines, background jobs and a userspace
+Snake game. The next releases build the memory and ownership contracts needed
+for larger, independently developed applications.
+
+The architecture separates low-level kernel mechanisms, executive services
+such as memory and object management, and userspace policy. The 32-bit x86 BIOS
+target, GRUB Multiboot and direct ELF boot paths remain supported. Hardware
+access and protection stay in the kernel; applications use the public ABI.
+
+The [foundation release plan in Notion](https://app.notion.com/p/411ed3fd93a9812b92c1e2feb55468f0)
+records the longer-term priorities. This roadmap breaks the next two releases
+into implementation steps. All checkboxes describe work still to do.
+
+## 0.7.0 — userspace memory and the application SDK
+
+The goal is to build an application outside the rum repository, load a larger
+executable, and let it allocate and release its own memory through public
+interfaces. Keep one userspace thread per process for this release. Eager page
+allocation is sufficient; demand paging, swapping and copy-on-write can follow
+when a requirement justifies them.
+
+### 1. Virtual-memory contracts and resource accounting
+
+- [ ] Define the available user address ranges and ownership of executable
+  mappings, dynamic regions, stacks and guards. Keep kernel mappings and
+  reserved ranges inaccessible to allocation requests.
+- [ ] Specify page alignment, address selection, protection flags, region and
+  per-process limits, zero-length behavior and failure results.
+- [ ] Add fixed-width, versioned public request structures for allocating,
+  protecting and releasing regions. Reject unknown flags, reserved fields,
+  invalid sizes and address arithmetic overflow before modifying mappings.
+- [ ] Define which operations require task context, how mapping changes are
+  serialized, and when scheduling is allowed during construction or cleanup.
+- [ ] Account for committed user pages, page-table pages and region metadata.
+  Document how these consume physical memory and the process budget.
+
+Test boundary addresses, page rounding, overlapping ranges, quota exhaustion,
+invalid packet sizes and overflow. A rejected request must leave mappings,
+accounting and the calling process unchanged.
+
+### 2. Private region allocation and release
+
+- [ ] Add a bounded per-process region registry with explicit ownership and
+  collision checks against existing ELF, stack and reserved mappings.
+- [ ] Allocate private, zeroed pages and publish a region only after all required
+  pages and metadata are ready. Roll back every partial construction failure.
+- [ ] Release only regions owned by the caller under the documented release
+  contract. Reject double release, foreign addresses and attempts to free
+  loader-owned mappings or active stacks through the region API.
+- [ ] Update page tables and invalidate translations safely for active and
+  inactive address spaces without exposing partially updated state.
+- [ ] Release all dynamic regions during normal exit, fault, cancellation and
+  failed process construction, including after allocation failure.
+
+Exercise multiple processes allocating, writing and freeing regions. Check
+zero-filled reuse, isolation, guard boundaries, allocation failure at each
+stage and page/metadata counts after repeated exits.
+
+### 3. Protection changes and syscall buffer safety
+
+- [ ] Apply supported access protections to complete owned ranges, with checked
+  bounds and a documented policy for partial-region changes and splitting.
+- [ ] Describe the permissions the current paging mode can actually enforce.
+  Do not promise non-executable pages or execute-only mappings without hardware
+  support; reject unsupported requests explicitly.
+- [ ] Make syscall input/output validation cover dynamic regions and changes
+  in readability or writability, including cross-page and unmapped spans.
+- [ ] Define the lifetime of mappings referenced by a blocked operation. Copy,
+  retain or otherwise protect those buffers until the operation completes;
+  establish a rule that remains safe when threading arrives later.
+- [ ] Keep permission faults confined to the offending process and preserve
+  kernel recovery and cleanup behavior.
+
+Test reads and writes across protection boundaries, malformed pointers,
+read-only output buffers and invalid ranges. Verify that failed protection
+changes leave the previous permissions intact and that process faults release
+all outstanding resources.
+
+### 4. Growing heap and application runtime
+
+- [ ] Build a userspace allocator over the region API with aligned `malloc`,
+  `calloc`, `realloc` and `free` operations and defined zero-size behavior.
+- [ ] Check multiplication and size overflow, preserve the old allocation on
+  failed `realloc`, and return allocation failure without terminating the OS.
+- [ ] Reuse freed storage and document when backing regions return to the OS.
+  Release all process memory on exit even if an application omits `free`.
+- [ ] Add the C runtime functions needed by the external examples and planned
+  application compatibility probe, with documented file, timing and error
+  behavior. Keep wrappers implemented through public syscalls.
+- [ ] Document the runtime's current single-threaded assumptions so shared
+  allocator and library state can be addressed in the threading release.
+
+Test alignment, zeroing, preservation across growth and shrink, fragmented
+allocation patterns, recoverable exhaustion and interleaved processes. Check
+that heap pressure cannot alter another process's data or prevent recovery.
+
+### 5. Larger executable loading
+
+- [ ] Replace the current small image-loading bound with explicit executable,
+  segment and committed-memory limits appropriate to supported RAM sizes.
+- [ ] Load bounded portions of an image instead of relying on a large fixed
+  kernel-stack buffer or allocating the entire file unnecessarily.
+- [ ] Validate ELF32 header and program-header arithmetic, file spans, alignment,
+  segment overlaps, `p_filesz <= p_memsz`, entry points and reserved ranges.
+- [ ] Preserve zero-filled BSS, guarded stacks, process isolation and the
+  permission policy from step 3. Charge all mappings against process limits.
+- [ ] Keep static i386 executables as the supported format and update the host
+  ELF validator and SDK linker contract alongside the kernel loader.
+
+Load valid images beyond the old limit, multiple segments and large BSS.
+Reject truncated files, overflowing offsets, overlapping or forbidden mappings
+and invalid entry points. Inject read/allocation failures and verify complete
+rollback without changing the parent or its descriptors.
+
+### 6. Standalone SDK and application compatibility probe
+
+- [ ] Export public headers, startup objects, a runtime library, linker script,
+  ELF validator and version/target information as a standalone SDK package.
+- [ ] Remove the exported validator's dependence on private kernel headers.
+  Publish the executable and resource contracts external tools need.
+- [ ] Provide an external-project template and Windows/WSL and Linux build
+  instructions using the separate cross compiler. The template must build
+  without repository-private include paths or access to kernel sources.
+- [ ] Document application arguments, memory limits, filesystem access, streams,
+  launch/exit behavior and ABI/runtime compatibility expectations.
+- [ ] Use a userspace Doom engine compile/link probe to identify missing heap,
+  C runtime, executable-loading and WAD file-I/O support. Where practical,
+  exercise initialization and file access without a display.
+- [ ] Record remaining port dependencies and keep application code outside the
+  kernel. A playable game, framebuffer and sound are not 0.7.0 release gates.
+
+Build and validate an application from an unpacked SDK in a separate directory.
+Run it with dynamic allocation, file I/O and recoverable failures, then verify
+cleanup after normal exit, fault and cancellation. The exported package must
+not require an OS rebuild to compile an application.
+
+### 7. Integration and release
+
+- [ ] Combine larger ELF loading, heap growth, filesystem operations and
+  concurrent processes under bounded memory pressure.
+- [ ] Verify isolation, stack guards, buffer validation and page/region cleanup
+  across exit, fault, cancellation and partial construction failures.
+- [ ] Keep existing shell commands, pipelines, jobs, persistent files, Snake and
+  kernel recovery working, including without a usable system disk.
+- [ ] Run focused host tests during development, then the complete release
+  suite through both boot paths and supported RAM configurations.
+- [ ] Document memory syscalls, enforced protections, quotas, runtime behavior
+  and the SDK installation/build workflow.
+- [ ] Validate Windows and Linux SDK/release packages and boot the exact
+  packaged ISO. Keep mutable user disks separate from the standalone ISO.
+
+0.7.0 is ready when an application built outside the OS repository can load,
+grow and free its heap, perform public file I/O and exit or fault without
+leaking pages or corrupting another process. Allocation failures must remain
+recoverable, and the exported SDK must reproduce that application build.
+
+## 0.8.0 — kernel objects, handles and access rights
+
+The goal is consistent lifetime and authority rules for files, pipes, console
+endpoints and process references. Build on shared open descriptions rather than
+replacing their behavior. Low-level scheduling and address-space mechanisms
+stay separate from object management and userspace policy.
+
+### 1. Common object ownership
+
+- [ ] Define a private object header with type, reference ownership, destruction
+  rules and bounded diagnostics. Keep object addresses and layouts private.
+- [ ] Distinguish a named filesystem entry, an open description, a handle-table
+  entry and an in-flight operation's reference. Specify which owns each
+  resource and which state is shared between aliases.
+- [ ] Define acquisition, publication and final-release rules, including failed
+  construction and destruction that may perform filesystem work.
+- [ ] Require final destruction in an allowed context, outside short protected
+  updates and incompatible locks. Keep IRQ paths bounded and allocation-free.
+- [ ] Establish accounting for live objects, table entries and retained
+  references before migrating existing resource types.
+
+Test reference underflow/overflow rejection, failed construction, ownership
+transfer and final close. No object may be published partially initialized or
+freed while an operation still retains it.
+
+### 2. Typed handles and access masks
+
+- [ ] Define versioned public object-handle operations and type-specific rights.
+  Reject unsupported bits, wrong object types and invalid handles before
+  accessing the underlying resource.
+- [ ] Use generation-aware identities for the new object-handle interface so a
+  stale value cannot refer to a replacement object. Specify invalid values,
+  capacity limits and safe generation-wrap behavior.
+- [ ] Preserve existing stream descriptors, including slots 0–2, the bounded
+  descriptor table, shared offsets and close-on-spawn flags. Clearly separate
+  descriptor reuse semantics from generation-aware object-handle semantics.
+- [ ] Grant only authorized rights at creation/open. Duplication and inheritance
+  may preserve or reduce rights, never add authority the source does not hold.
+- [ ] Define compatible ABI evolution and provide public wrappers without
+  exposing pointers or requiring applications to understand kernel objects.
+
+Test wrong-type use, forged/stale values, table exhaustion, reuse, generation
+wrap and unknown access bits. Confirm existing binaries retain their documented
+stream behavior, or provide an explicit versioned compatibility path.
+
+### 3. File, pipe and console integration
+
+- [ ] Adapt existing open descriptions and pipe endpoints to common object
+  ownership while preserving shared offset, append and deferred-error behavior.
+- [ ] Preserve filesystem backend identity, retained open-file references and
+  explicit removal/replacement behavior while handles remain open.
+- [ ] Keep EOF, broken-pipe, partial I/O, descriptor mapping and terminal
+  foreground ownership semantics unchanged.
+- [ ] Retain references across blocked I/O and release them exactly once on
+  completion, cancellation or process teardown.
+- [ ] Avoid double-counting or double-closing resources while old descriptor
+  operations and the new object interface share implementation.
+
+Repeat alias/inheritance, pipe and terminal tests through the adapted paths.
+Check close during pending operations, child faults, last-reader/last-writer
+exit and final backend release against ownership-count baselines.
+
+### 4. Process objects and management rights
+
+- [ ] Represent process references as objects with separate rights for supported
+  query, wait and termination operations. Define who may acquire those rights.
+- [ ] Keep process IDs used for display/discovery separate from authority.
+  Prevent ID reuse from redirecting an existing reference to a new process.
+- [ ] Separate a running process's execution resources from its retained exit
+  status. Define when status is consumed and when final references disappear.
+- [ ] Preserve direct-child, job and shell-session behavior while expressing
+  existing delegation through explicit rights.
+- [ ] Define process exit and cancellation with pending waits or I/O; leave
+  thread and synchronization object implementations for 0.9.0.
+
+Test parent/child exit ordering, retained exit status, failed acquisition,
+foreign-session operations, reused IDs and termination during I/O. Closing a
+reference must not accidentally terminate its process or lose another owner's
+legitimate wait result.
+
+### 5. Duplication, inheritance and construction failures
+
+- [ ] Specify explicit duplication and child-inheritance rules for each object
+  type, including rights reduction and non-inheritable entries.
+- [ ] Integrate new handles with existing spawn descriptor mappings without
+  changing standard-stream replacement or close-on-spawn semantics.
+- [ ] Validate complete requests before publishing child-visible entries and
+  unwind every acquired reference if child construction fails.
+- [ ] Keep caller, child and in-flight operation references independent so exit
+  or cancellation cannot revoke another owner's live reference accidentally.
+- [ ] Document whether authority is checked when a handle is acquired or on
+  each operation; define any supported revocation behavior explicitly.
+
+Combine invalid mappings, rights escalation attempts, full tables and injected
+construction failures. Repeated spawn/exit/fault cycles must restore handle,
+object, pipe, filesystem-reference and page counts to baseline.
+
+### 6. Trusted operations and system-file protection
+
+- [ ] Define a small single-user authority policy for trusted boot/recovery,
+  shell sessions and ordinary applications. Do not infer trust from a program's
+  filename, directory or request flags alone.
+- [ ] Enforce process/device management rights and trusted changes to `/RUM`
+  at kernel service boundaries, including direct syscall use.
+- [ ] Cover create, write, truncate, remove and rename operations, checking
+  both source and destination identities where required. Normalization, case
+  aliases and retained writable handles must not bypass protection.
+- [ ] Define how system programs are installed or updated and how ordinary
+  applications can use writable data/application directories without acquiring
+  system-management authority.
+- [ ] Preserve a controlled recovery path and document the limits of this
+  single-user policy. Offline host edits remain outside the guest trust model.
+
+Attempt protected operations through equivalent paths, aliases, inherited
+handles and renamed files/directories. Denied requests must acquire no extra
+rights, modify no protected data and leak no references. Exercise the supported
+trusted maintenance workflow as well as denial paths.
+
+### 7. Diagnostics, integration and release
+
+- [ ] Expose bounded object/handle/reference counts and sanitized diagnostics
+  without exposing kernel addresses or another process's private data.
+- [ ] Combine stale handles, wrong types, rights failures, exhaustion, blocked
+  I/O, process exit and cancellation in ownership-focused regression tests.
+- [ ] Run existing shell, pipeline, job, terminal, persistence and recovery
+  checks alongside an external application built with the 0.7 SDK.
+- [ ] Verify that faults and failures leave no live objects or retained buffers
+  after their final legitimate owner is gone.
+- [ ] Document object types, rights, descriptor/handle differences, inheritance,
+  process references, trusted operations and ABI compatibility.
+- [ ] Run the full release gate and validate Windows/Linux packages and exact
+  packaged boots before changing the release version.
+
+0.8.0 is ready when aliases and inherited handles preserve lifetime correctly,
+stale object handles cannot target replacements, and denied operations cannot
+acquire authority. Failed construction, cancellation, faults and final close
+must restore ownership counts to baseline. Existing applications and the SDK
+must retain their documented behavior.
+
+## Later releases
+
+Work through these foundation areas in order. Detailed steps belong in the
+roadmap when each release becomes the next implementation target.
+
+| Release | Focus |
+| --- | --- |
+| 0.9.0 | Synchronization and multiple userspace threads |
+| 0.10.0 | Common I/O requests, cancellation and input event contracts |
+| 0.11.0 | Storage integrity, flush guarantees and recovery |
+| 0.12.0 | Userspace initialization, services and system authority |
+| 0.13.0 | Combined foundation integration and readiness gate |
+| 0.14.0 | Minimal graphics and a first playable userspace Doom port, conditional on the foundation gate |
+
+Prepare Doom's application/runtime requirements during 0.7 and input contracts,
+including key presses and releases, during 0.10. The first playable port targets
+fullscreen graphics without requiring audio or a desktop. It must remain an
+ordinary SDK-built userspace application. If foundations need more work after
+0.13, revise the target rather than bypassing their readiness requirements.
+Broader libraries, additional drivers, audio and desktop work follow as needed.
 
 ## Delivery order
 
-Work through each release in numbered order, using one focused branch and pull
-request per step, such as `0.5/scheduling-prerequisites`, `0.5/user-preemption`,
-`0.6/shared-handles`, or `0.6/pipes`. Keep conventional commits focused and commit
-tested changes periodically. Integration branches collect completed steps.
+Complete each release's steps in numbered order, with one focused branch and
+pull request per step, created from `master` after its dependencies land.
+Examples: `0.7/virtual-memory-contracts`, `0.7/user-regions`,
+`0.8/object-ownership` and `0.8/typed-handles`. Keep Conventional Commits focused
+and commit verified changes periodically. Do not mark planned work complete
+until its implementation and relevant checks pass.
 
-Before a release, use the [clean release workflow](release.md), inspect the
-saved serial/QMP artifacts and ownership counts, build `rum.zip`, and boot its
-exact ISO. Update the release version only when that release is ready. Change
-ABI versions when public contracts change and document binary compatibility.
-
-General kernel preemption, SMP, fork, a GUI, networking, USB, long FAT names,
-and 64-bit support remain future work. These releases keep the existing
-storage format and interrupted-write guarantees while improving process
-control and the public interfaces available to applications.
+Use focused tests while developing each step and reserve the complete suite
+for integration or changes that cross enough interfaces to require it. Follow
+the [clean release workflow](release.md), inspect saved diagnostics and resource
+counts, and boot the exact packaged ISO before declaring a release ready.
+Update the OS version only at that point; version public contracts separately
+when they change and document compatibility.
