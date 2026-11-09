@@ -18,6 +18,7 @@ programs and persistent files. With no usable disk, rum opens recovery.
 
 - [Source layout](source-layout.md)
 - [Memory layout](memory-layout.md) and [memory management](memory.md)
+- [User virtual-memory contracts](virtual-memory.md)
 - [Heap and storage](storage.md)
 - [Interrupts](interrupts.md) and [exceptions](exceptions.md)
 - [Tasks](tasks.md), [scheduling](scheduling.md) and [console sessions](console-sessions.md)
