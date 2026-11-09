@@ -31,6 +31,21 @@ logs, guest diagnostics, kernel, ISO, package and a pristine `rum-system.raw`.
 The report records ISO and system-disk SHA256 values. Only a report with
 `passed: true` represents a successful check.
 
+The release gate combines subsystem checks with the production workflow:
+
+| Area | Evidence |
+| --- | --- |
+| Ownership transfers | Host handle/pipe tests and guest construction-budget tests verify rollback of descriptors, aliases, pages and stacks |
+| Active jobs and streams | Workflow/job tests cover blocked pipes, active filesystem handles, child faults, Ctrl+C and session restart |
+| Disk failures | ATA/FAT tests inject controller errors, timeouts, allocation failures, torn writes and failed flushes |
+| Persistence | Production shell and host FAT tools compare exact bytes across separate QEMU boots |
+| Console and recovery | Terminal restoration, userspace Snake, scrollback/editing, diskless/rejected volumes and recovery resource counts |
+| Packaging | Exact archive membership/bytes, no mutable disk in `rum.zip`, extracted-ISO boots at 16/64/256/1152 MiB, then native host checks |
+
+Timed ATA checks include slow flushes beyond the former poll-count budget,
+clock wraparound and a stopped clock. Every wait remains bounded; no storage
+failure is retried silently or hidden to make a release check pass.
+
 ## Verify on Windows and Linux
 
 Run the host checker against that successful release directory:

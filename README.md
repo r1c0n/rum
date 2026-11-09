@@ -4,8 +4,9 @@ A small operating system written in C and x86 assembly, named after the
 Scottish island of Rùm.
 
 rum runs protected user programs on 32-bit x86 with BIOS firmware. It includes
-a command shell, persistent FAT16 storage, preemptive multitasking and ASCII
-Snake. QEMU, VMware Workstation and VirtualBox are supported.
+a userspace shell with pipes, redirection and background jobs, persistent FAT16
+storage, preemptive multitasking and ASCII Snake. QEMU, VMware Workstation and
+VirtualBox are supported.
 
 ## Getting started
 
@@ -42,16 +43,24 @@ case-insensitive and names use 8.3 spelling. Files are saved on disk and survive
 restarts. There is no RAM filesystem.
 
 ```text
-ls /
-mkdir /DOCS
-cd /DOCS
-write NOTES.TXT hello from rum
-cat notes.txt
+setup
+cd /HOME
+echo 'hello from rum' | cat > NOTES.TXT
+echo 'another line' >> NOTES.TXT
+cp NOTES.TXT BACKUP.TXT
+cat BACKUP.TXT
+sleep 2000 &
+jobs
+wait
+sync
 run hello
-start spin
-ps
-kill <pid>
 ```
+
+Arrow keys, Home/End and Delete edit the command; Up/Down browse history and
+Tab completes names. Page Up/Page Down browse output. Ctrl+L clears the screen
+while preserving the draft, and Ctrl+U clears the draft. See the
+[shell guide](docs/shell.md), [jobs](docs/jobs.md) and
+[file tools](docs/file-tools.md) for syntax, limits and application installation.
 
 `recovery` enters the recovery console, where `mem`, `diag` and Snake remain
 available even without usable storage. `exit` restarts the normal shell.

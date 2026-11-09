@@ -362,17 +362,17 @@ separate reboot. All images are disposable.
 
 ### 8. 0.6.0 integration and release
 
-- [ ] Create, copy, append to, and read persistent files through shell
+- [x] Create, copy, append to, and read persistent files through shell
   redirection and pipelines, then recover identical bytes after a separate boot.
-- [ ] Exercise background jobs and foreground cancellation while pipes and
+- [x] Exercise background jobs and foreground cancellation while pipes and
   file handles remain open.
-- [ ] Inject setup, allocation, pipe, block, and filesystem failures at each
+- [x] Inject setup, allocation, pipe, block, and filesystem failures at each
   ownership transfer and confirm the shell and recovery path remain usable.
-- [ ] Verify every pipeline, cancelled job, child fault, and shell restart
+- [x] Verify every pipeline, cancelled job, child fault, and shell restart
   releases descriptors, open descriptions, pipes, process records, and pages.
-- [ ] Run the complete host and QEMU suite through both boot paths and
+- [x] Run the complete host and QEMU suite through both boot paths and
   supported RAM sizes, including diskless and rejected-volume boots.
-- [ ] Document shell grammar, stream semantics, job control, terminal APIs,
+- [x] Document shell grammar, stream semantics, job control, terminal APIs,
   naming limits, save/flush behavior, and interrupted-write expectations.
 - [ ] Verify Windows and Linux packages, keep the ISO standalone, and boot
   the exact packaged artifact without bundling a mutable user disk.
