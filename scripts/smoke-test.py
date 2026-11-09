@@ -1117,11 +1117,16 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--qemu", default="qemu-system-i386")
-    parser.add_argument("--filesystem-only", action="store_true", help="Run the focused filesystem kernel fixtures")
+    focus = parser.add_mutually_exclusive_group()
+    focus.add_argument("--filesystem-only", action="store_true", help="Run the focused filesystem kernel fixtures")
+    focus.add_argument("--paging-only", action="store_true", help="Run the paging ownership and allocation fixture")
     args = parser.parse_args()
     project = Path(__file__).resolve().parent.parent
     artifacts = project / "build/test-artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
+    if args.paging_only:
+        boot_test(args.qemu, project, "paging-ok-64", artifacts, paging="ok", ram=64)
+        return
     if args.filesystem_only:
         for ram in TEST_RAM_SIZES:
             boot_test(args.qemu, project, f"filesystem-{ram}", artifacts, filesystem=True, ram=ram)

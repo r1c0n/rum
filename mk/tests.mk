@@ -7,8 +7,11 @@ test-vm-host: build/tests/vm-test build/tests/layout-test build/tests/abi-test
 	./build/tests/vm-test
 	./build/tests/layout-test
 	./build/tests/abi-test
-test-host: test-vm-host
+test-host: build/tests/vm-test
 test-build: build/tests/vm-test
+.PHONY: test-vm
+test-vm: test-vm-host build/tests/paging-ok.elf
+	python3 scripts/smoke-test.py --qemu $(QEMU) --paging-only
 
 build/tests/sync-command.o: system/commands/sync.c sdk/include/rum/tools.h sdk/include/rum/user.h $(ABI_HEADERS)
 	@mkdir -p $(@D)
@@ -771,6 +774,7 @@ test-host: build/tests/block-test build/tests/console-test build/tests/memory-te
 	./build/tests/pmm-test
 	./build/tests/storage-test
 	./build/tests/snake-test
+	./build/tests/vm-test
 	./build/tests/layout-test
 	./build/tests/frame-test
 	./build/tests/abi-test

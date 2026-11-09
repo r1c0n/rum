@@ -15,11 +15,13 @@ struct paging_statistics {
     uint32_t spaces, directory_pages, shared_table_pages;
     uint32_t kernel_directory, active_directory;
     uint32_t private_table_pages, user_pages;
+    uint32_t metadata_bytes; /* Live private-space heap payload; no heap headers. */
 };
 
 struct paging_space_statistics {
     uint32_t directory, private_table_pages, user_pages;
     bool kernel;
+    uint32_t directory_pages, metadata_bytes;
 };
 
 /* Allocation-free, IRQ-safe snapshot. Shared table frames are counted once,
