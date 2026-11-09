@@ -35,7 +35,6 @@ struct process_state {
     enum task_termination termination;
     rum_result_t exit_status;
     struct task_fault fault;
-    struct task_resources resources; /* Address-space pages only. */
     struct fs_context filesystem;
     struct process_handles handles;
     bool cancellation_requested;
@@ -230,10 +229,6 @@ task_id task_create(void (*entry)(void *), void *argument, struct paging_space *
         .space = owned_space ? owned_space : paging_kernel_space(), .owns_space = owned_space != NULL };
     struct task constructed = { .id = next_id, .state = TASK_RUNNABLE,
         .entry = entry, .argument = argument, .process = &owner };
-    if (owned_space) owner.resources = (struct task_resources){
-        .directory_pages = 1, .user_table_pages = space.private_table_pages,
-        .user_pages = space.user_pages,
-    };
     if (fs_context_clone(&current->process->filesystem, &owner.filesystem) != FS_OK) {
         (void)task_switch_release();
         return 0;
@@ -271,9 +266,7 @@ static task_id create_process(const struct task_process *process, bool make_fore
 
     uint32_t stack_slot = (uint32_t)(slot - tasks) - 1;
     struct process_state owner = { .process_id = next_process_id, .parent = parent,
-        .kind = TASK_PROCESS, .space = process->space, .owns_space = true,
-        .resources = { .directory_pages = 1, .user_table_pages = space.private_table_pages,
-                       .user_pages = space.user_pages } };
+        .kind = TASK_PROCESS, .space = process->space, .owns_space = true };
     struct task constructed = { .id = next_id, .state = TASK_RUNNABLE,
         .process = &owner, .user_frame = process->user_frame };
     const char *name = process->name[0] ? process->name : "program";

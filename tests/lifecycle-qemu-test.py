@@ -12,10 +12,11 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--qemu", default="qemu-system-i386")
+    parser.add_argument("--vm-only", action="store_true", help="Run only private memory-region lifecycle checks")
     args = parser.parse_args()
     artifacts = ROOT / "build/test-artifacts/lifecycle"
     artifacts.mkdir(parents=True, exist_ok=True)
-    for case in ("lifecycle", "lifecycle-ids"):
+    for case in (("vm-regions",) if args.vm_only else ("lifecycle", "lifecycle-ids", "vm-regions")):
         for boot, ram in (("elf", 16), ("iso", 64)):
             with tempfile.TemporaryDirectory(prefix="rum-lifecycle-") as temporary:
                 serial = Path(temporary) / "serial"
@@ -43,7 +44,9 @@ def main():
                     (artifacts / f"{label}.qemu.log").write_bytes(process.stderr.read())
                     if serial.exists():
                         (artifacts / f"{label}.serial.log").write_bytes(serial.read_bytes())
-            print(f"PASS: {label}: lifecycle requests, ownership, permissions, failed copies, cleanup and limits", flush=True)
+            coverage = ("private regions, zeroing, isolation, OOM, quota and exit/fault/cancel cleanup"
+                        if case == "vm-regions" else "lifecycle requests, ownership, permissions, failed copies, cleanup and limits")
+            print(f"PASS: {label}: {coverage}", flush=True)
 
 
 if __name__ == "__main__":

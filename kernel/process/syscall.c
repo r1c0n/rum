@@ -31,7 +31,8 @@ static bool accessible(struct paging_space *space, uint32_t address, uint32_t by
                      paging_user_accessible(space, address, bytes, write));
 }
 
-static rum_result_t memory_region(struct paging_space *space, uint32_t address, bool allocate)
+static rum_result_t memory_region(struct paging_space *space, uint32_t address, bool allocate,
+                                  uint32_t user_stack)
 {
     /* One user thread currently owns each space. Keep the packet snapshot,
        mapping transaction and output publication inside one non-switching
@@ -52,7 +53,7 @@ static rum_result_t memory_region(struct paging_space *space, uint32_t address, 
         struct rum_vm_release_request request;
         if (!accessible(space, address, sizeof request, false) ||
             !paging_copy_from_user(space, &request, address, sizeof request)) result = -RUM_EFAULT;
-        else result = paging_region_release(space, &request);
+        else result = paging_region_release(space, &request, user_stack);
         /* The packet may itself have occupied the released region. It has
            already been copied; release has no user-memory output. */
     }
@@ -688,7 +689,8 @@ void syscall_dispatch(struct exception_frame *frame)
     switch (frame->eax) {
     case RUM_SYS_VM_ALLOCATE: case RUM_SYS_VM_RELEASE:
         result = frame->ecx || frame->edx ? -RUM_EINVAL :
-            memory_region(space, frame->ebx, frame->eax == RUM_SYS_VM_ALLOCATE); break;
+            memory_region(space, frame->ebx, frame->eax == RUM_SYS_VM_ALLOCATE,
+                          exception_frame_esp(frame)); break;
     case RUM_SYS_EXIT: task_exit_with_status((rum_result_t)frame->ebx);
     case RUM_SYS_GETPID: result = (rum_result_t)task_current_process_id(); break;
     case RUM_SYS_READ: case RUM_SYS_WRITE:

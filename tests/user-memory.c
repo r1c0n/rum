@@ -167,7 +167,7 @@ static rum_result_t release_region(struct paging_space *space, uint32_t address,
 {
     struct rum_vm_release_request request = { .version = RUM_VM_ABI_VERSION, .size = sizeof request,
         .address = address, .bytes = bytes };
-    return paging_region_release(space, &request);
+    return paging_region_release(space, &request, 0);
 }
 
 static void dynamic_region_checks(void)
@@ -175,7 +175,7 @@ static void dynamic_region_checks(void)
     struct paging_statistics baseline = paging_stats();
     uint32_t free = pmm_stats().free_pages;
     struct paging_space *first = paging_space_create(), *second = paging_space_create();
-    check(first && second && paging_user_allocate(first, RUM_USER_BASE, 1, 0) &&
+    check(first && second && paging_user_allocate(first, RUM_USER_BASE, 3, 0) &&
           paging_user_allocate(first, RUM_USER_STACK_BASE, STACK_PAGES, PAGING_WRITABLE),
           "loader and stack registry ownership");
     check(release_region(first, RUM_USER_BASE, PAGE_SIZE) == -RUM_EACCES &&
@@ -223,6 +223,11 @@ static void dynamic_region_checks(void)
     }
     a = region_request(0, PAGE_SIZE);
     uint32_t before = pmm_stats().free_pages;
+    check(!paging_user_protect(first, RUM_USER_BASE + PAGE_SIZE, 1, PAGING_WRITABLE) &&
+          !paging_user_release(first, RUM_USER_BASE + PAGE_SIZE, 1) &&
+          paging_user_accessible(first, RUM_USER_BASE, 3 * PAGE_SIZE, false) &&
+          !paging_user_accessible(first, RUM_USER_BASE + PAGE_SIZE, 1, true) &&
+          pmm_stats().free_pages == before, "metadata split exhaustion leaves mappings unchanged");
     check(paging_region_allocate(first, &a) == -RUM_ENOMEM && !a.address &&
           pmm_stats().free_pages == before &&
           release_region(first, RUM_USER_BASE + 4 * PAGE_SIZE, PAGE_SIZE) == 0 &&

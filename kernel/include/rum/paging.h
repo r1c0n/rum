@@ -79,7 +79,10 @@ uint32_t paging_user_page_count(const struct paging_space *space);
    Allocate updates address/bytes only after complete success. Release accepts
    only a complete dynamic region, never image or stack mappings. */
 rum_result_t paging_region_allocate(struct paging_space *, struct rum_vm_allocate_request *);
-rum_result_t paging_region_release(struct paging_space *, const struct rum_vm_release_request *);
+/* user_stack is the trusted saved user ESP, including an empty stack's top.
+   Pass zero only for trusted administration without a running user frame. */
+rum_result_t paging_region_release(struct paging_space *, const struct rum_vm_release_request *,
+                                   uint32_t user_stack);
 
 /* Validate every covered page before copying. A zero-byte copy succeeds without
    inspecting either address. String copies require a NUL within capacity and

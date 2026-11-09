@@ -10,8 +10,33 @@ test-vm-host: build/tests/vm-test build/tests/layout-test build/tests/abi-test
 test-host: build/tests/vm-test
 test-build: build/tests/vm-test
 .PHONY: test-vm
-test-vm: test-vm-host build/tests/paging-ok.elf
+test-vm: test-vm-host test-vm-regions build/tests/paging-ok.elf
 	python3 scripts/smoke-test.py --qemu $(QEMU) --paging-only
+
+.PHONY: test-vm-regions
+build/tests/user/vm-regions.o: tests/vm-regions-user.c $(USER_INCLUDE_STAMP) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/tests/user/vm-regions-stack.o: tests/vm-regions-stack.s $(ABI_HEADERS)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) -x assembler-with-cpp -c $< -o $@
+build/tests/user/vm-regions.debug.elf: build/tests/user/vm-regions.o build/tests/user/vm-regions-stack.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+build/tests/user/vm-regions.elf: build/tests/user/vm-regions.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@
+	build/tools/check-user-elf $@ $<
+build/tests/vm-regions-image.o: tests/vm-regions-image.s build/tests/user/vm-regions.elf
+	@mkdir -p $(@D)
+	$(AS) $< -o $@
+build/tests/vm-regions.iso: build/tests/vm-regions.elf $(TESTS_RULES)
+	@mkdir -p build/vm-regions-isodir/boot/grub
+	cp $< build/vm-regions-isodir/boot/rum.elf
+	printf 'set timeout=0\nmenuentry "rum VM region tests" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/vm-regions-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/vm-regions-isodir
+test-vm-regions: build/tests/vm-regions.elf build/tests/vm-regions.iso
+	python3 tests/lifecycle-qemu-test.py --qemu $(QEMU) --vm-only
+test-build: build/tests/vm-regions.elf build/tests/vm-regions.iso
+test-lifecycle: build/tests/vm-regions.elf build/tests/vm-regions.iso
 
 build/tests/sync-command.o: system/commands/sync.c sdk/include/rum/tools.h sdk/include/rum/user.h $(ABI_HEADERS)
 	@mkdir -p $(@D)
@@ -164,6 +189,9 @@ test-shared-handles: test-shared-handles-host build/tests/shared-handles.elf bui
 FAULT_KERNELS := build/tests/fault-de.elf build/tests/fault-ud.elf build/tests/fault-gp.elf build/tests/fault-pf.elf
 FAULT_OBJECTS := $(FAULT_KERNELS:.elf=.o)
 FAULT_COMMON := build/tests/fs-backend.o $(filter-out build/kernel/core/init.o,$(OBJECTS)) build/tests/fault-trigger.o
+build/tests/vm-regions.elf: build/tests/vm-regions-kernel.o build/tests/vm-regions-image.o $(filter-out build/tests/fault-trigger.o build/arch/i386/interrupt.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
 PAGING_CASES := ok null text rodata unmapped readonly
 PAGING_KERNELS := $(addprefix build/tests/paging-,$(addsuffix .elf,$(PAGING_CASES)))
 PAGING_OBJECTS := $(PAGING_KERNELS:.elf=.o)
@@ -174,6 +202,7 @@ PROCESS_FAULT_CASES := null kernel readonly ud2 privileged io irq
 PROCESS_FAULT_KERNELS := $(addprefix build/tests/process-fault-,$(addsuffix .elf,$(PROCESS_FAULT_CASES)))
 PROCESS_FAULT_OBJECTS := $(PROCESS_FAULT_KERNELS:.elf=.o)
 TEST_DEPENDENCIES := $(FAULT_OBJECTS:.o=.d) $(PAGING_OBJECTS:.o=.d) $(CPU_OBJECTS:.o=.d) $(PROCESS_FAULT_OBJECTS:.o=.d) build/tests/cpu-probe.d build/tests/process-fault-probe.d build/tests/syscall-kernel.d build/tests/syscall-probe.d build/tests/elf-loader-kernel.d build/tests/elf-loader-image.d build/tests/paging-spaces.d build/tests/user-memory.d build/tests/irq-kernel.d build/tests/storage-kernel.d build/tests/storage-checks.d build/tests/task-kernel.d build/tests/task-fault-kernel.d build/tests/task-double-fault-kernel.d build/tests/task-stack-fault.d
+TEST_DEPENDENCIES += build/tests/user/vm-regions.d build/tests/vm-regions-kernel.d
 STORAGE_HOST_SOURCES := kernel/mm/heap.c kernel/fs/path.c kernel/fs/fs-types.c kernel/core/memory.c tests/page-backend.c tests/fs-backend.c kernel/fs/fs.c
 TEST_DEPENDENCIES += build/tests/fs-kernel.d build/tests/fs-checks.d build/tests/fs-backend.d
 STORAGE_HOST_HEADERS := kernel/include/rum/heap.h tests/test-files.h kernel/include/rum/fs.h kernel/include/rum/path.h kernel/include/rum/fs_types.h kernel/include/rum/fs_limits.h $(ABI_HEADERS) kernel/include/rum/paging.h kernel/include/rum/pmm.h kernel/include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)

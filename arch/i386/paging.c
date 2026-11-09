@@ -711,13 +711,16 @@ rum_result_t paging_region_allocate(struct paging_space *space, struct rum_vm_al
     return result;
 }
 
-rum_result_t paging_region_release(struct paging_space *space, const struct rum_vm_release_request *request)
+rum_result_t paging_region_release(struct paging_space *space, const struct rum_vm_release_request *request,
+                                   uint32_t user_stack)
 {
     uint32_t saved = cpu_interrupt_save();
     rum_result_t result = -RUM_EINVAL;
     if (known_space(space) && space != &kernel_space) {
         struct vm_region region;
         result = vm_prepare_release(request, space->registry.regions, space->registry.count, &region);
+        if (!result && user_stack && user_stack >= region.address &&
+            user_stack <= region.address + region.bytes) result = -RUM_EACCES;
         if (!result && !paging_user_release(space, region.address, region.bytes / PAGE_SIZE))
             result = -RUM_EINVAL;
     }
