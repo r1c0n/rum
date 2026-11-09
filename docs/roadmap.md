@@ -374,13 +374,17 @@ separate reboot. All images are disposable.
   supported RAM sizes, including diskless and rejected-volume boots.
 - [x] Document shell grammar, stream semantics, job control, terminal APIs,
   naming limits, save/flush behavior, and interrupted-write expectations.
-- [ ] Verify Windows and Linux packages, keep the ISO standalone, and boot
+- [x] Verify Windows and Linux packages, keep the ISO standalone, and boot
   the exact packaged artifact without bundling a mutable user disk.
 
 0.6.0 is ready when the shell can run a pipeline, redirect its exact output to
 a persistent file, and manage a background job without losing foreground input.
 A fault or Ctrl+C must close every pipe endpoint and restore the prompt. Snake
 must run in userspace, and the saved file must survive another QEMU boot.
+
+The release gate passed for 0.6.0. See the
+[validation record](release.md#060-validation-record) for source identity,
+host checks, timings and the validated ISO checksum.
 
 ## Delivery order
 

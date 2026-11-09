@@ -94,3 +94,39 @@ disk. The normal shell's built-in `recovery` command also works after storage
 errors prevent loading programs. FAT16 is not journaled. Preserve a damaged
 image and inspect or repair a copy with host FAT tools; rum does not silently
 format or repair it. See [FAT16](fat16.md) for interrupted-write guarantees.
+
+## 0.6.0 validation record
+
+Validated November 8, 2026. The clean code/test snapshot is
+`dc09f0ef6c1735132d4546cebad94a72e6848438`; subsequent checklist and evidence
+updates change documentation only.
+
+- All 24 regression groups passed with four build jobs and four guest workers.
+  The test phase took 121.05 seconds; the complete clean check took 162.5 seconds
+  including build, preparation and artifact copying. Timings depend on the host.
+- ELF and GRUB boot paths passed, including supported 16/64/256/1152 MiB boot
+  checks and extracted-package ISO boots. Mixed process/I/O, resource rollback,
+  storage failure injection, user Snake, shell editing and file tools passed.
+- Ubuntu/WSL Linux and native Windows packaging passed with the same extracted
+  ISO. Both hosts exercised workflows, cancellation, faults, shell restart,
+  user Snake and cleanup, then recovered the saved file and copied application
+  after a separate boot. The PowerShell launcher checks passed.
+- A fresh VM download was built from program assets compared with the pristine
+  validated disk. Raw/VMDK and raw/VDI comparisons were identical. This checks
+  converted image contents; it does not claim a native VMware/VirtualBox test run.
+
+Validated ISO SHA256:
+
+```text
+ea77ab96a764060b55ffae56dddb342185390d301abb18d24c41c6c07c5a9041
+```
+
+Local evidence is in
+`build/release-check/dc09f0ef6c17-20261108-202155/`: the clean `result.json`,
+suite logs/timings, `host-linux/result.json`, `host-windows/result.json`, and
+`vm-images.log`. The pristine system disk hash is recorded in the clean report
+and verified by the host checks; guests use temporary copies.
+
+`host-windows/rum.zip` and `host-linux/rum.zip` contain the standalone ISO,
+README and documentation. `vm-images/rum-vm-images.zip` is the separate fresh
+system-disk bundle. Neither archive contains a personal or previously used disk.
