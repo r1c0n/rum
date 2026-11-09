@@ -1,5 +1,6 @@
 /* Production user-mapping ownership, validation, copy and rollback checks. */
 #include <rum/cpu.h>
+#include <rum/abi/error.h>
 #include <rum/heap.h>
 #include <rum/memory.h>
 #include <rum/paging.h>
@@ -155,10 +156,90 @@ static void invalid_requests(struct paging_space *space)
           paging_copy_to_user(space, 0, NULL, 0), "zero-byte copies inspect no address");
 }
 
+static struct rum_vm_allocate_request region_request(uint32_t address, uint32_t bytes)
+{
+    return (struct rum_vm_allocate_request){ .version = RUM_VM_ABI_VERSION,
+        .size = sizeof(struct rum_vm_allocate_request), .address = address, .bytes = bytes,
+        .protection = RUM_VM_READ | RUM_VM_WRITE };
+}
+
+static rum_result_t release_region(struct paging_space *space, uint32_t address, uint32_t bytes)
+{
+    struct rum_vm_release_request request = { .version = RUM_VM_ABI_VERSION, .size = sizeof request,
+        .address = address, .bytes = bytes };
+    return paging_region_release(space, &request);
+}
+
+static void dynamic_region_checks(void)
+{
+    struct paging_statistics baseline = paging_stats();
+    uint32_t free = pmm_stats().free_pages;
+    struct paging_space *first = paging_space_create(), *second = paging_space_create();
+    check(first && second && paging_user_allocate(first, RUM_USER_BASE, 1, 0) &&
+          paging_user_allocate(first, RUM_USER_STACK_BASE, STACK_PAGES, PAGING_WRITABLE),
+          "loader and stack registry ownership");
+    check(release_region(first, RUM_USER_BASE, PAGE_SIZE) == -RUM_EACCES &&
+          release_region(first, RUM_USER_STACK_BASE, RUM_USER_STACK_SIZE) == -RUM_EACCES,
+          "dynamic API refuses loader and stack release");
+    struct rum_vm_allocate_request a = region_request(PROGRAM_ADDRESS, 2 * PAGE_SIZE - 1), b = a;
+    check(paging_region_allocate(first, &a) == 0 && a.bytes == 2 * PAGE_SIZE &&
+          paging_region_allocate(second, &b) == 0, "private regions at equal virtual addresses");
+    uint32_t value = 0x12345678;
+    check(paging_copy_to_user(first, a.address, &value, sizeof value), "write private region");
+    zeroed_pages(second, b.address, 2);
+    check(release_region(first, a.address, PAGE_SIZE) == -RUM_EINVAL &&
+          release_region(second, RUM_USER_BASE, PAGE_SIZE) == -RUM_ENOENT,
+          "partial and foreign region release rejected");
+    check(paging_switch_space(first) && *(volatile uint32_t *)(uintptr_t)a.address == value &&
+          release_region(first, a.address, a.bytes) == 0 &&
+          !paging_translate(first, a.address, NULL) &&
+          release_region(first, a.address, a.bytes) == -RUM_ENOENT,
+          "active translations removed and double release rejected");
+    check(paging_region_allocate(first, &a) == 0 &&
+          *(volatile uint32_t *)(uintptr_t)a.address == 0 && paging_switch_space(paging_kernel_space()),
+          "active remap cannot retain stale TLB data");
+    check(release_region(first, a.address, a.bytes) == 0 && release_region(second, b.address, b.bytes) == 0,
+          "release independent regions");
+
+    /* Two data pages across two table boundaries consume four PMM frames.
+       Fail each stage, preserving the packet, registry and complete ledger. */
+    for (uint32_t keep = 0; keep < 4; ++keep) {
+        uint32_t held = consume_pages(keep);
+        a = region_request(PROGRAM_ADDRESS, 2 * PAGE_SIZE - 1);
+        struct rum_vm_allocate_request original = a;
+        struct paging_statistics before = paging_stats();
+        check(paging_region_allocate(second, &a) == -RUM_ENOMEM &&
+              !memcmp(&a, &original, sizeof a) && pmm_stats().free_pages == keep,
+              "partial dynamic allocation rolls back frames and packet");
+        struct paging_statistics after = paging_stats();
+        check(after.regions == before.regions && after.dynamic_regions == before.dynamic_regions &&
+              after.user_pages == before.user_pages && after.private_table_pages == before.private_table_pages &&
+              after.metadata_bytes == before.metadata_bytes, "failed allocation publishes no region");
+        release_pages(held);
+    }
+    for (uint32_t i = 2; i < RUM_VM_REGION_LIMIT; ++i) {
+        a = region_request(RUM_USER_BASE + i * 2 * PAGE_SIZE, PAGE_SIZE);
+        check(paging_region_allocate(first, &a) == 0, "fill bounded region registry");
+    }
+    a = region_request(0, PAGE_SIZE);
+    uint32_t before = pmm_stats().free_pages;
+    check(paging_region_allocate(first, &a) == -RUM_ENOMEM && !a.address &&
+          pmm_stats().free_pages == before &&
+          release_region(first, RUM_USER_BASE + 4 * PAGE_SIZE, PAGE_SIZE) == 0 &&
+          paging_region_allocate(first, &a) == 0, "region quota and reuse of a released slot");
+    check(paging_space_destroy(first) && paging_space_destroy(second), "destroy live dynamic regions");
+    struct paging_statistics after = paging_stats();
+    check(after.user_pages == baseline.user_pages && after.regions == baseline.regions &&
+          after.dynamic_regions == baseline.dynamic_regions && after.metadata_bytes == baseline.metadata_bytes &&
+          after.private_table_pages == baseline.private_table_pages && pmm_stats().free_pages == free,
+          "all dynamic regions, tables and metadata return to baseline");
+}
+
 void user_address_space_checks(void)
 {
     allocation_failures();
     limits_and_teardown();
+    dynamic_region_checks();
 
     struct paging_space *kernel = paging_kernel_space();
     struct paging_space *first = paging_space_create(), *second = paging_space_create();

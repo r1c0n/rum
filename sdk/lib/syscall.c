@@ -1,4 +1,14 @@
 #include <rum/user.h>
+rum_result_t rum_vm_allocate(struct rum_vm_allocate_request *request)
+{
+    return rum_syscall3(RUM_SYS_VM_ALLOCATE, (rum_address_t)(uintptr_t)request, 0, 0);
+}
+rum_result_t rum_vm_release(rum_address_t address, rum_size_t bytes)
+{
+    struct rum_vm_release_request request = { .version = RUM_VM_ABI_VERSION, .size = sizeof request,
+        .address = address, .bytes = bytes };
+    return rum_syscall3(RUM_SYS_VM_RELEASE, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
 static rum_result_t terminal_call(struct rum_terminal_request *request)
 {
     request->version = RUM_TERMINAL_ABI_VERSION; request->size = sizeof *request;

@@ -560,6 +560,8 @@ bool task_working_directory(task_id id, char *buffer, size_t capacity)
 
 static struct task_information information(const struct task *task)
 {
+    struct paging_space_statistics memory = {0};
+    if (task->process->owns_space && !paging_space_stats(task->process->space, &memory)) cpu_halt();
     return (struct task_information){ .id = task->id, .process_id = task->process->process_id,
         .parent = task->process->parent, .kind = task->process->kind, .state = task->state,
         .stack_slot = task->stack_slot, .stack_base = task->stack_base,
@@ -567,9 +569,9 @@ static struct task_information information(const struct task *task)
         .user_frame = task->user_frame, .termination = task->process->termination,
         .exit_status = task->process->exit_status, .fault = task->process->fault,
         .resources = { .kernel_stack_pages = task->stack_pages,
-            .directory_pages = task->process->resources.directory_pages,
-            .user_table_pages = task->process->resources.user_table_pages,
-            .user_pages = task->process->resources.user_pages },
+            .directory_pages = memory.directory_pages,
+            .user_table_pages = memory.private_table_pages,
+            .user_pages = memory.user_pages },
         .cancellation_requested = task->process->cancellation_requested,
         .directory = paging_directory_address(task->process->space), .owns_space = task->process->owns_space,
         .owns_stack = task != &tasks[BOOT] };

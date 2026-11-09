@@ -41,7 +41,9 @@
 #define RUM_SYS_TERMINAL 29 /* ebx: in/out rum_terminal_request; other args zero */
 #define RUM_SYS_STAT 30 /* ebx: rum_stat_request; output rum_file_information */
 #define RUM_SYS_RENAME 31 /* ebx: rum_rename_request; regular files only */
-#define RUM_SYS_COUNT  32
+#define RUM_SYS_VM_ALLOCATE 32 /* ebx: in/out rum_vm_allocate_request; other args zero */
+#define RUM_SYS_VM_RELEASE 33 /* ebx: rum_vm_release_request; other args zero */
+#define RUM_SYS_COUNT  34
 #define RUM_ABI_PID_MAX 0x7FFFFFFF /* Positive IDs fit the signed result type. */
 
 #define RUM_STDIN  0

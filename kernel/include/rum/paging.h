@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <rum/pmm.h>
+#include <rum/abi/memory.h>
 
 #define PAGING_WRITABLE 0x02u
 #define PAGING_DYNAMIC_BASE RUM_HEAP_BASE
@@ -16,12 +17,14 @@ struct paging_statistics {
     uint32_t kernel_directory, active_directory;
     uint32_t private_table_pages, user_pages;
     uint32_t metadata_bytes; /* Live private-space heap payload; no heap headers. */
+    uint32_t regions, dynamic_regions;
 };
 
 struct paging_space_statistics {
     uint32_t directory, private_table_pages, user_pages;
     bool kernel;
     uint32_t directory_pages, metadata_bytes;
+    uint32_t regions, dynamic_regions;
 };
 
 /* Allocation-free, IRQ-safe snapshot. Shared table frames are counted once,
@@ -69,6 +72,14 @@ bool paging_user_protect(struct paging_space *space, uint32_t virtual,
                          uint32_t pages, uint32_t flags);
 bool paging_user_release(struct paging_space *space, uint32_t virtual, uint32_t pages);
 uint32_t paging_user_page_count(const struct paging_space *space);
+
+/* Trusted kernel packets, never user pointers. Serialized transaction over the
+   space's registry and page tables; no scheduling, blocking or callbacks.
+   User callers must also hold task switching across packet copy and commit.
+   Allocate updates address/bytes only after complete success. Release accepts
+   only a complete dynamic region, never image or stack mappings. */
+rum_result_t paging_region_allocate(struct paging_space *, struct rum_vm_allocate_request *);
+rum_result_t paging_region_release(struct paging_space *, const struct rum_vm_release_request *);
 
 /* Validate every covered page before copying. A zero-byte copy succeeds without
    inspecting either address. String copies require a NUL within capacity and

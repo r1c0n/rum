@@ -254,19 +254,23 @@ void paging_space_checks(void)
     /* The configured bound must fail before allocating metadata or a frame. */
     struct paging_space *spaces[RUM_PROCESS_LIMIT];
     before = pmm_stats().free_pages;
+    size_t mapped_before = heap_stats().mapped_bytes;
     for (unsigned i = 0; i < RUM_PROCESS_LIMIT; ++i) {
         spaces[i] = paging_space_create();
         check(spaces[i] != NULL, "create up to directory limit");
     }
     count = pmm_stats().free_pages;
     size_t limit_allocations = heap_stats().allocations;
-    check(count == before - RUM_PROCESS_LIMIT && !paging_space_create() &&
+    check(count + (heap_stats().mapped_bytes - mapped_before) / PAGE_SIZE == before - RUM_PROCESS_LIMIT &&
+          !paging_space_create() &&
           pmm_stats().free_pages == count && heap_stats().allocations == limit_allocations,
           "directory limit has no side effects");
     for (unsigned i = 0; i < RUM_PROCESS_LIMIT; ++i)
         check(paging_space_destroy(spaces[i]), "return bounded directories");
-    check(pmm_stats().free_pages == before && heap_stats().allocations == allocations,
+    check(pmm_stats().free_pages == count + RUM_PROCESS_LIMIT && heap_stats().allocations == allocations &&
+          heap_stats().used_bytes == used,
           "bounded creation/destruction leaks no frames or metadata");
+    before = pmm_stats().free_pages; /* Heap backing remains mapped for reuse. */
 
     uint32_t taken = consume_pages();
     check(!paging_space_create() && !pmm_stats().free_pages &&
