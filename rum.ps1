@@ -9,7 +9,7 @@ param(
     [ValidateRange(1, 131071)][int]$DiskSizeMiB = 16,
     [ValidateRange(1, 64)][int]$Jobs = 4,
     [Alias('TestJobs')][ValidateRange(1, 4)][int]$Workers = 4,
-    [ValidateSet('all', 'host', 'user', 'package', 'shell', 'storage', 'block', 'fat16', 'fat16-write', 'filesystem', 'preemption', 'lifecycle', 'sleep', 'console', 'integration', 'handles', 'pipes', 'workflows', 'jobs', 'terminal', 'editing', 'file-tools')]
+    [ValidateSet('all', 'host', 'user', 'package', 'shell', 'storage', 'block', 'fat16', 'fat16-write', 'filesystem', 'preemption', 'lifecycle', 'sleep', 'console', 'integration', 'handles', 'pipes', 'workflows', 'jobs', 'terminal', 'editing', 'file-tools', 'vm')]
     [string]$Suite = 'all',
     [ValidateRange(16, 4096)][int]$MemoryMiB = 64,
     [string]$Qemu,

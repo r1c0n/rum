@@ -1,5 +1,6 @@
 #include <rum/abi/error.h>
 #include <rum/abi/console.h>
+#include <rum/block.h>
 #include <rum/abi/syscall.h>
 #include <rum/cpu.h>
 #include <rum/elf.h>
@@ -28,6 +29,36 @@ static bool accessible(struct paging_space *space, uint32_t address, uint32_t by
 {
     return !bytes || (memory_range_contains(RUM_USER_BASE, RUM_USER_END, address, bytes) &&
                      paging_user_accessible(space, address, bytes, write));
+}
+
+static rum_result_t memory_region(struct paging_space *space, uint32_t address, bool allocate,
+                                  uint32_t user_stack)
+{
+    /* One user thread currently owns each space. Keep the packet snapshot,
+       mapping transaction and output publication inside one non-switching
+       scope. No filesystem callbacks, waits or temporary heap allocations. */
+    if (fs_operation_active() || block_request_active() || !task_switch_hold()) return -RUM_EBUSY;
+    rum_result_t result;
+    if (allocate) {
+        struct rum_vm_allocate_request request;
+        if (!accessible(space, address, sizeof request, true) ||
+            !paging_copy_from_user(space, &request, address, sizeof request)) result = -RUM_EFAULT;
+        else {
+            result = paging_region_allocate(space, &request);
+            /* Allocation cannot replace the existing mapping containing the
+               validated packet, so this copy cannot lose its writable pages. */
+            if (!result && !paging_copy_to_user(space, address, &request, sizeof request)) cpu_halt();
+        }
+    } else {
+        struct rum_vm_release_request request;
+        if (!accessible(space, address, sizeof request, false) ||
+            !paging_copy_from_user(space, &request, address, sizeof request)) result = -RUM_EFAULT;
+        else result = paging_region_release(space, &request, user_stack);
+        /* The packet may itself have occupied the released region. It has
+           already been copied; release has no user-memory output. */
+    }
+    if (!task_switch_release()) cpu_halt();
+    return result;
 }
 
 static rum_result_t copy_path(struct paging_space *space, uint32_t address, char *path)
@@ -656,6 +687,10 @@ void syscall_dispatch(struct exception_frame *frame)
     struct process_handles *handles = task_current_handles();
     rum_result_t result;
     switch (frame->eax) {
+    case RUM_SYS_VM_ALLOCATE: case RUM_SYS_VM_RELEASE:
+        result = frame->ecx || frame->edx ? -RUM_EINVAL :
+            memory_region(space, frame->ebx, frame->eax == RUM_SYS_VM_ALLOCATE,
+                          exception_frame_esp(frame)); break;
     case RUM_SYS_EXIT: task_exit_with_status((rum_result_t)frame->ebx);
     case RUM_SYS_GETPID: result = (rum_result_t)task_current_process_id(); break;
     case RUM_SYS_READ: case RUM_SYS_WRITE:

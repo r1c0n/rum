@@ -36,7 +36,9 @@ static bool regions_valid(const struct vm_region *regions, uint32_t count)
             if (!program_range(region->address, region->bytes)) return false;
             break;
         case VM_REGION_STACK:
-            if (region->address != RUM_USER_STACK_BASE || region->bytes != RUM_USER_STACK_SIZE)
+            if (!region->bytes || region->address % RUM_PAGE_SIZE || region->bytes % RUM_PAGE_SIZE ||
+                !memory_range_contains(RUM_USER_STACK_BASE, RUM_USER_STACK_TOP,
+                                       region->address, region->bytes))
                 return false;
             break;
         default: return false;

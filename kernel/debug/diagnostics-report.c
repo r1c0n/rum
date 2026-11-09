@@ -59,6 +59,8 @@ void diagnostics_render(const struct kernel_diagnostics *snapshot, diagnostics_w
     write("User pages: "); decimal(write, snapshot->paging.user_pages); write(" | active: ");
     hex(write, snapshot->paging.active_directory); write("\n");
     write("Paging metadata: "); decimal(write, snapshot->paging.metadata_bytes); write(" bytes\n");
+    write("Memory regions: "); decimal(write, snapshot->paging.regions); write(" | dynamic: ");
+    decimal(write, snapshot->paging.dynamic_regions); write("\n");
     write("Physical: "); decimal(write, snapshot->physical.free_pages); write(" free / ");
     decimal(write, snapshot->physical.managed_pages); write(" managed pages\n");
     write("Tasks: "); decimal(write, snapshot->tasks.count); write(" live, ");
@@ -181,6 +183,8 @@ void diagnostics_panic(void)
     field(serial_writestring, "diag_usertables", snapshot.paging.private_table_pages);
     field(serial_writestring, "diag_userpages", snapshot.paging.user_pages);
     field(serial_writestring, "diag_pagingmetadata", snapshot.paging.metadata_bytes);
+    field(serial_writestring, "diag_regions", snapshot.paging.regions);
+    field(serial_writestring, "diag_dynamicregions", snapshot.paging.dynamic_regions);
     field(serial_writestring, "diag_free", snapshot.physical.free_pages);
     field(serial_writestring, "diag_managed", snapshot.physical.managed_pages);
     field(serial_writestring, "diag_created", snapshot.tasks.created);

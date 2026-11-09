@@ -59,9 +59,9 @@ must be able to switch stacks while changing CR3. They remain supervisor-only.
 
 Physical RAM or kernel metadata can run out before a policy limit is reached.
 
-The [user virtual-memory contract](virtual-memory.md) defines planned dynamic
+The [user virtual-memory contract](virtual-memory.md) defines dynamic
 region ownership, packet validation and quotas. Paging snapshots also report
-private-space metadata payload bytes and per-space directory ownership; these
+private-space metadata payload bytes, live region counts and per-space directory ownership; these
 are separate from committed user pages and shared kernel tables.
 Callers must handle allocation failure without changing existing ownership.
 

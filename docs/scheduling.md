@@ -14,6 +14,7 @@ occupy separate bounded pools with a one-to-one relationship for now.
 | State | Owner | Lifetime |
 | --- | --- | --- |
 | PID, parent, address space, private tables and user pages | Process resource record | Publication through reaping |
+| Loader, stack and dynamic region registry | Private address-space record | Construction through inactive-space destruction |
 | Working directory and filesystem references | Process resource record | Cloned before publication, released by reaping |
 | Descriptor table and per-descriptor flags | Process resource record | Prepared before publication, closed before exited state |
 | Open description, shared offset/error and backend pin | Referenced by descriptor aliases across processes | Final alias releases the backend pin |
@@ -32,7 +33,8 @@ has no directory reference. The boot thread borrows the linker-provided stack.
 The emergency double-fault stack is reserved independently of both pools.
 
 The public task snapshot remains a combined view. Stack pages come from the
-thread; directory, table and user pages come from its process owner. The split
+thread; directory, table and user pages are read from its owned address space
+when the snapshot is taken, including dynamic allocations and releases. The split
 introduces no new syscall or executable ABI, and no user-thread creation API.
 
 ## Where switching is allowed

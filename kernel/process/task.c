@@ -35,7 +35,6 @@ struct process_state {
     enum task_termination termination;
     rum_result_t exit_status;
     struct task_fault fault;
-    struct task_resources resources; /* Address-space pages only. */
     struct fs_context filesystem;
     struct process_handles handles;
     bool cancellation_requested;
@@ -230,10 +229,6 @@ task_id task_create(void (*entry)(void *), void *argument, struct paging_space *
         .space = owned_space ? owned_space : paging_kernel_space(), .owns_space = owned_space != NULL };
     struct task constructed = { .id = next_id, .state = TASK_RUNNABLE,
         .entry = entry, .argument = argument, .process = &owner };
-    if (owned_space) owner.resources = (struct task_resources){
-        .directory_pages = 1, .user_table_pages = space.private_table_pages,
-        .user_pages = space.user_pages,
-    };
     if (fs_context_clone(&current->process->filesystem, &owner.filesystem) != FS_OK) {
         (void)task_switch_release();
         return 0;
@@ -271,9 +266,7 @@ static task_id create_process(const struct task_process *process, bool make_fore
 
     uint32_t stack_slot = (uint32_t)(slot - tasks) - 1;
     struct process_state owner = { .process_id = next_process_id, .parent = parent,
-        .kind = TASK_PROCESS, .space = process->space, .owns_space = true,
-        .resources = { .directory_pages = 1, .user_table_pages = space.private_table_pages,
-                       .user_pages = space.user_pages } };
+        .kind = TASK_PROCESS, .space = process->space, .owns_space = true };
     struct task constructed = { .id = next_id, .state = TASK_RUNNABLE,
         .process = &owner, .user_frame = process->user_frame };
     const char *name = process->name[0] ? process->name : "program";
@@ -560,6 +553,8 @@ bool task_working_directory(task_id id, char *buffer, size_t capacity)
 
 static struct task_information information(const struct task *task)
 {
+    struct paging_space_statistics memory = {0};
+    if (task->process->owns_space && !paging_space_stats(task->process->space, &memory)) cpu_halt();
     return (struct task_information){ .id = task->id, .process_id = task->process->process_id,
         .parent = task->process->parent, .kind = task->process->kind, .state = task->state,
         .stack_slot = task->stack_slot, .stack_base = task->stack_base,
@@ -567,9 +562,9 @@ static struct task_information information(const struct task *task)
         .user_frame = task->user_frame, .termination = task->process->termination,
         .exit_status = task->process->exit_status, .fault = task->process->fault,
         .resources = { .kernel_stack_pages = task->stack_pages,
-            .directory_pages = task->process->resources.directory_pages,
-            .user_table_pages = task->process->resources.user_table_pages,
-            .user_pages = task->process->resources.user_pages },
+            .directory_pages = memory.directory_pages,
+            .user_table_pages = memory.private_table_pages,
+            .user_pages = memory.user_pages },
         .cancellation_requested = task->process->cancellation_requested,
         .directory = paging_directory_address(task->process->space), .owns_space = task->process->owns_space,
         .owns_stack = task != &tasks[BOOT] };

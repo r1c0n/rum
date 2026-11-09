@@ -4,7 +4,7 @@
 #include <rum/abi/layout.h>
 #include <rum/abi/types.h>
 
-/* Region contracts; syscall entry points are introduced separately. */
+/* Allocate/release are available; protection mutation follows separately. */
 #define RUM_VM_ABI_VERSION 1
 #define RUM_VM_REGION_LIMIT 64 /* Includes loader and stack regions. */
 #define RUM_VM_READ  1u

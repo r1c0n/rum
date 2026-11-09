@@ -41,22 +41,21 @@ Test boundary addresses, page rounding, overlapping ranges, quota exhaustion,
 invalid packet sizes and overflow. A rejected request must leave mappings,
 accounting and the calling process unchanged.
 
-See [User virtual memory](virtual-memory.md) for packets, policy, ownership and
-accounting. Public allocation syscalls and live region registration follow in
-step 2; no new memory syscall is exposed by the contract work alone.
+See [User virtual memory](virtual-memory.md) for packets, policy, ownership,
+accounting and the allocation/release interfaces implemented in step 2.
 
 ### 2. Private region allocation and release
 
-- [ ] Add a bounded per-process region registry with explicit ownership and
+- [x] Add a bounded per-process region registry with explicit ownership and
   collision checks against existing ELF, stack and reserved mappings.
-- [ ] Allocate private, zeroed pages and publish a region only after all required
+- [x] Allocate private, zeroed pages and publish a region only after all required
   pages and metadata are ready. Roll back every partial construction failure.
-- [ ] Release only regions owned by the caller under the documented release
+- [x] Release only regions owned by the caller under the documented release
   contract. Reject double release, foreign addresses and attempts to free
   loader-owned mappings or active stacks through the region API.
-- [ ] Update page tables and invalidate translations safely for active and
+- [x] Update page tables and invalidate translations safely for active and
   inactive address spaces without exposing partially updated state.
-- [ ] Release all dynamic regions during normal exit, fault, cancellation and
+- [x] Release all dynamic regions during normal exit, fault, cancellation and
   failed process construction, including after allocation failure.
 
 Exercise multiple processes allocating, writing and freeing regions. Check

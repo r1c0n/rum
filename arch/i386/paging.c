@@ -1,5 +1,6 @@
 #include <stddef.h>
 #include <rum/cpu.h>
+#include <rum/abi/error.h>
 #include <rum/heap.h>
 #include <rum/memory.h>
 #include <rum/paging.h>
@@ -22,12 +23,21 @@ struct paging_space {
     struct paging_space *next;
     uint32_t user_pages, user_tables;
     uint32_t private_tables[PRIVATE_TABLE_WORDS];
+    struct vm_registry registry;
 };
 
 static struct paging_space kernel_space;
 static struct paging_space *active_space;
 static bool enabled;
 static uint32_t private_spaces;
+
+static uint32_t dynamic_regions(const struct paging_space *space)
+{
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < space->registry.count; ++i)
+        if (space->registry.regions[i].owner == VM_REGION_DYNAMIC) ++count;
+    return count;
+}
 
 /* Compare pointers before dereferencing: null and unregistered handles fail
    without touching caller memory. Registry updates run with interrupts off. */
@@ -198,6 +208,8 @@ struct paging_statistics paging_stats(void)
             stats.private_table_pages += space->user_tables;
             stats.user_pages += space->user_pages;
             stats.metadata_bytes += sizeof *space;
+            stats.regions += space->registry.count;
+            stats.dynamic_regions += dynamic_regions(space);
         }
     }
     cpu_interrupt_restore(saved);
@@ -231,6 +243,8 @@ bool paging_space_stats(const struct paging_space *space,
         statistics->kernel = space == &kernel_space;
         statistics->directory_pages = 1;
         statistics->metadata_bytes = space == &kernel_space ? 0 : sizeof *space;
+        statistics->regions = space->registry.count;
+        statistics->dynamic_regions = dynamic_regions(space);
     }
     cpu_interrupt_restore(saved);
     return success;
@@ -523,13 +537,13 @@ static void reclaim_empty_user_tables(struct paging_space *space, uint32_t virtu
     }
 }
 
-bool paging_user_allocate(struct paging_space *space, uint32_t virtual,
-                          uint32_t pages, uint32_t flags)
+static bool allocate_user_pages(struct paging_space *space, uint32_t virtual,
+                                uint32_t pages, uint32_t flags, enum vm_region_owner owner)
 {
     if (!user_page_range(virtual, pages) || flags & ~PAGING_WRITABLE) return false;
     uint32_t saved = cpu_interrupt_save();
     bool valid = known_space(space) && space != &kernel_space &&
-                 vm_pages_fit(space->user_pages, pages);
+                 vm_pages_fit(space->user_pages, pages) && space->registry.count < RUM_VM_REGION_LIMIT;
     for (uint32_t i = 0; valid && i < pages; ++i) {
         uint32_t address = virtual + i * PAGE_SIZE;
         uint32_t index = address >> 22;
@@ -555,6 +569,11 @@ bool paging_user_allocate(struct paging_space *space, uint32_t virtual,
         ++mapped;
     }
     bool success = valid && mapped == pages;
+    if (success) {
+        space->registry.regions[space->registry.count++] = (struct vm_region){
+            virtual, pages * PAGE_SIZE,
+            RUM_VM_READ | (flags & PAGING_WRITABLE ? RUM_VM_WRITE : 0), owner};
+    }
     if (!success) {
         for (uint32_t i = 0; i < mapped; ++i) {
             uint32_t address = virtual + i * PAGE_SIZE;
@@ -571,6 +590,51 @@ bool paging_user_allocate(struct paging_space *space, uint32_t virtual,
     return success;
 }
 
+bool paging_user_allocate(struct paging_space *space, uint32_t virtual,
+                          uint32_t pages, uint32_t flags)
+{
+    return allocate_user_pages(space, virtual, pages, flags,
+        virtual >= RUM_USER_STACK_BASE ? VM_REGION_STACK : VM_REGION_LOADER);
+}
+
+static bool append_region(struct vm_registry *registry, struct vm_region region)
+{
+    if (!region.bytes) return true;
+    if (registry->count == RUM_VM_REGION_LIMIT) return false;
+    registry->regions[registry->count++] = region;
+    return true;
+}
+
+/* Preflight metadata splitting before touching PTEs. Trusted paging users may
+   protect/release subranges; public release first checks exact dynamic ownership.
+   Records never merge across separate allocations, even when adjacent. */
+static bool plan_region_change(const struct paging_space *space, uint32_t address,
+                                uint32_t pages, uint32_t flags, bool release,
+                                struct vm_registry *next)
+{
+    *next = (struct vm_registry){0};
+    uint32_t end = address + pages * PAGE_SIZE, covered = 0;
+    for (uint32_t i = 0; i < space->registry.count; ++i) {
+        struct vm_region region = space->registry.regions[i];
+        uint32_t region_end = region.address + region.bytes;
+        if (region.address >= end || address >= region_end) {
+            if (!append_region(next, region)) return false;
+            continue;
+        }
+        uint32_t start = region.address > address ? region.address : address;
+        uint32_t stop = region_end < end ? region_end : end;
+        covered += stop - start;
+        struct vm_region before = region, after = region, middle = region;
+        before.bytes = start - region.address;
+        after.address = stop; after.bytes = region_end - stop;
+        middle.address = start; middle.bytes = stop - start;
+        middle.protection = RUM_VM_READ | (flags & PAGING_WRITABLE ? RUM_VM_WRITE : 0);
+        if (!append_region(next, before) || (!release && !append_region(next, middle)) ||
+            !append_region(next, after)) return false;
+    }
+    return covered == pages * PAGE_SIZE;
+}
+
 bool paging_user_protect(struct paging_space *space, uint32_t virtual,
                          uint32_t pages, uint32_t flags)
 {
@@ -579,6 +643,8 @@ bool paging_user_protect(struct paging_space *space, uint32_t virtual,
     bool success = known_space(space) && space != &kernel_space;
     for (uint32_t i = 0; success && i < pages; ++i)
         if (!user_entry(space, virtual + i * PAGE_SIZE)) success = false;
+    struct vm_registry next;
+    if (success) success = plan_region_change(space, virtual, pages, flags, false, &next);
     if (success) {
         for (uint32_t i = 0; i < pages; ++i) {
             uint32_t address = virtual + i * PAGE_SIZE;
@@ -586,6 +652,7 @@ bool paging_user_protect(struct paging_space *space, uint32_t virtual,
             *entry = (*entry & (FRAME_MASK | PRESENT | USER | 0x60u)) | flags;
             if (space == active_space) invalidate(address);
         }
+        space->registry = next;
     }
     cpu_interrupt_restore(saved);
     return success;
@@ -598,6 +665,8 @@ bool paging_user_release(struct paging_space *space, uint32_t virtual, uint32_t 
     bool success = known_space(space) && space != &kernel_space;
     for (uint32_t i = 0; success && i < pages; ++i)
         if (!user_entry(space, virtual + i * PAGE_SIZE)) success = false;
+    struct vm_registry next;
+    if (success) success = plan_region_change(space, virtual, pages, 0, true, &next);
     if (success) {
         for (uint32_t i = 0; i < pages; ++i) {
             uint32_t address = virtual + i * PAGE_SIZE;
@@ -609,6 +678,7 @@ bool paging_user_release(struct paging_space *space, uint32_t virtual, uint32_t 
             --space->user_pages;
         }
         reclaim_empty_user_tables(space, virtual, pages);
+        space->registry = next;
     }
     cpu_interrupt_restore(saved);
     return success;
@@ -620,6 +690,42 @@ uint32_t paging_user_page_count(const struct paging_space *space)
     uint32_t pages = known_space(space) && space != &kernel_space ? space->user_pages : 0;
     cpu_interrupt_restore(saved);
     return pages;
+}
+
+rum_result_t paging_region_allocate(struct paging_space *space, struct rum_vm_allocate_request *request)
+{
+    uint32_t saved = cpu_interrupt_save();
+    rum_result_t result = -RUM_EINVAL;
+    if (known_space(space) && space != &kernel_space && request) {
+        struct vm_region region;
+        result = vm_prepare_allocate(request, space->registry.regions, space->registry.count,
+                                      space->user_pages, &region);
+        if (!result) {
+            bool mapped = allocate_user_pages(space, region.address, region.bytes / PAGE_SIZE,
+                region.protection & RUM_VM_WRITE ? PAGING_WRITABLE : 0, VM_REGION_DYNAMIC);
+            if (!mapped) result = -RUM_ENOMEM;
+            else { request->address = region.address; request->bytes = region.bytes; }
+        }
+    }
+    cpu_interrupt_restore(saved);
+    return result;
+}
+
+rum_result_t paging_region_release(struct paging_space *space, const struct rum_vm_release_request *request,
+                                   uint32_t user_stack)
+{
+    uint32_t saved = cpu_interrupt_save();
+    rum_result_t result = -RUM_EINVAL;
+    if (known_space(space) && space != &kernel_space) {
+        struct vm_region region;
+        result = vm_prepare_release(request, space->registry.regions, space->registry.count, &region);
+        if (!result && user_stack && user_stack >= region.address &&
+            user_stack <= region.address + region.bytes) result = -RUM_EACCES;
+        if (!result && !paging_user_release(space, region.address, region.bytes / PAGE_SIZE))
+            result = -RUM_EINVAL;
+    }
+    cpu_interrupt_restore(saved);
+    return result;
 }
 
 static bool user_bytes(const struct paging_space *space, uint32_t address,
