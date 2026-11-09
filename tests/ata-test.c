@@ -5,6 +5,7 @@
 #include <rum/ata.h>
 #include <rum/cpu.h>
 #include <rum/io.h>
+#include <rum/timer.h>
 
 enum failure { NONE, MISSING, FLOATING, STUCK_BUSY, NO_DRQ, FAULT, ERROR, WRITE_PROTECTED, FLUSH_ERROR, SLOW_FLUSH, STUCK_FLUSH };
 static enum failure failure;
@@ -12,9 +13,15 @@ static uint8_t registers[8], status, opcode;
 static uint16_t identify[256];
 static unsigned position, commands, polls;
 static unsigned flush_delay;
+static unsigned slow_flush_polls;
 static uint32_t selected_lba, fail_lba;
 static unsigned char media[32][512];
 static bool interrupt_enabled, test_reentry;
+static bool clock_running;
+static uint32_t clock_ticks;
+static unsigned polls_per_tick;
+uint32_t timer_ticks(void) { return clock_ticks; }
+bool timer_running(void) { return clock_running; }
 
 uint32_t cpu_interrupt_save(void)
 {
@@ -28,6 +35,7 @@ uint8_t inb(uint16_t port)
 {
     if (port == 0x376 || port == 0x177) {
         ++polls;
+        if (clock_running && interrupt_enabled && polls_per_tick && !(polls % polls_per_tick)) ++clock_ticks;
         if (opcode == 0xe7 && flush_delay && !--flush_delay) status = 0x50;
         return status;
     }
@@ -57,7 +65,7 @@ void outb(uint16_t port, uint8_t value)
     case ERROR: status = 0x51; break;
     case WRITE_PROTECTED: if (opcode == 0x30) status = 0x51; break;
     case FLUSH_ERROR: if (opcode == 0xe7) status = 0x51; break;
-    case SLOW_FLUSH: if (opcode == 0xe7) { status = 0x80; flush_delay = 2000000; } break;
+    case SLOW_FLUSH: if (opcode == 0xe7) { status = 0x80; flush_delay = slow_flush_polls; } break;
     case STUCK_FLUSH: if (opcode == 0xe7) status = 0x80; break;
     default: break;
     }
@@ -98,6 +106,8 @@ static void reset(enum failure mode)
     identify[0] = 0x40; identify[49] = 1u << 9; identify[60] = 32;
     identify[83] = 0x5000; identify[85] = 1u << 5;
     commands = polls = flush_delay = 0; fail_lba = 0; test_reentry = false; interrupt_enabled = true;
+    clock_running = false; clock_ticks = polls_per_tick = 0;
+    slow_flush_polls = 2000000;
     for (unsigned sector = 0; sector < 32; ++sector)
         for (unsigned byte = 0; byte < 512; ++byte)
             media[sector][byte] = (unsigned char)(sector * 13 + byte * 7);
@@ -185,5 +195,24 @@ int main(void)
            !ata_device()->online && interrupt_enabled && !ata_device()->busy);
     before = commands;
     assert(block_read(ata_device(), 0, 1, buffer, 512).error == BLOCK_NO_DEVICE && commands == before);
-    puts("ATA port-model tests passed");
+    reset(SLOW_FLUSH); assert(ata_initialize().error == BLOCK_OK);
+    clock_running = true; polls_per_tick = 100000; slow_flush_polls = 52000000;
+    clock_ticks = UINT32_MAX - 200; polls = 0;
+    assert(block_flush(ata_device()).error == BLOCK_OK && polls >= 52000000 && polls < 52000020);
+    reset(STUCK_FLUSH); assert(ata_initialize().error == BLOCK_OK); clock_running = true;
+    clock_ticks = UINT32_MAX - 1500;
+    polls_per_tick = 100;
+    uint32_t started = clock_ticks;
+    assert(block_flush(ata_device()).error == BLOCK_TIMEOUT &&
+           (uint32_t)(clock_ticks - started) >= 30u * TIMER_HZ &&
+           (uint32_t)(clock_ticks - started) < 31u * TIMER_HZ && !ata_device()->online);
+    reset(STUCK_BUSY); assert(ata_initialize().error == BLOCK_OK);
+    clock_running = true; polls_per_tick = 100;
+    started = clock_ticks;
+    assert(block_read(ata_device(), 0, 1, buffer, 512).error == BLOCK_TIMEOUT &&
+           (uint32_t)(clock_ticks - started) >= TIMER_HZ && polls < 1000000);
+    reset(STUCK_FLUSH); assert(ata_initialize().error == BLOCK_OK);
+    clock_running = true; polls_per_tick = 0; polls = 0;
+    assert(block_flush(ata_device()).error == BLOCK_TIMEOUT && polls >= 50000000 && polls < 50000020);
+    puts("ATA port-model tests passed (boot bounds, elapsed deadlines, wraparound and stopped-clock watchdog)");
 }

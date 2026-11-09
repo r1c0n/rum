@@ -730,7 +730,7 @@ test-fs: build/tests/path-test build/tests/fs-test build/tests/fs.elf
 	./build/tests/fs-test
 	python3 scripts/smoke-test.py --qemu $(QEMU) --filesystem-only
 
-build/tests/ata-test: tests/ata-test.c drivers/storage/ata.c kernel/io/block.c kernel/include/rum/ata.h kernel/include/rum/block.h tests/ata-include/rum/io.h tests/ata-include/rum/cpu.h
+build/tests/ata-test: tests/ata-test.c drivers/storage/ata.c kernel/io/block.c kernel/include/rum/ata.h kernel/include/rum/timer.h kernel/include/rum/block.h tests/ata-include/rum/io.h tests/ata-include/rum/cpu.h
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/ata-include -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 

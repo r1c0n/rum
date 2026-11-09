@@ -135,9 +135,18 @@ supported flush command is rejected. A device without caching or flush support
 can complete flush as a no-op. Transfers issue one sector per command, including
 large requests, avoiding ATA's special count-zero meaning of 256 sectors.
 
-Status-poll phases stop after at most 1,000,000 reads; flush completion allows
-50,000,000 because it may wait for device media or a host `fsync`. The bound works
-before PIT interrupts start; it is an iteration limit, not a calibrated duration.
+Once PIT interrupts have been observed and the caller has interrupts enabled,
+status polling uses a fixed elapsed deadline: one second per sector/identify
+phase and 30 seconds for cache-flush completion. The wrapping counter never
+extends a deadline. A separate finite poll watchdog stops a clock that ceases
+advancing; it resets only when a new tick is observed. Kernel execution remains
+synchronous during that wait, so slow I/O can delay other processes.
+
+Before the clock starts, or with interrupts disabled, polling instead stops
+after at most 1,000,000 reads; flush completion allows 50,000,000. Those boot
+bounds are iteration limits, not calibrated durations. The driver never enables
+interrupts to make a deadline work. A healthy slow host flush is therefore
+measured against elapsed time during normal operation rather than CPU speed.
 Busy status is checked before other status bits. Device faults and ATA errors
 retain their status and error-register bytes in the result. Timeouts, device
 faults and device disappearance take the device offline. Later calls fail before

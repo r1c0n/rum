@@ -5,10 +5,12 @@
 
 #define PIT_INPUT_HZ 1193182u
 static volatile uint32_t ticks;
+static volatile bool observed_irq;
 
 static void timer_interrupt(void)
 {
     ++ticks;
+    observed_irq = true;
     task_timer_tick(ticks);
     /* Only UI consumers (recovery and Snake) wait on this event. Console
        reads and child/FS waits use their own events and are not tick-woken. */
@@ -30,6 +32,7 @@ void timer_initialize(void)
 {
     const uint16_t divisor = (PIT_INPUT_HZ + TIMER_HZ / 2) / TIMER_HZ;
     ticks = 0;
+    observed_irq = false;
     irq_register(0, timer_interrupt);
     outb(0x43, 0x34); /* Channel 0, LSB/MSB, periodic mode 2, binary. */
     outb(0x40, (uint8_t)divisor);
@@ -40,3 +43,4 @@ uint32_t timer_ticks(void)
 {
     return ticks; /* Aligned 32-bit reads are atomic on this target. */
 }
+bool timer_running(void) { return observed_irq; }

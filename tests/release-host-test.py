@@ -57,6 +57,8 @@ def main():
     tools = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(tools)
     tools.shell.ARTIFACTS = output
+    spec = importlib.util.spec_from_file_location("host_release_workflows", ROOT / "tests/release-integration-test.py")
+    workflows = importlib.util.module_from_spec(spec); spec.loader.exec_module(workflows)
     try:
         with tempfile.TemporaryDirectory(prefix="rum-host-release-") as temporary:
             work = Path(temporary)
@@ -87,6 +89,10 @@ def main():
             with tools.shell.boot(args.qemu, 64, "packaged-iso-64m", iso=True, image=extracted, disk=disk) as console:
                 console = tools.Console(console.stream, console.serial)
                 console.command("about", version)
+                workflows.workflows(console)
+                console.type("snake\n"); console.wait("rum_snake_started\r\n")
+                console.send("q"); console.wait("/> ")
+                assert b"rum_snake_quit\r\n" in console.serial.read_bytes()
                 pid = tools.launch(console, "spin")
                 assert pid in tools.listing(console)
                 console.command("echo host package works", "host package works\r\n")
@@ -99,12 +105,22 @@ def main():
                     time.sleep(0.02)
                 console.wait("/> ")
                 console.command("recovery", "Kernel recovery shell.")
-                diagnostic = console.command("diag")
-                assert "Processes: 0 | 0 user tables, 0 user pages" in diagnostic
-                assert "Sessions: 0 live, 0 closing, 0 members | 0 session refs, 0 process refs" in diagnostic
+                workflows.resource_baseline(console)
                 console.type("snake\n"); console.wait("rum_snake_started\r\n")
                 console.send("q"); console.wait("> ")
+            with tools.shell.boot(args.qemu, 64, "packaged-reboot-64m", iso=True, image=extracted, disk=disk) as console:
+                console.command("cat /HOME/SAVED.TXT", workflows.WORKFLOW_BYTES.decode().replace("\n", "\r\n"))
+                console.command("/APPS/HELLO.ELF", "Hello from rum userspace!")
+                console.command("sync")
+                console.command("recovery", "Kernel recovery shell.")
+                workflows.resource_baseline(console)
+            files = tools.shell.images.audit(disk)["files"]
+            assert files["/HOME/SAVED.TXT"] == workflows.WORKFLOW_BYTES
+            assert files["/HOME/EXACT.ELF"] == files["/APPS/HELLO.ELF"] == files["/RUM/HELLO.ELF"]
+            report["checks"] = ["archive bytes", "pipelines/append/copy/rename", "job fault/cancel/restart cleanup",
+                                "user Snake", "separate boot persistence", "untouched source system disk"]
             shutil.copy2(work / "rum.zip", output / "rum.zip")
+            assert hashlib.sha256(system_disk.read_bytes()).hexdigest() == source["system_disk_sha256"], "validated source disk changed"
             report["passed"] = True
     finally:
         (output / "result.json").write_text(json.dumps(report, indent=2) + "\n")

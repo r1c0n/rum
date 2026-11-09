@@ -23,10 +23,10 @@ void task_event_signal(struct task_event *event)
 int main(void)
 {
     timer_initialize();
-    assert(handler && !timer_ticks());
+    assert(handler && !timer_ticks() && !timer_running());
     ticks = UINT32_MAX - 2;
     for (unsigned i = 0; i < 8; ++i) handler();
-    assert(timer_ticks() == 5 && requests == 8 && wakes == 8);
+    assert(timer_ticks() == 5 && requests == 8 && wakes == 8 && timer_running());
     uint32_t duration = 123;
     assert(timer_duration_ticks(0, &duration) && !duration);
     assert(timer_duration_ticks(1, &duration) && duration == 2);
