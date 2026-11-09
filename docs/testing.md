@@ -19,6 +19,9 @@ Other groups include `user`, `package`, `shell`, `storage`, `block`, `fat16`,
 `fat16-write`, `filesystem`, `preemption`, `lifecycle`, `sleep`, `console` and
 `integration`, `handles`, `pipes`, `workflows`, `jobs`, `terminal`, `editing`
 and `file-tools`.
+Use `--suite vm` / `-Suite vm` for private-region host checks, paging transactions
+and the allocation/release syscall lifecycle through both boot paths. These
+cases also run in the normal smoke/lifecycle groups of the full suite.
 Run `help` for the full option list.
 
 * Portable host tests cover memory, paths, handles, ABI layouts, terminal and

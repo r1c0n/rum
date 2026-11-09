@@ -52,6 +52,11 @@ requires foreground ownership and is restored automatically on exit or fault.
 `apps/snake/` demonstrates a complete game using public syscalls and an
 application-local model, without kernel headers or device access.
 
+`rum_vm_allocate` and `rum_vm_release` provide private, zero-filled user regions
+with versioned packets and whole-region release. See [virtual memory](../docs/virtual-memory.md)
+for checked sizes, ownership, limits and an allocation example. A growing
+`malloc` runtime and protection-change calls remain separate work.
+
 User programs compile against this public tree and generated ABI copies only.
 The kernel uses the same canonical ABI definitions alongside its private
 `kernel/include/rum/` headers. Never copy kernel-private structures into the SDK

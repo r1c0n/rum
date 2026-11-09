@@ -168,6 +168,12 @@ callee-saved registers.
 | 29 | `rum_terminal_*` | Writable versioned terminal packet; bounded cell/event buffers | Zero, input count or timeout; see [terminal API](terminal.md) |
 | 30 | `rum_stat(path, info)` / `rum_fstat(handle, info)` | Versioned metadata packet and writable information output | Zero; type, size, volume mode and opaque identity |
 | 31 | `rum_rename(source, destination, flags)` | Versioned rename packet; optional explicit replacement | Zero; same-backend regular files only |
+| 32 | `rum_vm_allocate(request)` | Writable versioned memory packet; zero remaining registers | Zero; selected address and rounded size returned in packet |
+| 33 | `rum_vm_release(address, bytes)` | Versioned release packet; zero remaining registers | Zero; exact dynamic region released |
+
+See [User virtual memory](virtual-memory.md) for allocation, region ownership,
+page rounding, quotas and cleanup. Dynamic allocations do not yet provide a
+`malloc` runtime or a public protection-change operation.
 
 Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
 means success. A negative result is the negation of a `RUM_E*` value from
