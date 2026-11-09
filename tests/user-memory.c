@@ -76,7 +76,8 @@ static void allocation_failures(void)
               !paging_translate(space, PROGRAM_ADDRESS, NULL), "transactional user allocation failure");
         struct paging_statistics after = paging_stats();
         check(after.private_table_pages == before.private_table_pages &&
-              after.user_pages == before.user_pages, "failure returns private tables and pages");
+              after.user_pages == before.user_pages && after.metadata_bytes == before.metadata_bytes,
+              "failure returns private tables and pages without metadata growth");
         release_pages(held);
         check(pmm_stats().free_pages == owned_free && paging_space_destroy(space),
               "failure-space teardown");
@@ -98,6 +99,7 @@ static void allocation_failures(void)
 
 static void limits_and_teardown(void)
 {
+    struct paging_statistics baseline = paging_stats();
     struct paging_space *space = paging_space_create();
     check(space != NULL, "limit-space directory");
     uint32_t before = pmm_stats().free_pages;
@@ -117,7 +119,8 @@ static void limits_and_teardown(void)
     struct paging_statistics restored = paging_stats();
     check(restored.spaces == stats.spaces - 1 &&
           restored.private_table_pages == stats.private_table_pages &&
-          restored.user_pages == stats.user_pages, "limit teardown restores paging ownership");
+          restored.user_pages == stats.user_pages && restored.metadata_bytes == baseline.metadata_bytes,
+          "limit teardown restores paging ownership and releases metadata");
 
     before = pmm_stats().free_pages;
     space = paging_space_create();
@@ -226,6 +229,15 @@ void user_address_space_checks(void)
           !paging_copy_to_user(first, RUM_USER_END - 1, &last, 2), "last user byte and overflow boundary");
 
     struct paging_statistics stats = paging_stats();
+    struct paging_space_statistics first_stats, second_stats, kernel_stats;
+    check(paging_space_stats(first, &first_stats) && paging_space_stats(second, &second_stats) &&
+          paging_space_stats(paging_kernel_space(), &kernel_stats) &&
+          first_stats.directory_pages == 1 && first_stats.private_table_pages == 3 &&
+          first_stats.user_pages == PROGRAM_PAGES + STACK_PAGES && first_stats.metadata_bytes &&
+          second_stats.metadata_bytes == first_stats.metadata_bytes &&
+          stats.metadata_bytes == first_stats.metadata_bytes + second_stats.metadata_bytes &&
+          kernel_stats.directory_pages == 1 && !kernel_stats.metadata_bytes,
+          "per-space directories, committed pages, private tables and metadata accounting");
     check(stats.spaces == 3 && stats.directory_pages == 3 &&
           stats.private_table_pages == 6 && stats.user_pages == 2 * (PROGRAM_PAGES + STACK_PAGES),
           "user page/table ownership statistics");

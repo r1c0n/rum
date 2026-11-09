@@ -4,6 +4,7 @@
 #include <rum/memory.h>
 #include <rum/paging.h>
 #include <rum/process_limits.h>
+#include <rum/vm.h>
 
 #define PRESENT 1u
 #define USER 4u
@@ -13,7 +14,6 @@
 #define KERNEL_ENTRIES (RUM_USER_BASE / RUM_PAGE_TABLE_SPAN)
 #define USER_ENTRIES (RUM_USER_END / RUM_PAGE_TABLE_SPAN)
 #define PRIVATE_TABLE_WORDS ((USER_ENTRIES - KERNEL_ENTRIES + 31u) / 32u)
-#define USER_PAGE_LIMIT (RUM_PROCESS_USER_BYTES / PAGE_SIZE)
 #define STACK_PAGES (RUM_KERNEL_STACK_SIZE / PAGE_SIZE)
 
 extern const char __text_start[], __text_end[], __rodata_start[], __rodata_end[];
@@ -197,6 +197,7 @@ struct paging_statistics paging_stats(void)
         for (const struct paging_space *space = kernel_space.next; space; space = space->next) {
             stats.private_table_pages += space->user_tables;
             stats.user_pages += space->user_pages;
+            stats.metadata_bytes += sizeof *space;
         }
     }
     cpu_interrupt_restore(saved);
@@ -228,6 +229,8 @@ bool paging_space_stats(const struct paging_space *space,
         statistics->private_table_pages = space->user_tables;
         statistics->user_pages = space->user_pages;
         statistics->kernel = space == &kernel_space;
+        statistics->directory_pages = 1;
+        statistics->metadata_bytes = space == &kernel_space ? 0 : sizeof *space;
     }
     cpu_interrupt_restore(saved);
     return success;
@@ -526,8 +529,7 @@ bool paging_user_allocate(struct paging_space *space, uint32_t virtual,
     if (!user_page_range(virtual, pages) || flags & ~PAGING_WRITABLE) return false;
     uint32_t saved = cpu_interrupt_save();
     bool valid = known_space(space) && space != &kernel_space &&
-                 space->user_pages <= USER_PAGE_LIMIT &&
-                 pages <= USER_PAGE_LIMIT - space->user_pages;
+                 vm_pages_fit(space->user_pages, pages);
     for (uint32_t i = 0; valid && i < pages; ++i) {
         uint32_t address = virtual + i * PAGE_SIZE;
         uint32_t index = address >> 22;

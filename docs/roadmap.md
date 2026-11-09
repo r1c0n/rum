@@ -12,7 +12,7 @@ access and protection stay in the kernel; applications use the public ABI.
 
 The [foundation release plan in Notion](https://app.notion.com/p/411ed3fd93a9812b92c1e2feb55468f0)
 records the longer-term priorities. This roadmap breaks the next two releases
-into implementation steps. All checkboxes describe work still to do.
+into implementation steps; checked items have implementation and validation.
 
 ## 0.7.0 — userspace memory and the application SDK
 
@@ -24,22 +24,26 @@ when a requirement justifies them.
 
 ### 1. Virtual-memory contracts and resource accounting
 
-- [ ] Define the available user address ranges and ownership of executable
+- [x] Define the available user address ranges and ownership of executable
   mappings, dynamic regions, stacks and guards. Keep kernel mappings and
   reserved ranges inaccessible to allocation requests.
-- [ ] Specify page alignment, address selection, protection flags, region and
+- [x] Specify page alignment, address selection, protection flags, region and
   per-process limits, zero-length behavior and failure results.
-- [ ] Add fixed-width, versioned public request structures for allocating,
+- [x] Add fixed-width, versioned public request structures for allocating,
   protecting and releasing regions. Reject unknown flags, reserved fields,
   invalid sizes and address arithmetic overflow before modifying mappings.
-- [ ] Define which operations require task context, how mapping changes are
+- [x] Define which operations require task context, how mapping changes are
   serialized, and when scheduling is allowed during construction or cleanup.
-- [ ] Account for committed user pages, page-table pages and region metadata.
+- [x] Account for committed user pages, page-table pages and region metadata.
   Document how these consume physical memory and the process budget.
 
 Test boundary addresses, page rounding, overlapping ranges, quota exhaustion,
 invalid packet sizes and overflow. A rejected request must leave mappings,
 accounting and the calling process unchanged.
+
+See [User virtual memory](virtual-memory.md) for packets, policy, ownership and
+accounting. Public allocation syscalls and live region registration follow in
+step 2; no new memory syscall is exposed by the contract work alone.
 
 ### 2. Private region allocation and release
 
