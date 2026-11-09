@@ -1,4 +1,15 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
+.PHONY: test-vm-host
+build/tests/vm-test: tests/vm-test.c kernel/mm/vm.c kernel/include/rum/vm.h $(LAYOUT_HEADERS) $(ABI_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $(filter %.c,$^) -o $@
+test-vm-host: build/tests/vm-test build/tests/layout-test build/tests/abi-test
+	./build/tests/vm-test
+	./build/tests/layout-test
+	./build/tests/abi-test
+test-host: test-vm-host
+test-build: build/tests/vm-test
+
 build/tests/sync-command.o: system/commands/sync.c sdk/include/rum/tools.h sdk/include/rum/user.h $(ABI_HEADERS)
 	@mkdir -p $(@D)
 	$(HOST_CC) -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror -Dmain=sync_main -c $< -o $@

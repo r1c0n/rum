@@ -3,6 +3,7 @@
 #include <rum/abi/elf.h>
 #include <rum/abi/error.h>
 #include <rum/abi/layout.h>
+#include <rum/abi/memory.h>
 #include <rum/abi/process.h>
 #include <rum/abi/syscall.h>
 #include <rum/abi/time.h>
