@@ -1,7 +1,7 @@
 # rum application SDK
 
-Build static i386 applications without the rum source tree. This development
-SDK targets the 0.7 kernel interfaces; it is not compatible with the older
+Build static i386 applications without the rum source tree. This SDK targets
+the 0.7 kernel interfaces; it is not compatible with the older
 0.6 release. `sdk.json` records the target, interface version, source provenance,
 required kernel features and SHA-256 hashes of the packaged files. SDK format
 version 1 is separate from the OS release number and syscall ABI version 1.
