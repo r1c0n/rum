@@ -1,7 +1,7 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
 COMMAND_HOST_NAMES := cat head wc hexdump more help
 COMMAND_HOST_OBJECTS := $(addprefix build/tests/command-,$(addsuffix .o,$(COMMAND_HOST_NAMES)))
-$(COMMAND_HOST_OBJECTS): build/tests/command-%.o: system/commands/%.c system/lib/stream.h system/lib/pager.h $(ABI_HEADERS) $(TESTS_RULES)
+$(COMMAND_HOST_OBJECTS): build/tests/command-%.o: system/commands/%.c system/lib/stream.h system/lib/pager.h sdk/include/rum/tools.h sdk/include/rum/user.h $(ABI_HEADERS) $(TESTS_RULES)
 	@mkdir -p $(@D)
 	$(HOST_CC) -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror -Dmain=$*_main -c $< -o $@
 build/tests/command-tools-test: tests/command-tools-test.c system/lib/stream.c system/lib/pager.c system/lib/stream.h system/lib/pager.h $(COMMAND_HOST_OBJECTS) $(ABI_HEADERS)

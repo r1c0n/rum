@@ -38,7 +38,9 @@ See [setup](docs/setup.md), [system disk](docs/system-volume.md) and
 
 ## Using rum
 
-Type `help` for commands. The prompt shows the working directory. Paths are
+Type `help` for a paged command guide, or `help --all` for plain output.
+`more`, `head`, `wc` and `hexdump` provide text and binary inspection.
+The colored prompt shows the working directory. Paths are
 case-insensitive and names use 8.3 spelling. Files are saved on disk and survive
 restarts. There is no RAM filesystem.
 

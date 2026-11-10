@@ -2,6 +2,8 @@
 
 The normal shell runs from `/RUM/SHELL.ELF` on the system disk. Its prompt shows
 the current directory, such as `/>` or `/DOCS>`. Type `help` for commands.
+Paths appear in cyan, prompt markers in green and typed commands in white.
+Directory names in `ls` are blue; redirected listings remain plain text.
 Input uses a US keyboard layout. Enter runs a command. Ctrl+C cancels the
 foreground program or clears the current line.
 
@@ -44,6 +46,49 @@ press Tab again to list them. Each request examines at most 128 directory entrie
 and retains at most 16 matches. If a limit is reached, it lists the retained
 matches without choosing one. Type a longer prefix or enter a directory to
 narrow the search. Filesystem naming, path and traversal limits still apply.
+
+## Help and text tools
+
+`help` opens a colored, paged guide. Use `help files`, `help text`,
+`help processes`, `help shell`, `help keys` or `help syntax` to narrow it down;
+`help cat` and other command names show one command. Topics are case-insensitive.
+`help --all` prints the guide without opening a viewer. Piped or redirected
+help output is also plain text and never waits for a key.
+
+`more NOTES.TXT` uses the same viewer. Space or Page Down advances a page,
+Enter or Down advances a line, and B or Page Up goes back. Up moves back one
+line. Q or Escape closes the viewer; Ctrl+C cancels it. Space at the end closes
+it too. The previous console and its colors are restored on exit, and the
+uptime row stays visible. Long lines wrap and binary controls are escaped.
+The viewer retains the last 256 wrapped rows for backward navigation while
+reading larger files incrementally.
+
+Interactive paging needs console input and output. Use `more <path>` to page
+a file; piped or redirected streams run without pauses. With redirected
+output, `more` preserves the input bytes. A bare `more` on the console prints
+its usage instead of consuming navigation keys as file contents.
+
+| Command | Behavior |
+| --- | --- |
+| `head [-n count] [path]` | Show the first 10 lines by default; `-n 0` produces no output and does not read input |
+| `wc [-lwc] [path]` | Count LF newlines, ASCII-whitespace-delimited words and bytes; select individual counts with flags |
+| `hexdump [path]` | Show 16 bytes per row with hexadecimal offsets and a printable ASCII column |
+| `more [path]` | Page a console text file, or stream redirected input/output |
+
+For stream tools, omitting the path or using `-` reads standard input. `wc`
+counts a final unterminated line's bytes and words but adds no LF newline to
+its line count. `head` preserves CRLF and binary bytes when redirected; console
+display uses the same safe control-character rendering as `cat`.
+
+```text
+help text
+more README.TXT
+head -n 5 README.TXT
+cat README.TXT | wc -w
+hexdump SNAKE.DAT > HEX.TXT
+more HEX.TXT
+help --all > COMMANDS.TXT
+```
 
 ## Quotes and arguments
 

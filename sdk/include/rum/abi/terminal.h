@@ -77,6 +77,7 @@ struct rum_terminal_event { uint32_t type, value, tick, reserved; };
 /* All unused fields, flags, now_ticks and reserved words must be zero.
    BEGIN: flags 0 (saved full screen) or INLINE (committed editing surface).
    LINE: count <= MAX_LINE printable bytes at data; x is cursor 0..count.
+   STYLED_LINE: same inline contract; data holds count validated colored cells.
    SCROLL: x is RUM_SCROLL_LIVE/UP/DOWN; remaining inputs are zero.
    CURSOR: x/y and flags 0/1 for visibility. COLOR: x/y are colors 0..15.
    CELLS: x/y and one row's count. READ: event capacity and timeout_ms.

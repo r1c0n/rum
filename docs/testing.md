@@ -26,6 +26,11 @@ permission restoration and cancellation cleanup. These
 cases also run in the normal smoke/lifecycle groups of the full suite.
 Run `help` for the full option list.
 
+`make -j4 test-shell-tools-host` runs the fast command-stream and pager checks.
+The `editing` group also exercises the real help/file viewers, prompt/listing
+colors, navigation, Ctrl+C recovery, cross-page styled-line validation and
+byte-exact redirected tool output on disposable disks through both boot paths.
+
 * Portable host tests cover memory, paths, handles, ABI layouts, terminal and
   keyboard rules, sessions, recovery commands, Snake and the ATA port model.
   Guest Snake checks cover rendering, pause/timer behavior and cleanup; gameplay

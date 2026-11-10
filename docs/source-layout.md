@@ -23,7 +23,7 @@ the kernel is built as `rum.elf` and packaged in `rum.iso`; an explicitly prepar
 | `drivers/storage/` | ATA PIO storage driver |
 | `sdk/` | Public headers, application runtime, linker script, examples, and validator |
 | `system/` | Userspace shell and standalone command programs |
-| `system/lib/` | Private userspace helpers shared by command ELFs, including bounded file copying |
+| `system/lib/` | Private command helpers for file copying, buffered input, safe text display and paging |
 | `apps/` | Application entry points |
 | `assets/disk/` | Initial system-disk documentation |
 | `tests/` | Host checks, test backends, guest fixtures, and QEMU automation |
@@ -59,6 +59,10 @@ filesystem, pipe and console ownership remain kernel services.
 enforces controller authority, waits and cancellation, while `session.c` owns
 console input leases. The standalone `jobs`, `fg` and `wait` programs live in
 `system/commands/` and include public SDK headers only.
+
+`stream.c` shares bounded input and CRLF/control-byte handling among the text
+tools. `pager.c` provides the same bounded-history viewer for `help` and `more`.
+The help command keeps command names, usages and groups in one catalog.
 
 ## Header and runtime boundaries
 
