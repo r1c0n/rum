@@ -61,6 +61,8 @@ static void process_test(const char *name, enum task_termination termination, bo
     unsigned references = fs_stats().references;
     unsigned pins = fs_test_backend_pins();
     uint32_t pages = pmm_stats().free_pages;
+    struct heap_statistics heap = heap_stats();
+    struct paging_statistics paging = paging_stats();
     fs_check(test_file_load(name, &arguments, &process), "load actual embedded user program");
     /* Stack construction OOM must not publish a cwd or consume caller space. */
     uint32_t held = consume();
@@ -77,9 +79,24 @@ static void process_test(const char *name, enum task_termination termination, bo
     fs_check(task_wait_process(id, &info) && info.termination == termination &&
              task_working_directory(id, path, sizeof path) && equal(path, "/DOCS") &&
              fs_unmount_disk() == FS_BUSY, "exited process retains cwd until parent reaps");
-    fs_check(task_foreground_end(id) && task_reap_process(id) && !task_working_directory(id, path, sizeof path) &&
-             fs_stats().references == references && fs_test_backend_pins() == pins && pmm_stats().free_pages == pages,
-             "exit fault cancellation restore cwd and page ledgers");
+    fs_check(task_foreground_end(id) && task_reap_process(id) && !task_working_directory(id, path, sizeof path),
+             "exit fault cancellation reap process");
+    fs_check(fs_stats().references == references, "exit fault cancellation restore cwd references");
+    fs_check(fs_test_backend_pins() == pins, "exit fault cancellation restore backend pins");
+    /* Address-space metadata now uses the reusable kernel heap. Its backing
+       pages stay mapped after free; account for that capacity, but require all
+       live allocations and private paging resources to return to baseline. */
+    struct heap_statistics after = heap_stats();
+    struct paging_statistics final = paging_stats();
+    fs_check(after.allocations == heap.allocations && after.used_bytes == heap.used_bytes &&
+             final.private_table_pages == paging.private_table_pages && final.user_pages == paging.user_pages &&
+             final.metadata_bytes == paging.metadata_bytes && final.spaces == paging.spaces &&
+             final.directory_pages == paging.directory_pages && final.regions == paging.regions &&
+             final.dynamic_regions == paging.dynamic_regions && final.buffer_users == paging.buffer_users,
+             "exit fault cancellation restore live allocation ledgers");
+    fs_check((uint64_t)pmm_stats().free_pages + after.mapped_bytes / PAGE_SIZE ==
+             (uint64_t)pages + heap.mapped_bytes / PAGE_SIZE,
+             "exit fault cancellation restore page ledger including reusable heap capacity");
 }
 void kernel_main(uint32_t magic, uint32_t information)
 {
