@@ -170,10 +170,12 @@ callee-saved registers.
 | 31 | `rum_rename(source, destination, flags)` | Versioned rename packet; optional explicit replacement | Zero; same-backend regular files only |
 | 32 | `rum_vm_allocate(request)` | Writable versioned memory packet; zero remaining registers | Zero; selected address and rounded size returned in packet |
 | 33 | `rum_vm_release(address, bytes)` | Versioned release packet; zero remaining registers | Zero; exact dynamic region released |
+| 34 | `rum_vm_protect(address, bytes, protection)` | Readable versioned protection packet; zero remaining registers | Zero; exact dynamic region permissions updated |
 
 See [User virtual memory](virtual-memory.md) for allocation, region ownership,
-page rounding, quotas and cleanup. Dynamic allocations do not yet provide a
-`malloc` runtime or a public protection-change operation.
+page rounding, quotas and cleanup. Protection supports read-only and read/write;
+retained syscall buffers exclude release/protection with `EBUSY`. A `malloc`
+runtime remains separate work.
 
 Handles 0, 1, and 2 are standard input, output, and error. A nonnegative result
 means success. A negative result is the negation of a `RUM_E*` value from

@@ -5,10 +5,8 @@ Request validation and placement policy live in `kernel/mm/vm.c`; page tables
 and physical-frame ownership remain in `arch/i386/paging.c`. This separates
 process memory policy from the hardware mapping mechanism.
 
-Applications can allocate and release private regions through the public
-runtime. Protection-change packets are defined, but their syscall and runtime
-wrapper are not yet available. Initial ELF and stack mappings remain owned by
-the loader.
+Applications can allocate, protect and release private regions through the
+public runtime. Initial ELF and stack mappings remain owned by the loader.
 
 ## Allocate and release
 
@@ -27,6 +25,11 @@ int main(int argc, char **argv)
     char *bytes = (void *)(uintptr_t)request.address;
     bytes[0] = 'r';
     bytes[8192] = 'm';
+    if (rum_vm_protect(request.address, request.bytes, RUM_VM_READ) < 0) {
+        (void)rum_vm_release(request.address, request.bytes);
+        return 2;
+    }
+    /* Data is still readable; a direct store now faults this process. */
     return rum_vm_release(request.address, request.bytes) < 0;
 }
 ```
@@ -39,8 +42,11 @@ returned in the packet, not in the signed syscall result register.
 Syscall 32 (`RUM_SYS_VM_ALLOCATE`) takes the address of a writable allocation
 packet in EBX. Syscall 33 (`RUM_SYS_VM_RELEASE`) takes a readable release packet
 in EBX. ECX and EDX must be zero. `rum_vm_release(address, bytes)` constructs its
-release packet automatically. Existing syscall numbers and ABI versions retain
-their meaning.
+release packet automatically. Syscall 34 (`RUM_SYS_VM_PROTECT`) takes a readable
+protection packet in EBX with ECX/EDX zero. `rum_vm_protect(address, bytes,
+protection)` constructs that packet automatically. It returns zero or a negative
+error and performs no copyout; the input packet may itself become read-only.
+Existing syscall numbers and ABI versions retain their meaning.
 
 ## Address ranges and owners
 
@@ -64,6 +70,8 @@ support needs an explicit contract for splitting records and consuming quota.
 Release also rejects a dynamic region containing the saved user ESP, including
 an empty downward-growing stack's upper boundary. A program using a dynamic
 stack must switch back to another stack before releasing that allocation.
+Making that active stack read-only is also rejected. Keeping it read/write is
+allowed; the same checks cover an empty stack's upper boundary.
 
 The region snapshot supplied to policy code must describe every owned user
 mapping, contain no overlaps, and remain stable through commit. Policy checks
@@ -79,7 +87,7 @@ kernel pointers appear in the ABI.
 | Request | Input | Successful result contract |
 | --- | --- | --- |
 | `rum_vm_allocate_request` | Address, nonzero byte size, protection | Return zero; write selected address and page-rounded byte size back into the packet |
-| `rum_vm_protect_request` (planned) | Exact allocated address and rounded size, new protection | Return zero; change the entire dynamic region |
+| `rum_vm_protect_request` | Exact allocated address and rounded size, new protection | Return zero; change the entire dynamic region; no packet output |
 | `rum_vm_release_request` | Exact allocated address and rounded size | Return zero; remove the entire dynamic region |
 
 For allocation, address zero selects the lowest available range in the program
@@ -102,8 +110,9 @@ claim hardware-enforced W^X.
 | `EOVERFLOW` | Allocation size cannot be rounded into the 32-bit size field |
 | `EEXIST` | An exact allocation overlaps an existing region |
 | `ENOMEM` | Page/region quota exhausted or no suitable virtual range remains |
-| `EACCES` | A request attempts to change a loader-owned image/stack region or release its active dynamic stack |
+| `EACCES` | A request attempts to change a loader-owned region, release its active dynamic stack or make that stack read-only |
 | `ENOENT` | No owned region overlaps the requested protect/release range |
+| `EBUSY` | A syscall retains existing mappings, or mutation is attempted from an unsafe kernel context |
 
 Results use the existing negative rum error values. At the syscall
 boundary, invalid user packet storage returns `EFAULT` before any memory
@@ -142,6 +151,7 @@ Paging snapshots account for the resources that exist today:
 | `metadata_bytes` | Heap payload of live private paging-space records; excludes heap allocator headers and the static kernel record |
 | `shared_table_pages` | Kernel page tables counted once globally, borrowed by private spaces |
 | `regions` / `dynamic_regions` | Live registry entries, and the subset owned by application allocations |
+| `buffer_users` | Thread-owned syscall mapping leases, including blocked operations |
 
 The 1 GiB user window can require at most 256 private table pages. These and
 directory pages consume PMM frames outside the committed-user-page quota.
@@ -184,13 +194,38 @@ may touch up to the 4096-page process budget while interrupts are disabled,
 so large mapping operations can delay timer delivery. Region-policy scans are
 bounded by the 64-record limit.
 
-There is one user thread per private address space, no shared-address-space
-launch option and no syscall for mutating another process's mappings. A blocked
-thread cannot concurrently issue a release, and cancellation releases its
-address space only after its kernel continuation has unwound and execution has
-switched away. Sharing address spaces or adding user threads requires explicit
-buffer retention or pinning before allowing concurrent mutation. Trusted kernel
-code must not unmap buffers retained by another task's operation. See
+Every syscall except exit and the three memory operations acquires a thread-owned
+mapping lease before it validates or copies user storage. The lease retains all
+existing user mappings and their permissions until the call returns, even if it
+blocks. Syscall copies still validate every page for their required access;
+retention does not make an invalid pointer valid or freeze buffer contents.
+
+Public release and protection first validate the request and ownership, then
+return `EBUSY` while any lease remains. They neither modify memory nor wait for
+the holder. New allocations remain safe because they cannot replace existing
+mappings. Space destruction also refuses a retained space. Other address spaces
+are unaffected, and leases do not hold task switching or interrupts across waits.
+
+The common syscall return drops its lease before returning to user mode.
+Termination releases a thread's outstanding lease after handle cleanup when
+cancellation abandons a blocked kernel continuation. The thread records whether
+it owns a lease so termination and normal completion cannot release it twice.
+The last release permits subsequent mapping changes; counter underflow and
+overflow are refused.
+
+There is still one user thread per private address space. The lease is deliberately
+coarse: even calls that finish copying their packets before a wait retain the
+entire user mapping set. Future user threads must preserve this exclusion rule
+or replace it with explicit per-range retention, checked under the same memory
+ownership lock as mutation. A future nonblocking release/protection can return
+`EBUSY` while another thread's syscall is outstanding; callers must handle that
+result. Shared address spaces and SMP require an additional concurrency audit.
+Future asynchronous I/O must transfer retention to the request until completion;
+returning from a syscall alone cannot end that request's buffer lifetime.
+
+Trusted raw paging mutation is reserved for loading/administering spaces and
+deliberate kernel fault-injection fixtures; it bypasses the public lease check.
+Production code must not use it to invalidate retained syscall buffers. See
 [Scheduling safety](scheduling.md) and [Memory map and ownership](memory-layout.md).
 
 ## Focused checks
@@ -208,7 +243,11 @@ Run `make -j4 test-vm` for those host checks, the paging fixture at 64 MiB, and
 ring-3 region tests through ELF at 16 MiB and ISO at 64 MiB. The ring-3 cases
 cover malformed/cross-page packets, read-only output, live-region isolation,
 quota reuse, physical OOM, failed process construction and repeated exit, fault
-and CPU-bound cancellation. They also run with the normal lifecycle test group.
+and CPU-bound cancellation. Protection cases verify read-only input packets,
+self-protection, whole-region validation, cross-page read/write permissions,
+active stacks, restored writable TLB entries and exact hardware page faults.
+Blocked pipe/console cases check exclusion, wakeup, cancellation, lease cleanup
+and unrelated-space progress. They also run with the normal lifecycle test group.
 This does not run the full regression suite.
 
 The build launchers expose the same focused group:
@@ -220,3 +259,5 @@ The build launchers expose the same focused group:
 ```powershell
 .\rum.ps1 test -Suite vm -Jobs 4
 ```
+
+For the hardware permission bits used here, see [OSDev's x86 paging reference](https://wiki.osdev.org/Paging).
