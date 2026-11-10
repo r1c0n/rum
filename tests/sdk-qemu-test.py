@@ -27,6 +27,7 @@ def main():
         disk = Path(temporary) / "sdk.raw"; source = Path(temporary) / "source"
         images.build(disk); images.seed_system(disk)
         images.command("mcopy", "-i", str(disk), str(ROOT / "build/tests/sdk-app.elf"), "::/RUM/SDKAPP.ELF")
+        images.command("mcopy", "-i", str(disk), str(ROOT / "build/tests/sdk-stress.elf"), "::/RUM/SDKMIX.ELF")
         if args.doom:
             images.command("mcopy", "-i", str(disk), str(ROOT / "build/doom-probe/DOOMIO.elf"), "::/RUM/DOOMIO.ELF")
             source.write_bytes(wad_bytes()); images.command("mcopy", "-i", str(disk), str(source), "::/TEST.WAD")
@@ -41,6 +42,7 @@ def main():
                     console.send("ctrl", "c"); console.wait("Program cancelled.\r\n/> ")
                 if args.doom:
                     console.command("run /RUM/DOOMIO.ELF /TEST.WAD", "Doom zone and WAD I/O probe passed.")
+                console.command("run /RUM/SDKMIX.ELF", "SDK mixed memory and I/O passed.")
                 console.command("echo recovered", "recovered")
                 console.command("recovery", "Kernel recovery shell.")
                 diag = console.command("diag")
@@ -49,6 +51,10 @@ def main():
                                  "Handles: 0 descriptors, 0 open descriptions, 0 aliases", "Terminal: normal"):
                     assert expected in diag, diag
             assert images.file_bytes(disk, "/SDKTEST.BIN") == bytes((i * 17) & 255 for i in range(8193))
+            for seed in range(1, 6):
+                round = 3 if seed <= 3 else 0
+                expected = bytes(((i * 37) ^ (i >> 7) ^ (seed * 23) ^ (round * 11)) & 255 for i in range(8193))
+                assert images.file_bytes(disk, f"/S{seed}.BIN") == expected
             if args.doom:
                 assert images.file_bytes(disk, "/TEST.WAD") == wad_bytes()
             images.audit(disk)

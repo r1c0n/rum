@@ -50,6 +50,10 @@ an external project build and real application execution through both boot
 paths. Normal tests are offline. The optional [Doom probe](doom-compatibility.md)
 compiles pinned upstream sources and runs its zone/WAD backend separately.
 The full suite includes the SDK host check and a bounded SDK guest group.
+That group also builds a larger mixed-workload ELF outside the repository,
+runs concurrent heap/file workers with bounded memory pressure, exhausts and
+recovers allocations, rejects protected cross-page output buffers, and cleans
+up live file/heap/pipe resources after user faults and cancellation.
 
 * Portable host tests cover memory, paths, handles, ABI layouts, terminal and
   keyboard rules, sessions, recovery commands, Snake and the ATA port model.

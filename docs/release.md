@@ -27,8 +27,10 @@ The exact ISO extracted from the package is booted too. No caller's disk is
 used and the original build directory is not cleaned.
 
 Results are saved under `build/release-check/<commit>-<time>/`: `result.json`,
-logs, guest diagnostics, kernel, ISO, package and a pristine `rum-system.raw`.
-The report records ISO and system-disk SHA256 values. Only a report with
+logs, guest diagnostics, kernel, ISO, SDK, package, a pristine `rum-system.raw`
+and `vm-images/rum-vm-images.zip`. The VM bundle is built from the same clean
+program assets and ISO, with raw/VMDK/VDI contents compared by `qemu-img`.
+The report records ISO, SDK, system-disk and VM-archive SHA256 values. Only a report with
 `passed: true` represents a successful check.
 
 The release gate combines subsystem checks with the production workflow:
@@ -41,6 +43,7 @@ The release gate combines subsystem checks with the production workflow:
 | Persistence | Production shell and host FAT tools compare exact bytes across separate QEMU boots |
 | Console and recovery | Terminal restoration, userspace Snake, scrollback/editing, diskless/rejected volumes and recovery resource counts |
 | Packaging | Exact archive membership/bytes, no mutable disk in `rum.zip`, extracted-ISO boots at 16/64/256/1152 MiB, then native host checks |
+| Application platform | An exported SDK builds a larger ELF outside the repository; concurrent heap/file workers, exhaustion, protected buffers and fault/cancellation cleanup pass through both boot paths |
 
 Timed ATA checks include slow flushes beyond the former poll-count budget,
 clock wraparound and a stopped clock. Every wait remains bounded; no storage
@@ -61,6 +64,9 @@ python3 tests/release-host-test.py --release build/release-check/<commit>-<time>
 
 It packages with the host's native Python, verifies source/archive bytes and
 boots the extracted ISO using a temporary copy of the validated system disk.
+It also verifies the validated SDK manifest and recreates the SDK archive with
+native Python, comparing every member with the clean build's SDK. The SDK stays
+a separate download and contains no ISO, mutable disk or game data.
 It checks pipelines, file tools, job cancellation/fault/restart, userspace Snake,
 recovery and resource cleanup, then reboots the same temporary disk to recover
 the saved text and launch the copied application. It also audits FAT ownership
@@ -70,7 +76,8 @@ README/docs require a new clean release check.
 
 ## Prepare VM downloads
 
-After building the intended source commit:
+The clean release check prepares the VM download automatically. To create
+another fresh bundle after building the intended source commit:
 
 ```sh
 python3 scripts/prepare-vm-images.py --output build/vm-images-release
@@ -94,6 +101,42 @@ disk. The normal shell's built-in `recovery` command also works after storage
 errors prevent loading programs. FAT16 is not journaled. Preserve a damaged
 image and inspect or repair a copy with host FAT tools; rum does not silently
 format or repair it. See [FAT16](fat16.md) for interrupted-write guarantees.
+
+## 0.7.0 validation record
+
+Validated November 9, 2026, from clean source snapshot
+`110836a41e60823015f2de6caf594afc03f06471`. Subsequent checklist and evidence
+updates change README/docs only.
+
+- All 25 regression groups passed with four build jobs and four guest workers.
+  The suite took 116.23 seconds; the complete clean check took 167.5 seconds,
+  including the build, fresh disk/VM downloads and artifact collection.
+- Both boot paths passed, with boot and extracted-package ISO checks at
+  16/64/256/1152 MiB. The external SDK workload combined a larger ELF, private
+  BSS, concurrent heap/file operations, recoverable exhaustion, protected
+  cross-page buffers, guard faults and cancellation. Resource ledgers returned
+  to baseline, and host FAT checks recovered identical file bytes.
+- Ubuntu/WSL and native Windows SDK exports matched every payload byte and
+  manifest hash. Native release packages booted the exact validated ISO on
+  both hosts, exercised heap/file I/O, pipelines, faults, Ctrl+C, shell restart
+  and Snake, then recovered saved files after a separate boot. PowerShell
+  launcher checks also passed.
+- Diskless, malformed, full and read-only volumes and injected block/FAT
+  failures preserved recovery. Raw/VMDK and raw/VDI conversions were identical.
+  Conversion checks do not claim a native VMware or VirtualBox test run.
+
+Validated ISO SHA256:
+
+```text
+b9939dfac5adf6369d0c0c9e5268c15985a1dbae42353adacf23120b4ac9fd35
+```
+
+Evidence and pristine release files are in
+`build/release-check/110836a41e60-20261109-231033/`: `result.json`, suite logs,
+`host-linux/result.json`, `host-windows/result.json` and `vm-images.log`.
+The report records the SDK, VM download and untouched system-disk hashes.
+Publish `rum.zip`, `rum-sdk.zip` and `vm-images/rum-vm-images.zip` as separate
+downloads. The standalone package contains no mutable disk or game assets.
 
 ## 0.6.0 validation record
 

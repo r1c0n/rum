@@ -165,7 +165,7 @@ RUM/
 README.TXT
 WELCOME.TXT
 /> cat /README.TXT
-rum OS v0.6.0
+rum OS v0.7.0
 ...
 /> write /NOTE.TXT hello from rum
 /> cat /NOTE.TXT

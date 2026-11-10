@@ -228,7 +228,7 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
     terminal_set_color(VGA_WHITE, VGA_BLACK);
     print("  An island of our own.\n");
     terminal_set_color(VGA_LIGHT_GREY, VGA_BLACK);
-    print("  rum OS v0.6.0 | 32-bit x86\n");
+    print("  rum OS v0.7.0 | 32-bit x86\n");
     terminal_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
     print("  [ok] Bootloader\n");
     print("  [ok] Display\n");

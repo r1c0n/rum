@@ -9,5 +9,7 @@
 Makefile text eol=lf
 *.mk text eol=lf
 rum text eol=lf
+# Export identical SDK source bytes from Windows and Linux checkouts/archives.
+sdk/** text eol=lf
 # Disk templates retain their exact bytes across host platforms.
 assets/disk/* -text

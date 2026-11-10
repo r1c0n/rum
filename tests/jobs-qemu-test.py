@@ -15,7 +15,7 @@ images = shell.images
 PAYLOAD = bytes((i * 37 ^ (i >> 3)) & 255 for i in range(3 * 4096 + 173))
 
 
-def launch(console, command):
+def launch(console, command, early_fault=False):
     start = console.serial.stat().st_size
     console.type(command + " &\n")
     deadline = time.monotonic() + 20
@@ -23,6 +23,8 @@ def launch(console, command):
         output = console.serial.read_bytes()[start:].decode()
         match = re.search(r"\[(\d+)\] started [^\r\n]+\r\n/> ", output)
         if match: break
+        if early_fault and output.endswith("/> ") and "Program stopped after a user fault." in output:
+            return None
         assert "rum kernel panic" not in output and time.monotonic() < deadline, output
         time.sleep(0.02)
     return int(match[1])
@@ -66,8 +68,9 @@ def run(qemu, disk, ram, iso):
         b = launch(console, "echo data | nonzero")
         console.command(f"wait {a}", "Program exited with status 0.")
         console.command(f"wait {b}", "Program exited with status -37.")
-        bad = launch(console, "spin | fault | cat")
-        console.command(f"wait {bad}", "Program stopped after a user fault.")
+        bad = launch(console, "spin | fault | cat", early_fault=True)
+        if bad is not None:
+            console.command(f"wait {bad}", "Program stopped after a user fault.")
         console.command("spin | absent | cat &", "file or directory not found.")
         console.command("echo wrong >INVALID.TXT & cat", "invalid or oversized command.")
         survivor = launch(console, "spin")

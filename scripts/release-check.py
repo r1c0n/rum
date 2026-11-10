@@ -71,6 +71,9 @@ def main():
             # The suite builds once and bounds independent QEMU workers itself.
             run(make + ["test"], work, output / "tests.log")
             run([sys.executable, "scripts/prepare-disk.py", "build/rum-system.raw"], work, output / "system-disk.log")
+            # Use the same clean program assets and ISO for a separate, fresh
+            # VM download; never package an image from the caller's build tree.
+            run([sys.executable, "scripts/prepare-vm-images.py"], work, output / "vm-images.log")
             report["passed"] = True
         finally:
             artifacts = work / "build/test-artifacts"
@@ -82,6 +85,8 @@ def main():
                     shutil.copy2(source, output / name)
             if (work / "rum.zip").is_file():
                 shutil.copy2(work / "rum.zip", output / "rum.zip")
+            if (work / "build/vm-images").is_dir():
+                shutil.copytree(work / "build/vm-images", output / "vm-images")
             report["elapsed_seconds"] = round(time.monotonic() - started, 1)
             if (output / "rum.iso").is_file():
                 report["iso_sha256"] = hashlib.sha256((output / "rum.iso").read_bytes()).hexdigest()
@@ -89,6 +94,8 @@ def main():
                 report["sdk_sha256"] = hashlib.sha256((output / "rum-sdk.zip").read_bytes()).hexdigest()
             if (output / "rum-system.raw").is_file():
                 report["system_disk_sha256"] = hashlib.sha256((output / "rum-system.raw").read_bytes()).hexdigest()
+            if (output / "vm-images/rum-vm-images.zip").is_file():
+                report["vm_images_sha256"] = hashlib.sha256((output / "vm-images/rum-vm-images.zip").read_bytes()).hexdigest()
             (output / "result.json").write_text(json.dumps(report, indent=2) + "\n")
     print(f"PASS: clean build, complete suite and packaged ISO; artifacts in {output}")
     return 0

@@ -75,6 +75,11 @@ also apply. A failed partial launch cancels and collects its started stages,
 closes the parent's descriptors and discards its job record. Earlier filesystem
 changes follow the [redirection failure rules](shell-workflows.md).
 
+A stage can fault or be cancelled while the shell is still launching the
+remaining stages. The shell collects that partial job and reports the fault
+or cancellation immediately; no background job number is published. If all
+stages were launched, the result remains available through `wait` or `fg`.
+
 Shell exit, fault, recovery or restart abandons its job records, cancels and
 adopts live stages, and reclaims them through their normal exit paths. A new
 shell starts with an empty table. Records and event storage remain pinned

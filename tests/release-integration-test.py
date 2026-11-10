@@ -21,9 +21,14 @@ images = shell.images
 WORKFLOW_BYTES = b"island  bytes\nliteral | > &\n"
 
 
-def background(console, command):
-    output = console.command(command + " &", "started")
+def background(console, command, early_fault=False):
+    output = console.command(command + " &")
     match = re.search(r"\[(\d+)\] started ", output)
+    # Members can run before COMMIT. A fault during construction cancels and
+    # collects the partial job synchronously instead of publishing a job ID.
+    if not match and early_fault:
+        assert "Program stopped after a user fault." in output, output
+        return None
     assert match, output
     return int(match[1])
 
@@ -42,8 +47,9 @@ def workflows(console):
     blocked = background(console, "spin | cat > /HOME/CANCEL.BIN")
     console.type(f"fg {blocked}\n"); console.wait(f"Foreground job {blocked}.\r\n")
     console.send("ctrl", "c"); console.wait("Program cancelled.\r\n/> ")
-    failed = background(console, "spin | fault | cat > /HOME/FAULT.BIN")
-    console.command(f"wait {failed}", "Program stopped after a user fault.")
+    failed = background(console, "spin | fault | cat > /HOME/FAULT.BIN", early_fault=True)
+    if failed is not None:
+        console.command(f"wait {failed}", "Program stopped after a user fault.")
     abandoned = background(console, "spin | cat > /HOME/RESTART.BIN")
     console.command("exit", "Type 'help' for commands.")
     console.command("jobs", "No jobs.")
