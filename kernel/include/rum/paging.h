@@ -18,6 +18,7 @@ struct paging_statistics {
     uint32_t private_table_pages, user_pages;
     uint32_t metadata_bytes; /* Live private-space heap payload; no heap headers. */
     uint32_t regions, dynamic_regions;
+    uint32_t buffer_users;
 };
 
 struct paging_space_statistics {
@@ -25,6 +26,7 @@ struct paging_space_statistics {
     bool kernel;
     uint32_t directory_pages, metadata_bytes;
     uint32_t regions, dynamic_regions;
+    uint32_t buffer_users;
 };
 
 /* Allocation-free, IRQ-safe snapshot. Shared table frames are counted once,
@@ -83,6 +85,17 @@ rum_result_t paging_region_allocate(struct paging_space *, struct rum_vm_allocat
    Pass zero only for trusted administration without a running user frame. */
 rum_result_t paging_region_release(struct paging_space *, const struct rum_vm_release_request *,
                                    uint32_t user_stack);
+rum_result_t paging_region_protect(struct paging_space *, const struct rum_vm_protect_request *,
+                                   uint32_t user_stack);
+
+/* An allocation-free lease retains all existing user mappings/permissions
+   across a syscall, including sleeps. Public release/protect return EBUSY while
+   any lease remains; new allocations are safe. The thread owns its lease and
+   must release it on return or termination. Destroy refuses retained spaces.
+   Raw paging mutation is trusted administration for loaders/fault injection;
+   it must not be used to invalidate live production syscall buffers. */
+bool paging_user_buffers_acquire(struct paging_space *);
+bool paging_user_buffers_release(struct paging_space *);
 
 /* Validate every covered page before copying. A zero-byte copy succeeds without
    inspecting either address. String copies require a NUL within capacity and

@@ -64,17 +64,17 @@ stage and page/metadata counts after repeated exits.
 
 ### 3. Protection changes and syscall buffer safety
 
-- [ ] Apply supported access protections to complete owned ranges, with checked
+- [x] Apply supported access protections to complete owned ranges, with checked
   bounds and a documented policy for partial-region changes and splitting.
-- [ ] Describe the permissions the current paging mode can actually enforce.
+- [x] Describe the permissions the current paging mode can actually enforce.
   Do not promise non-executable pages or execute-only mappings without hardware
   support; reject unsupported requests explicitly.
-- [ ] Make syscall input/output validation cover dynamic regions and changes
+- [x] Make syscall input/output validation cover dynamic regions and changes
   in readability or writability, including cross-page and unmapped spans.
-- [ ] Define the lifetime of mappings referenced by a blocked operation. Copy,
+- [x] Define the lifetime of mappings referenced by a blocked operation. Copy,
   retain or otherwise protect those buffers until the operation completes;
   establish a rule that remains safe when threading arrives later.
-- [ ] Keep permission faults confined to the offending process and preserve
+- [x] Keep permission faults confined to the offending process and preserve
   kernel recovery and cleanup behavior.
 
 Test reads and writes across protection boundaries, malformed pointers,

@@ -24,6 +24,7 @@ struct paging_space {
     uint32_t user_pages, user_tables;
     uint32_t private_tables[PRIVATE_TABLE_WORDS];
     struct vm_registry registry;
+    uint32_t buffer_users;
 };
 
 static struct paging_space kernel_space;
@@ -210,6 +211,7 @@ struct paging_statistics paging_stats(void)
             stats.metadata_bytes += sizeof *space;
             stats.regions += space->registry.count;
             stats.dynamic_regions += dynamic_regions(space);
+            stats.buffer_users += space->buffer_users;
         }
     }
     cpu_interrupt_restore(saved);
@@ -245,6 +247,7 @@ bool paging_space_stats(const struct paging_space *space,
         statistics->metadata_bytes = space == &kernel_space ? 0 : sizeof *space;
         statistics->regions = space->registry.count;
         statistics->dynamic_regions = dynamic_regions(space);
+        statistics->buffer_users = space->buffer_users;
     }
     cpu_interrupt_restore(saved);
     return success;
@@ -284,7 +287,7 @@ bool paging_space_destroy(struct paging_space *space)
     if (enabled && space && space != &kernel_space && space != active_space) {
         struct paging_space *previous = &kernel_space;
         while (previous->next && previous->next != space) previous = previous->next;
-        if (previous->next) {
+        if (previous->next && !space->buffer_users) {
             bool valid = true;
             uint32_t pages = 0, tables = 0;
             for (uint32_t i = KERNEL_ENTRIES; i < ENTRIES; ++i) {
@@ -719,6 +722,7 @@ rum_result_t paging_region_release(struct paging_space *space, const struct rum_
     if (known_space(space) && space != &kernel_space) {
         struct vm_region region;
         result = vm_prepare_release(request, space->registry.regions, space->registry.count, &region);
+        if (!result && space->buffer_users) result = -RUM_EBUSY;
         if (!result && user_stack && user_stack >= region.address &&
             user_stack <= region.address + region.bytes) result = -RUM_EACCES;
         if (!result && !paging_user_release(space, region.address, region.bytes / PAGE_SIZE))
@@ -726,6 +730,44 @@ rum_result_t paging_region_release(struct paging_space *space, const struct rum_
     }
     cpu_interrupt_restore(saved);
     return result;
+}
+
+rum_result_t paging_region_protect(struct paging_space *space, const struct rum_vm_protect_request *request,
+                                   uint32_t user_stack)
+{
+    uint32_t saved = cpu_interrupt_save();
+    rum_result_t result = -RUM_EINVAL;
+    if (known_space(space) && space != &kernel_space) {
+        struct vm_region region;
+        result = vm_prepare_protect(request, space->registry.regions, space->registry.count, &region);
+        if (!result && space->buffer_users) result = -RUM_EBUSY;
+        /* A read-only active stack cannot service an ordinary user call/return.
+           Keep it writable, including an empty stack's upper boundary. */
+        if (!result && !(region.protection & RUM_VM_WRITE) && user_stack &&
+            user_stack >= region.address && user_stack <= region.address + region.bytes) result = -RUM_EACCES;
+        if (!result && !paging_user_protect(space, region.address, region.bytes / PAGE_SIZE,
+                region.protection & RUM_VM_WRITE ? PAGING_WRITABLE : 0)) result = -RUM_EINVAL;
+    }
+    cpu_interrupt_restore(saved);
+    return result;
+}
+
+bool paging_user_buffers_acquire(struct paging_space *space)
+{
+    uint32_t saved = cpu_interrupt_save();
+    bool success = known_space(space) && space != &kernel_space && space->buffer_users != UINT32_MAX;
+    if (success) ++space->buffer_users;
+    cpu_interrupt_restore(saved);
+    return success;
+}
+
+bool paging_user_buffers_release(struct paging_space *space)
+{
+    uint32_t saved = cpu_interrupt_save();
+    bool success = known_space(space) && space != &kernel_space && space->buffer_users;
+    if (success) --space->buffer_users;
+    cpu_interrupt_restore(saved);
+    return success;
 }
 
 static bool user_bytes(const struct paging_space *space, uint32_t address,

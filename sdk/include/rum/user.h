@@ -15,6 +15,7 @@
    Both calls return zero or a negative public error, never a signed address. */
 rum_result_t rum_vm_allocate(struct rum_vm_allocate_request *);
 rum_result_t rum_vm_release(rum_address_t address, rum_size_t bytes);
+rum_result_t rum_vm_protect(rum_address_t address, rum_size_t bytes, uint32_t protection);
 rum_result_t rum_terminal_query(struct rum_terminal_capabilities *);
 rum_result_t rum_terminal_begin(void);
 rum_result_t rum_terminal_begin_inline(void);

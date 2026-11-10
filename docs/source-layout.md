@@ -10,7 +10,7 @@ the kernel is built as `rum.elf` and packaged in `rum.iso`; an explicitly prepar
 | `arch/i386/` | CPU setup, GDT/TSS, exception and syscall entry, context assembly, paging, and kernel linker script |
 | `kernel/core/` | Initialization in `init.c` and freestanding memory primitives |
 | `kernel/process/` | Task scheduling, process lifecycle, referenced console sessions, handles, ELF loading, and syscall dispatch |
-| `kernel/mm/` | Physical allocation and kernel heap |
+| `kernel/mm/` | Physical allocation, kernel heap and user-region policy |
 | `kernel/io/` | Block-device operations, request serialization, pipes and interactive terminal leases |
 | `kernel/fs/` | Paths, mounts, retained objects, the persistent FAT16 root |
 | `kernel/recovery/` | Recovery command loop and diskless Snake controller |

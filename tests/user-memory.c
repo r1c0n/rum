@@ -187,6 +187,32 @@ static void dynamic_region_checks(void)
     uint32_t value = 0x12345678;
     check(paging_copy_to_user(first, a.address, &value, sizeof value), "write private region");
     zeroed_pages(second, b.address, 2);
+    struct rum_vm_protect_request protect = { .version = RUM_VM_ABI_VERSION, .size = sizeof protect,
+        .address = a.address, .bytes = a.bytes, .protection = RUM_VM_READ };
+    struct paging_statistics before_protect = paging_stats();
+    check(paging_region_protect(first, &protect, 0) == 0 &&
+          paging_user_accessible(first, a.address, a.bytes, false) &&
+          !paging_user_accessible(first, a.address, a.bytes, true) &&
+          !paging_copy_to_user(first, a.address, &value, sizeof value) &&
+          paging_user_accessible(second, b.address, b.bytes, true), "whole-region protection preserves peer permissions");
+    protect.bytes += PAGE_SIZE; protect.protection |= RUM_VM_WRITE;
+    check(paging_region_protect(first, &protect, 0) == -RUM_EINVAL &&
+          !paging_user_accessible(first, a.address, a.bytes, true), "failed protection changes no pages");
+    protect.bytes = a.bytes;
+    check(paging_region_protect(first, &protect, 0) == 0 &&
+          paging_stats().user_pages == before_protect.user_pages &&
+          paging_stats().regions == before_protect.regions &&
+          paging_stats().metadata_bytes == before_protect.metadata_bytes, "protection changes consume no resources");
+
+    check(paging_user_buffers_acquire(first) && paging_user_buffers_acquire(first) &&
+          !paging_space_destroy(first) &&
+          paging_region_protect(first, &protect, 0) == -RUM_EBUSY &&
+          release_region(first, a.address, a.bytes) == -RUM_EBUSY, "retained buffers exclude mutation and destruction");
+    struct rum_vm_allocate_request extra = region_request(0, PAGE_SIZE);
+    check(paging_region_allocate(first, &extra) == 0 && paging_user_buffers_release(first) &&
+          release_region(first, extra.address, extra.bytes) == -RUM_EBUSY &&
+          paging_user_buffers_release(first) && !paging_user_buffers_release(first) &&
+          release_region(first, extra.address, extra.bytes) == 0, "last mapping lease permits mutation; append remains safe");
     check(release_region(first, a.address, PAGE_SIZE) == -RUM_EINVAL &&
           release_region(second, RUM_USER_BASE, PAGE_SIZE) == -RUM_ENOENT,
           "partial and foreign region release rejected");
@@ -235,6 +261,7 @@ static void dynamic_region_checks(void)
     check(paging_space_destroy(first) && paging_space_destroy(second), "destroy live dynamic regions");
     struct paging_statistics after = paging_stats();
     check(after.user_pages == baseline.user_pages && after.regions == baseline.regions &&
+          after.buffer_users == baseline.buffer_users &&
           after.dynamic_regions == baseline.dynamic_regions && after.metadata_bytes == baseline.metadata_bytes &&
           after.private_table_pages == baseline.private_table_pages && pmm_stats().free_pages == free,
           "all dynamic regions, tables and metadata return to baseline");

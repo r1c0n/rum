@@ -3,12 +3,17 @@
 
 #define REPORT 0xffffffe0u
 #define PEERS  0xffffffe1u
+#define PIPE_WRITER 0xffffffe2u
 #define PAGE RUM_ABI_PAGE_SIZE
 static rum_address_t addresses[RUM_VM_REGION_LIMIT];
 rum_result_t vm_release_on_stack(rum_address_t top, const struct rum_vm_release_request *);
+rum_result_t vm_protect_on_stack(rum_address_t top, const struct rum_vm_protect_request *);
 static const struct rum_vm_allocate_request readonly_packet = {
     .version = RUM_VM_ABI_VERSION, .size = sizeof readonly_packet,
     .bytes = PAGE, .protection = RUM_VM_READ | RUM_VM_WRITE };
+static const struct rum_vm_protect_request readonly_protect = {
+    .version = RUM_VM_ABI_VERSION, .size = sizeof readonly_protect,
+    .address = RUM_ABI_STACK_BASE, .bytes = RUM_ABI_STACK_SIZE, .protection = RUM_VM_READ };
 
 static void check(bool ok, unsigned code)
 {
@@ -83,11 +88,67 @@ static void invalid(void)
           rum_vm_release(request.address, request.bytes) == 0, 16);
 }
 
+static void protection_checks(void)
+{
+    check(raw(RUM_SYS_VM_PROTECT, NULL) == -RUM_EFAULT &&
+          raw(RUM_SYS_VM_PROTECT, &readonly_protect) == -RUM_EACCES, 40);
+    struct rum_vm_allocate_request control = packet(2 * PAGE);
+    check(rum_vm_allocate(&control) == 0, 41);
+    struct rum_vm_protect_request *cross = (void *)(uintptr_t)(control.address + PAGE - 16);
+    *cross = (struct rum_vm_protect_request){ .version = RUM_VM_ABI_VERSION, .size = sizeof *cross,
+        .address = control.address, .bytes = control.bytes, .protection = RUM_VM_READ };
+    check(raw(RUM_SYS_VM_PROTECT, cross) == 0 && cross->protection == RUM_VM_READ &&
+          raw(RUM_SYS_VM_PROTECT, cross) == 0 && /* Read-only input packet is valid. */
+          rum_vm_protect(control.address, control.bytes, RUM_VM_READ | RUM_VM_WRITE) == 0, 42);
+    cross->flags = 1;
+    check(raw(RUM_SYS_VM_PROTECT, cross) == -RUM_EINVAL, 43);
+    cross->flags = 0; cross->reserved[1] = 1;
+    check(raw(RUM_SYS_VM_PROTECT, cross) == -RUM_EINVAL, 44);
+    cross->reserved[1] = 0; cross->version++;
+    check(raw(RUM_SYS_VM_PROTECT, cross) == -RUM_EINVAL, 45);
+    cross->version--; cross->size--;
+    check(raw(RUM_SYS_VM_PROTECT, cross) == -RUM_EINVAL, 46);
+    cross->size++;
+    check(rum_syscall3(RUM_SYS_VM_PROTECT, (rum_address_t)(uintptr_t)cross, 1, 0) == -RUM_EINVAL, 47);
+    const uint32_t bad_protections[] = {0, RUM_VM_WRITE, 4, 7, UINT32_MAX};
+    for (unsigned i = 0; i < sizeof bad_protections / sizeof bad_protections[0]; ++i)
+        check(rum_vm_protect(control.address, control.bytes, bad_protections[i]) == -RUM_EINVAL, 48);
+    check(rum_vm_protect(control.address + 1, control.bytes, RUM_VM_READ) == -RUM_EINVAL &&
+          rum_vm_protect(control.address, PAGE, RUM_VM_READ) == -RUM_EINVAL &&
+          rum_vm_protect(control.address, 0, RUM_VM_READ) == -RUM_EINVAL &&
+          rum_vm_protect(0xfffff000, 2 * PAGE, RUM_VM_READ) == -RUM_EINVAL, 49);
+    check(vm_protect_on_stack(control.address + control.bytes, cross) == -RUM_EACCES &&
+          vm_protect_on_stack(control.address + PAGE, cross) == -RUM_EACCES, 50);
+    cross->protection |= RUM_VM_WRITE;
+    check(vm_protect_on_stack(control.address + control.bytes, cross) == 0 &&
+          rum_vm_release(control.address, control.bytes) == 0, 51);
+
+    struct rum_vm_allocate_request left = packet(PAGE), right = packet(PAGE);
+    check(rum_vm_allocate(&left) == 0, 52);
+    right.address = left.address + PAGE;
+    check(rum_vm_allocate(&right) == 0, 53);
+    unsigned char *span = (void *)(uintptr_t)(right.address - 16);
+    for (unsigned i = 0; i < 32; ++i) span[i] = 'q';
+    check(rum_vm_protect(right.address, right.bytes, RUM_VM_READ) == 0 &&
+          rum_syscall3(RUM_SYS_GETCWD, (rum_address_t)(uintptr_t)span, 32, 0) == -RUM_EFAULT, 54);
+    for (unsigned i = 0; i < 32; ++i) check(span[i] == 'q', 55);
+    check(rum_write(RUM_STDOUT, span, 32) == 32 &&
+          rum_write(RUM_STDOUT, (void *)(uintptr_t)(right.address + PAGE - 16), 32) == -RUM_EFAULT &&
+          raw(RUM_SYS_VM_PROTECT, (void *)(uintptr_t)(right.address + PAGE - 16)) == -RUM_EFAULT, 56);
+    check(rum_vm_protect(left.address, 2 * PAGE, RUM_VM_READ) == -RUM_EINVAL &&
+          rum_vm_protect(right.address + PAGE, PAGE, RUM_VM_READ) == -RUM_ENOENT, 57);
+    span[0] = 'z'; /* Failed combined protection must leave the left page writable. */
+    check(rum_vm_protect(right.address, right.bytes, RUM_VM_READ | RUM_VM_WRITE) == 0, 58);
+    span[31] = 'z'; /* The warmed read-only TLB entry must now permit writes. */
+    check(rum_vm_release(left.address, left.bytes) == 0 && rum_vm_release(right.address, right.bytes) == 0, 59);
+}
+
 int main(int argc, char **argv)
 {
     check(argc == 3, 20);
     char mode = argv[1][0];
     if (mode == 'i') { invalid(); return 0; }
+    if (mode == 'p') { protection_checks(); return 0; }
     if (mode == 'o') {
         struct rum_vm_allocate_request request = packet(2 * PAGE - 1);
         check(rum_vm_allocate(&request) == -RUM_ENOMEM && !request.address && request.bytes == 2 * PAGE - 1, 21);
@@ -119,7 +180,30 @@ int main(int argc, char **argv)
     check(rum_syscall3(REPORT, request.address, request.bytes, seed) == 0, 32);
     if (mode == 'f') __asm__ volatile ("ud2");
     if (mode == 's') for (;;) __asm__ volatile ("pause" : : : "memory");
+    if (mode == 'b' || mode == 'c' || mode == 'k') {
+        rum_handle_t input = RUM_STDIN;
+        if (mode != 'k') {
+            struct rum_pipe_request pipe = { .version = RUM_PIPE_ABI_VERSION, .size = sizeof pipe };
+            check(rum_pipe(&pipe) == 0 && rum_syscall3(PIPE_WRITER, pipe.write_handle, 0, 0) == 0, 60);
+            input = pipe.read_handle;
+        }
+        check(rum_read(input, (void *)(uintptr_t)request.address, 1) == 1 &&
+              *(unsigned char *)(uintptr_t)request.address == 'Z', 61);
+        check(mode == 'b' && rum_vm_protect(request.address, request.bytes, RUM_VM_READ) == 0 &&
+              rum_vm_release(request.address, request.bytes) == 0, 62);
+        return 0;
+    }
     while (rum_syscall3(PEERS, 0, 0, 0) != 2) check(rum_yield() == 0, 33);
+    if (mode == 'r') {
+        check(rum_vm_protect(request.address, request.bytes, RUM_VM_READ) == 0, 63);
+        words[0] = 99;
+        check(false, 64);
+    }
+    if (mode == 'u') {
+        check(rum_vm_release(request.address, request.bytes) == 0, 65);
+        words[0] = 99;
+        check(false, 66);
+    }
     check(words[0] == seed && words[request.bytes / sizeof *words - 1] == (seed ^ 0x11223344), 34);
     rum_address_t address = request.address;
     check(rum_vm_release(address, request.bytes) == 0, 35);

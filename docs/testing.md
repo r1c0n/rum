@@ -20,7 +20,9 @@ Other groups include `user`, `package`, `shell`, `storage`, `block`, `fat16`,
 `integration`, `handles`, `pipes`, `workflows`, `jobs`, `terminal`, `editing`
 and `file-tools`.
 Use `--suite vm` / `-Suite vm` for private-region host checks, paging transactions
-and the allocation/release syscall lifecycle through both boot paths. These
+and the allocation/protection/release syscall lifecycle through both boot paths.
+Cases include cross-page buffers, read-only faults, retained blocking I/O,
+permission restoration and cancellation cleanup. These
 cases also run in the normal smoke/lifecycle groups of the full suite.
 Run `help` for the full option list.
 

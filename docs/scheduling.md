@@ -23,6 +23,7 @@ occupy separate bounded pools with a one-to-one relationship for now.
 | Kernel stack, saved kernel context and user CPU frame | Initial thread | Prepared privately, released after switching away |
 | Runnable/blocked/exited state and event registration | Initial thread | Scheduler publication through reaping |
 | Switch-hold nesting count | Initial thread | Balanced within one nonblocking kernel operation |
+| Syscall mapping lease | Calling thread, counted in its address space | Syscall entry through return or termination, including waits |
 | Remaining slice and pending reschedule request | Initial thread | Reset when selected; consumed by PIT ticks |
 | Child-completion event and orphan-cleanup state | Process resource record | Publication through reaping |
 | Event pointer, deadline, active flag and wake reason | Initial thread | Registered atomically; detached before wakeup or exit |
@@ -55,6 +56,12 @@ The central scheduler requires IF clear, no active IRQ handler, no switch holds,
 and no common-filesystem or block operation. It also checks that the current
 process address space matches the active paging space and that TSS.ESP0 matches
 the executing thread's stack. A violated internal invariant halts the kernel.
+Mapping leases preserve memory lifetime while permitting scheduling and waits.
+They are separate from switch holds: a blocked syscall keeps its lease, public
+release/protect returns `EBUSY`, and unrelated address spaces continue running.
+Normal syscall completion or thread termination releases the lease before
+address-space teardown. See [User virtual memory](virtual-memory.md).
+
 Public yield/wait calls refuse unsafe contexts without changing run state or
 attaching an event waiter.
 

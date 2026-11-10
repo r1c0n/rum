@@ -94,6 +94,10 @@ rum_result_t task_session_control(unsigned action, const char *path);
 void task_exit_shell_if_requested(void);
 task_id task_current_id(void);
 bool task_current_is_process(void);
+/* One mapping lease per in-flight syscall/thread; survives blocking and is
+   released by termination if the syscall never returns. Begin requires IF. */
+bool task_user_buffers_begin(void);
+bool task_user_buffers_end(void);
 rum_pid_t task_current_process_id(void);
 struct paging_space *task_current_process_space(void);
 /* Each boot/worker/process context owns a directory reference inherited at
