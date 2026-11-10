@@ -31,6 +31,13 @@ The `editing` group also exercises the real help/file viewers, prompt/listing
 colors, navigation, Ctrl+C recovery, cross-page styled-line validation and
 byte-exact redirected tool output on disposable disks through both boot paths.
 
+`./rum.ps1 test -Suite runtime -Jobs 4` (Linux: `./rum test --suite runtime`)
+runs focused heap/runtime host checks and real userspace tests through ELF
+boot at 16 MiB and ISO boot at 64 MiB. Coverage includes fragmented reuse,
+growth/shrink preservation, recoverable exhaustion, concurrent private heaps,
+file streams, clock packets and page/handle cleanup after exit, fault and
+cancellation. `make test-runtime-host` runs only the fast host portion.
+
 * Portable host tests cover memory, paths, handles, ABI layouts, terminal and
   keyboard rules, sessions, recovery commands, Snake and the ATA port model.
   Guest Snake checks cover rendering, pause/timer behavior and cleanup; gameplay

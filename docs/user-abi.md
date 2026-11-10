@@ -32,6 +32,9 @@ The build produces:
 Private kernel headers are deliberately absent from the user include tree.
 The canonical public headers live in `sdk/include/rum/`; startup and runtime
 sources live in `sdk/lib/`, and the linker source is `sdk/linker/user.ld`.
+The userspace-only C subset headers live in `sdk/include/c/`; see the
+[application runtime](application-runtime.md) for allocation, stdio, formatting,
+timing and error behavior.
 The processed linker script is generated at `build/sdk/linker/user.ld`.
 User code links with `-nostdlib`, rum's startup and syscall wrappers, and target
 `libgcc`; it does not link a host C library or any kernel object.
