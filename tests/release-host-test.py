@@ -49,6 +49,9 @@ def main():
     system_disk = release / "rum-system.raw"
     if not system_disk.is_file() or hashlib.sha256(system_disk.read_bytes()).hexdigest() != source.get("system_disk_sha256"):
         parser.error("the prepared system disk is missing or differs from the validated SHA256")
+    sdk_archive = release / "rum-sdk.zip"
+    if not sdk_archive.is_file() or hashlib.sha256(sdk_archive.read_bytes()).hexdigest() != source.get("sdk_sha256"):
+        parser.error("the SDK archive is missing or differs from the validated SHA256")
     output = release / ("host-" + platform.system().lower())
     output.mkdir(parents=True, exist_ok=True)
     report = {"passed": False, "host": platform.system(), "python": platform.python_version(),
@@ -62,7 +65,8 @@ def main():
     try:
         with tempfile.TemporaryDirectory(prefix="rum-host-release-") as temporary:
             work = Path(temporary)
-            snapshot = git("archive", "--format=tar", commit, "README.md", "docs", "scripts/package.py", "tests/package-test.py")
+            snapshot = git("archive", "--format=tar", commit, "README.md", "docs", "scripts/package.py", "tests/package-test.py",
+                           "scripts/package-sdk.py", "sdk")
             with tarfile.open(fileobj=io.BytesIO(snapshot)) as archive:
                 for member in archive.getmembers():
                     target = work / member.name
@@ -75,6 +79,27 @@ def main():
                         target.write_bytes(archive.extractfile(member).read())
             (work / "build").mkdir()
             shutil.copy2(iso, work / "build/rum.iso")
+            with ZipFile(sdk_archive) as archive:
+                metadata = json.loads(archive.read("rum-sdk/sdk.json"))
+                assert metadata["source_commit"] == source["commit"] and metadata["source_dirty"] is False
+                assert set(archive.namelist()) == {"rum-sdk/sdk.json"} | {"rum-sdk/" + name for name in metadata["files"]}
+                for name, digest in metadata["files"].items():
+                    assert hashlib.sha256(archive.read("rum-sdk/" + name)).hexdigest() == digest
+                for member, target in (("lib/crt0.o", "lib/start.o"), ("lib/librum.a", "lib/librum.a"),
+                                       ("linker/user.ld", "linker/user.ld")):
+                    path = work / "build/sdk" / target; path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(archive.read("rum-sdk/" + member))
+            (work / ".rum-source.json").write_text(json.dumps({"commit": source["commit"], "dirty": False}) + "\n")
+            sdk_result = subprocess.run([sys.executable, str(work / "scripts/package-sdk.py"), "--output", str(work / "rum-sdk.zip")],
+                                        cwd=work, capture_output=True, text=True)
+            (output / "sdk-package.log").write_text(sdk_result.stdout + sdk_result.stderr)
+            assert sdk_result.returncode == 0, sdk_result.stdout + sdk_result.stderr
+            with ZipFile(sdk_archive) as reference, ZipFile(work / "rum-sdk.zip") as native:
+                assert reference.namelist() == native.namelist()
+                for name in reference.namelist():
+                    assert reference.read(name) == native.read(name), name
+            shutil.copy2(work / "rum-sdk.zip", output / "rum-sdk.zip")
+            report["sdk_sha256"] = hashlib.sha256((output / "rum-sdk.zip").read_bytes()).hexdigest()
             packaged = subprocess.run([sys.executable, str(work / "tests/package-test.py")], cwd=work,
                                       capture_output=True, text=True)
             (output / "package.log").write_text(packaged.stdout + packaged.stderr)
@@ -89,6 +114,7 @@ def main():
             with tools.shell.boot(args.qemu, 64, "packaged-iso-64m", iso=True, image=extracted, disk=disk) as console:
                 console = tools.Console(console.stream, console.serial)
                 console.command("about", version)
+                console.command("heapdemo /README.TXT", "Heap growth, data preservation and release passed")
                 workflows.workflows(console)
                 console.type("snake\n"); console.wait("rum_snake_started\r\n")
                 console.send("q"); console.wait("/> ")
@@ -117,7 +143,7 @@ def main():
             files = tools.shell.images.audit(disk)["files"]
             assert files["/HOME/SAVED.TXT"] == workflows.WORKFLOW_BYTES
             assert files["/HOME/EXACT.ELF"] == files["/APPS/HELLO.ELF"] == files["/RUM/HELLO.ELF"]
-            report["checks"] = ["archive bytes", "pipelines/append/copy/rename", "job fault/cancel/restart cleanup",
+            report["checks"] = ["archive bytes", "SDK hashes and native repackaging", "heap and public file I/O", "pipelines/append/copy/rename", "job fault/cancel/restart cleanup",
                                 "user Snake", "separate boot persistence", "untouched source system disk"]
             shutil.copy2(work / "rum.zip", output / "rum.zip")
             assert hashlib.sha256(system_disk.read_bytes()).hexdigest() == source["system_disk_sha256"], "validated source disk changed"

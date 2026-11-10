@@ -81,6 +81,12 @@ def main():
         rejected = subprocess.run([str(checker), str(padded)], capture_output=True)
         assert rejected.returncode != 0, "changed SDK limits must invalidate the cached host validator"
         contract.write_bytes(original); os.utime(contract, ns=(timestamp.st_atime_ns, timestamp.st_mtime_ns))
+        stress = project / "mixed.c"; shutil.copyfile(ROOT / "tests/sdk-integration.c", stress)
+        mixed = project / "build/mixed.elf"
+        subprocess.run(["python3", str(sdk / "tools/build.py"), "--cross-prefix", args.cross_prefix,
+                        "--output", str(mixed), str(stress)], check=True, capture_output=True)
+        assert mixed.stat().st_size > 65536, "integration image must exercise larger executable loading"
+        shutil.copyfile(mixed, args.output.with_name("sdk-stress.elf"))
         if args.doom_source:
             subprocess.run(["python3", str(sdk / "tools/probe-doom.py"), "--source", str(args.doom_source.resolve()),
                 "--output", str(ROOT / "build/doom-probe"), "--cross-prefix", args.cross_prefix], check=True)

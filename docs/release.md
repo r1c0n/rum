@@ -28,7 +28,7 @@ used and the original build directory is not cleaned.
 
 Results are saved under `build/release-check/<commit>-<time>/`: `result.json`,
 logs, guest diagnostics, kernel, ISO, package and a pristine `rum-system.raw`.
-The report records ISO and system-disk SHA256 values. Only a report with
+The report records ISO, SDK and system-disk SHA256 values. Only a report with
 `passed: true` represents a successful check.
 
 The release gate combines subsystem checks with the production workflow:
@@ -41,6 +41,7 @@ The release gate combines subsystem checks with the production workflow:
 | Persistence | Production shell and host FAT tools compare exact bytes across separate QEMU boots |
 | Console and recovery | Terminal restoration, userspace Snake, scrollback/editing, diskless/rejected volumes and recovery resource counts |
 | Packaging | Exact archive membership/bytes, no mutable disk in `rum.zip`, extracted-ISO boots at 16/64/256/1152 MiB, then native host checks |
+| Application platform | An exported SDK builds a larger ELF outside the repository; concurrent heap/file workers, exhaustion, protected buffers and fault/cancellation cleanup pass through both boot paths |
 
 Timed ATA checks include slow flushes beyond the former poll-count budget,
 clock wraparound and a stopped clock. Every wait remains bounded; no storage
@@ -61,6 +62,9 @@ python3 tests/release-host-test.py --release build/release-check/<commit>-<time>
 
 It packages with the host's native Python, verifies source/archive bytes and
 boots the extracted ISO using a temporary copy of the validated system disk.
+It also verifies the validated SDK manifest and recreates the SDK archive with
+native Python, comparing every member with the clean build's SDK. The SDK stays
+a separate download and contains no ISO, mutable disk or game data.
 It checks pipelines, file tools, job cancellation/fault/restart, userspace Snake,
 recovery and resource cleanup, then reboots the same temporary disk to recover
 the saved text and launch the copied application. It also audits FAT ownership
