@@ -573,7 +573,7 @@ static rum_result_t terminal_control(struct paging_space *space, uint32_t addres
         !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
     unsigned op = request.operation;
     if (request.version != RUM_TERMINAL_ABI_VERSION || request.size != sizeof request ||
-        op < RUM_TERM_QUERY || op > RUM_TERM_SCROLL || request.now_ticks || request.reserved[0] || request.reserved[1])
+        op < RUM_TERM_QUERY || op > RUM_TERM_STYLED_LINE || request.now_ticks || request.reserved[0] || request.reserved[1])
         return -RUM_EINVAL;
     uint32_t bytes = 0; bool output = false;
     if (op == RUM_TERM_QUERY) {
@@ -588,10 +588,10 @@ static rum_result_t terminal_control(struct paging_space *space, uint32_t addres
             return -RUM_EINVAL;
         if (request.timeout_ms > RUM_TERM_MAX_WAIT_MS) return -RUM_ERANGE;
         bytes = request.count * sizeof(struct rum_terminal_event); output = true;
-    } else if (op == RUM_TERM_LINE) {
+    } else if (op == RUM_TERM_LINE || op == RUM_TERM_STYLED_LINE) {
         if (request.flags || request.y || request.timeout_ms || request.count > RUM_TERM_MAX_LINE || request.x > request.count)
             return -RUM_EINVAL;
-        bytes = request.count;
+        bytes = request.count * (op == RUM_TERM_STYLED_LINE ? sizeof(struct rum_terminal_cell) : 1u);
     } else {
         if (request.data || request.count || request.timeout_ms) return -RUM_EINVAL;
         if (op == RUM_TERM_CURSOR) {
@@ -637,6 +637,14 @@ static rum_result_t terminal_control(struct paging_space *space, uint32_t addres
             if (bytes && !paging_copy_from_user(space, text, request.data, bytes)) return -RUM_EFAULT;
             for (uint32_t i = 0; i < bytes; ++i) if (text[i] < 32 || text[i] > 126) return -RUM_EINVAL;
             terminal_session_line(text, bytes, request.x);
+        } else if (op == RUM_TERM_STYLED_LINE) {
+            if (!terminal_session_inline()) return -RUM_EACCES;
+            struct rum_terminal_cell cells[RUM_TERM_MAX_LINE];
+            if (bytes && !paging_copy_from_user(space, cells, request.data, bytes)) return -RUM_EFAULT;
+            for (uint32_t i = 0; i < request.count; ++i)
+                if (cells[i].character < 32 || cells[i].character > 126 || cells[i].foreground > 15 ||
+                    cells[i].background > 15 || cells[i].reserved) return -RUM_EINVAL;
+            terminal_session_styled_line(cells, request.count, request.x);
         }
         else if (op == RUM_TERM_CURSOR) {
             (void)terminal_cursor_at(request.x, request.y); terminal_cursor_visible(request.flags != 0);

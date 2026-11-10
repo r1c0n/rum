@@ -5,6 +5,8 @@
 unsigned tool_length(const char *);
 void tool_output(const void *, unsigned bytes);
 void tool_print(const char *);
+/* Colored console line; redirected streams receive only text and a newline. */
+void tool_line_color(const char *, uint32_t foreground);
 void tool_number(int32_t);
 void tool_unsigned(uint64_t);
 void tool_error(const char *, rum_result_t);

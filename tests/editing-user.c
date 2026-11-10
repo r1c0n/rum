@@ -35,6 +35,15 @@ int main(int argc, char **argv)
               rum_terminal_line("x", 1, UINT32_MAX) == -RUM_EINVAL &&
               rum_terminal_line((void *)UINT32_MAX, 1, 0) == -RUM_EFAULT &&
               !rum_terminal_query(&after) && before.cursor_x == after.cursor_x && before.cursor_y == after.cursor_y, 10);
+        struct rum_terminal_cell *cells = (void *)(pages + 4096 - 4);
+        cells[0] = (struct rum_terminal_cell){'>', RUM_COLOR_LIGHT_GREEN, RUM_COLOR_BLACK, 0};
+        cells[1] = (struct rum_terminal_cell){'x', RUM_COLOR_WHITE, RUM_COLOR_BLACK, 0};
+        check(!rum_terminal_styled_line(cells, 2, 1) && !rum_terminal_query(&before), 30);
+        cells[1].foreground = 16;
+        check(rum_terminal_styled_line(cells, 2, 1) == -RUM_EINVAL &&
+              rum_terminal_styled_line(cells, UINT32_MAX, 0) == -RUM_EINVAL &&
+              rum_terminal_styled_line((void *)UINT32_MAX, 1, 0) == -RUM_EFAULT &&
+              !rum_terminal_query(&after) && after.cursor_x == before.cursor_x && after.cursor_y == before.cursor_y, 31);
         check(!rum_terminal_line((void *)UINT32_MAX, 0, 0) && !rum_terminal_end(), 11);
         tool_print("inline ABI verified\n"); return 0;
     }

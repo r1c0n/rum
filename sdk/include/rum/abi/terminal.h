@@ -11,6 +11,7 @@
 #define RUM_TERM_READ 7u
 #define RUM_TERM_LINE 8u /* Inline-session printable prompt/line and cursor index. */
 #define RUM_TERM_SCROLL 9u /* Inline session: x is LIVE, UP or DOWN. */
+#define RUM_TERM_STYLED_LINE 10u /* LINE cursor/count; data is an array of cells. */
 #define RUM_SCROLL_LIVE 0u
 #define RUM_SCROLL_UP 1u
 #define RUM_SCROLL_DOWN 2u
@@ -38,7 +39,8 @@
 #define RUM_TERM_FEATURE_KEYS 32u
 #define RUM_TERM_FEATURE_LINE 64u
 #define RUM_TERM_FEATURE_SCROLLBACK 128u
-#define RUM_TERM_FEATURES 255u
+#define RUM_TERM_FEATURE_STYLED_LINE 256u
+#define RUM_TERM_FEATURES 511u
 #define RUM_TERM_ACTIVE 1u
 #define RUM_TERM_OWNED 2u
 #define RUM_TERM_INLINE_MODE 4u

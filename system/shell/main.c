@@ -39,10 +39,13 @@ static char prefix[RUM_ABI_PATH_CAPACITY + 2];
 static unsigned prefix_bytes;
 static void show_line(void)
 {
-    char text[RUM_TERM_MAX_LINE]; unsigned used = 0;
-    for (unsigned i = 0; i < prefix_bytes; ++i) text[used++] = prefix[i];
-    for (unsigned i = 0; i < editor.length; ++i) text[used++] = editor.line[i];
-    rum_result_t result = rum_terminal_line(text, used, prefix_bytes + editor.cursor);
+    struct rum_terminal_cell cells[RUM_TERM_MAX_LINE]; unsigned used = 0;
+    for (unsigned i = 0; i < prefix_bytes; ++i)
+        cells[used++] = (struct rum_terminal_cell){ (uint8_t)prefix[i],
+            i + 2 < prefix_bytes ? RUM_COLOR_LIGHT_CYAN : RUM_COLOR_LIGHT_GREEN, RUM_COLOR_BLACK, 0 };
+    for (unsigned i = 0; i < editor.length; ++i)
+        cells[used++] = (struct rum_terminal_cell){ (uint8_t)editor.line[i], RUM_COLOR_WHITE, RUM_COLOR_BLACK, 0 };
+    rum_result_t result = rum_terminal_styled_line(cells, used, prefix_bytes + editor.cursor);
     if (result < 0) { tool_error("shell", result); rum_exit(1); }
 }
 static void begin_line(void)

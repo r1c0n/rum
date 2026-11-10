@@ -214,7 +214,7 @@ void terminal_restore(const struct terminal_snapshot *snapshot)
     terminal_cursor_visible(snapshot->state.visible);
 }
 void terminal_edit_begin(void) { edit_row = row; edit_column = column; edit_length = 0; }
-void terminal_edit_render(const char *text, uint32_t bytes, uint32_t cursor)
+static void edit_render(const char *text, const struct rum_terminal_cell *cells, uint32_t bytes, uint32_t cursor)
 {
     size_t extent = bytes > edit_length ? bytes : edit_length;
     size_t last = edit_row + (edit_column + extent) / VGA_WIDTH;
@@ -223,10 +223,20 @@ void terminal_edit_render(const char *text, uint32_t bytes, uint32_t cursor)
         scroll_rows(shift);
         edit_row -= shift;
     }
-    for (size_t i = 0; i < extent; ++i) cell(edit_row * VGA_WIDTH + edit_column + i, entry(i < bytes ? text[i] : ' '));
+    for (size_t i = 0; i < extent; ++i) {
+        uint16_t value = entry(i < bytes && text ? text[i] : ' ');
+        if (i < bytes && cells) value = (uint16_t)cells[i].character |
+            (uint16_t)(cells[i].foreground | cells[i].background << 4) << 8;
+        cell(edit_row * VGA_WIDTH + edit_column + i, value);
+    }
     edit_length = bytes;
     row = edit_row + (edit_column + cursor) / VGA_WIDTH; column = (edit_column + cursor) % VGA_WIDTH;
     update_cursor();
+}
+void terminal_edit_render(const char *text, uint32_t bytes, uint32_t cursor) { edit_render(text, NULL, bytes, cursor); }
+void terminal_edit_render_cells(const struct rum_terminal_cell *cells, uint32_t count, uint32_t cursor)
+{
+    edit_render(NULL, cells, count, cursor);
 }
 void terminal_edit_finish(void)
 {

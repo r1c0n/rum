@@ -68,7 +68,7 @@ rum_result_t terminal_session_end(uint32_t task)
     if (!terminal_session_owned(task)) return -RUM_EACCES;
     restore(false); return 0;
 }
-void terminal_session_line(const char *text, uint32_t bytes, uint32_t cursor)
+static void session_line(const char *text, const struct rum_terminal_cell *cells, uint32_t bytes, uint32_t cursor)
 {
     if (dirty) { terminal_edit_begin(); line_bytes = line_cursor = 0; dirty = false; }
     bool prefix = bytes >= line_bytes;
@@ -89,7 +89,15 @@ redraw:
             serial_writestring("\x1b["); while (count) serial_putchar(digits[--count]); serial_putchar('D');
         }
     }
-    terminal_edit_render(text, bytes, cursor);
+    if (cells) terminal_edit_render_cells(cells, bytes, cursor);
+    else terminal_edit_render(text, bytes, cursor);
     for (uint32_t i = 0; i < bytes; ++i) line[i] = text[i];
     line_bytes = bytes; line_cursor = cursor;
+}
+void terminal_session_line(const char *text, uint32_t bytes, uint32_t cursor) { session_line(text, NULL, bytes, cursor); }
+void terminal_session_styled_line(const struct rum_terminal_cell *cells, uint32_t count, uint32_t cursor)
+{
+    char text[RUM_TERM_MAX_LINE];
+    for (uint32_t i = 0; i < count; ++i) text[i] = (char)cells[i].character;
+    session_line(text, cells, count, cursor);
 }

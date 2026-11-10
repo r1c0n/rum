@@ -7,9 +7,11 @@ int main(int argc, char **argv)
     struct rum_directory_entry entry = { .version = RUM_FS_ABI_VERSION, .size = sizeof entry };
     rum_result_t result;
     while ((result = rum_readdir((rum_handle_t)handle, &entry)) > 0) {
-        tool_print(entry.name);
-        if (entry.kind == RUM_ENTRY_DIRECTORY) tool_print("/");
-        tool_print("\n");
+        char line[sizeof entry.name + 2]; unsigned n = 0;
+        for (; entry.name[n]; ++n) line[n] = entry.name[n];
+        if (entry.kind == RUM_ENTRY_DIRECTORY) line[n++] = '/';
+        line[n] = 0;
+        tool_line_color(line, entry.kind == RUM_ENTRY_DIRECTORY ? RUM_COLOR_LIGHT_BLUE : RUM_COLOR_LIGHT_GREY);
     }
     rum_result_t closed = rum_close((rum_handle_t)handle);
     if (result < 0 || closed < 0) { tool_error("ls", result < 0 ? result : closed); return 1; }
