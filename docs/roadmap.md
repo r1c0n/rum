@@ -84,21 +84,24 @@ all outstanding resources.
 
 ### 4. Growing heap and application runtime
 
-- [ ] Build a userspace allocator over the region API with aligned `malloc`,
+- [x] Build a userspace allocator over the region API with aligned `malloc`,
   `calloc`, `realloc` and `free` operations and defined zero-size behavior.
-- [ ] Check multiplication and size overflow, preserve the old allocation on
+- [x] Check multiplication and size overflow, preserve the old allocation on
   failed `realloc`, and return allocation failure without terminating the OS.
-- [ ] Reuse freed storage and document when backing regions return to the OS.
+- [x] Reuse freed storage and document when backing regions return to the OS.
   Release all process memory on exit even if an application omits `free`.
-- [ ] Add the C runtime functions needed by the external examples and planned
+- [x] Add the C runtime functions needed by the external examples and planned
   application compatibility probe, with documented file, timing and error
   behavior. Keep wrappers implemented through public syscalls.
-- [ ] Document the runtime's current single-threaded assumptions so shared
+- [x] Document the runtime's current single-threaded assumptions so shared
   allocator and library state can be addressed in the threading release.
 
 Test alignment, zeroing, preservation across growth and shrink, fragmented
 allocation patterns, recoverable exhaustion and interleaved processes. Check
 that heap pressure cannot alter another process's data or prevent recovery.
+
+See [Application runtime](application-runtime.md) for allocation, file streams,
+integer formatting, monotonic timing, errors and supported C functions.
 
 ### 5. Larger executable loading
 

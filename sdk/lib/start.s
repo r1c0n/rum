@@ -17,7 +17,7 @@ _start:
     add $16, %esp
     sub $12, %esp
     push %eax
-    call rum_exit
+    call exit
     ud2
 .size _start, . - _start
 .section .note.GNU-stack, "", @progbits

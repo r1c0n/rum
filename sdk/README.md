@@ -8,6 +8,7 @@ runtime, and access operating-system services through syscalls.
 | --- | --- |
 | `include/rum/abi/` | Canonical fixed-width syscall packets, constants, and executable contracts shared with the kernel |
 | `include/rum/` | Public runtime declarations and command helpers |
+| `include/c/` | Userspace-only C subset headers for allocation, strings, file streams and errors |
 | `lib/` | Startup assembly, syscall entry/wrappers, and shared program helpers |
 | `linker/` | Static i386 ELF linker script |
 | `examples/` | Hello, exit-status, fault, cancellation, and input examples |
@@ -55,8 +56,13 @@ application-local model, without kernel headers or device access.
 `rum_vm_allocate`, `rum_vm_protect` and `rum_vm_release` provide private,
 zero-filled user regions, whole-region permission changes and release. See
 [virtual memory](../docs/virtual-memory.md) for checked sizes, ownership,
-read-only/read-write permissions, buffer retention and examples. A growing
-`malloc` runtime remains separate work.
+read-only/read-write permissions, buffer retention and examples.
+
+The [application runtime](../docs/application-runtime.md) supplies a growing
+heap, C byte/string operations, file streams, integer formatting and monotonic
+timing. `sdk/examples/heapdemo.c` demonstrates growth, preservation and file
+reading. Only user builds search the C header directory; host tools and the
+kernel keep their own headers.
 
 User programs compile against this public tree and generated ABI copies only.
 The kernel uses the same canonical ABI definitions alongside its private

@@ -72,7 +72,7 @@ copies those headers into `build/user/include/rum/abi/` for application staging.
 Do not maintain a second hand-edited ABI tree.
 
 Kernel code compiles with `kernel/include/` and `sdk/include/`. User code compiles
-with `sdk/include/` and generated public headers; kernel-private headers and
+with `sdk/include/c/`, `sdk/include/` and generated public headers; kernel-private headers and
 objects are absent from that build. The negative include tests in
 `tests/user-elf-test.py` enforce this boundary.
 

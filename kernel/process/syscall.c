@@ -686,6 +686,21 @@ static rum_result_t console_action(uint32_t action, uint32_t reserved1, uint32_t
     return -RUM_ENOSYS; /* Snake is an ELF; the kernel game is recovery-only. */
 }
 
+static rum_result_t clock_snapshot(struct paging_space *space, uint32_t address)
+{
+    struct rum_clock_request request;
+    if (!accessible(space, address, sizeof request, true) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    if (request.version != RUM_CLOCK_ABI_VERSION || request.size != sizeof request ||
+        request.ticks_lo || request.ticks_hi || request.tick_hz ||
+        request.reserved[0] || request.reserved[1] || request.reserved[2]) return -RUM_EINVAL;
+    uint64_t ticks = timer_ticks_extended();
+    request.ticks_lo = (uint32_t)ticks; request.ticks_hi = (uint32_t)(ticks >> 32);
+    request.tick_hz = TIMER_HZ;
+    if (!paging_copy_to_user(space, address, &request, sizeof request)) cpu_halt();
+    return 0;
+}
+
 void syscall_dispatch(struct exception_frame *frame)
 {
     if (!frame || frame->vector != RUM_SYSCALL_VECTOR || frame->error ||
@@ -706,6 +721,8 @@ void syscall_dispatch(struct exception_frame *frame)
     bool retained = needs_buffers && task_user_buffers_begin();
     if (needs_buffers && !retained) result = -RUM_EBUSY;
     else switch (frame->eax) {
+    case RUM_SYS_CLOCK:
+        result = frame->ecx || frame->edx ? -RUM_EINVAL : clock_snapshot(space, frame->ebx); break;
     case RUM_SYS_VM_ALLOCATE: case RUM_SYS_VM_RELEASE: case RUM_SYS_VM_PROTECT:
         result = frame->ecx || frame->edx ? -RUM_EINVAL :
             memory_region(space, frame->ebx, frame->eax,

@@ -58,7 +58,8 @@ with tempfile.TemporaryDirectory(prefix="rum-build-env-") as temporary:
     build = root / "build"
     generated = ["kernel/mm/heap.o", "kernel/mm/heap.d", "rum.elf", "rum.iso", "tests/path-test",
                  "user/include/.abi-stamp", "user/include/rum/abi/process.h", "sdk/linker/user.ld",
-                 "isodir/boot/rum.elf", "isodir/boot/grub/grub.cfg", "user/programs.txt"]
+                 "isodir/boot/rum.elf", "isodir/boot/grub/grub.cfg", "user/programs.txt",
+                 "runtime-isodir/boot/rum.elf", "runtime-isodir/boot/grub/grub.cfg"]
     preserved = ["personal.raw", "tests/my-disk.img", "nested/vm.vmdk", "vm-images-custom/rum.iso",
                  "vm-images-custom/rum-data.vdi", "release-check/release/rum.elf",
                  "test-artifacts/guest.elf", "notes.txt", "disks/keep.elf"]

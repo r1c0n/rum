@@ -5,11 +5,12 @@
 
 #define PIT_INPUT_HZ 1193182u
 static volatile uint32_t ticks;
+static volatile uint32_t tick_epochs;
 static volatile bool observed_irq;
 
 static void timer_interrupt(void)
 {
-    ++ticks;
+    if (!++ticks) ++tick_epochs;
     observed_irq = true;
     task_timer_tick(ticks);
     /* Only UI consumers (recovery and Snake) wait on this event. Console
@@ -32,6 +33,7 @@ void timer_initialize(void)
 {
     const uint16_t divisor = (PIT_INPUT_HZ + TIMER_HZ / 2) / TIMER_HZ;
     ticks = 0;
+    tick_epochs = 0;
     observed_irq = false;
     irq_register(0, timer_interrupt);
     outb(0x43, 0x34); /* Channel 0, LSB/MSB, periodic mode 2, binary. */
@@ -44,3 +46,12 @@ uint32_t timer_ticks(void)
     return ticks; /* Aligned 32-bit reads are atomic on this target. */
 }
 bool timer_running(void) { return observed_irq; }
+
+uint64_t timer_ticks_extended(void)
+{
+    /* On this uniprocessor the complete IRQ update precedes task execution.
+       Retry if an IRQ carried the low word between these volatile reads. */
+    uint32_t before, low, after;
+    do { before = tick_epochs; low = ticks; after = tick_epochs; } while (before != after);
+    return (uint64_t)before << 32 | low;
+}

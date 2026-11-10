@@ -27,6 +27,7 @@ int main(void)
     ticks = UINT32_MAX - 2;
     for (unsigned i = 0; i < 8; ++i) handler();
     assert(timer_ticks() == 5 && requests == 8 && wakes == 8 && timer_running());
+    assert(timer_ticks_extended() == (UINT64_C(1) << 32) + 5);
     uint32_t duration = 123;
     assert(timer_duration_ticks(0, &duration) && !duration);
     assert(timer_duration_ticks(1, &duration) && duration == 2);
