@@ -1056,7 +1056,7 @@ def boot_test(qemu, project, mode, artifacts, fault=None, irq_test=False, paging
                                      ("rum kernel panic", "Page fault", "CPU halted.") if paging else
                                      ("rum IRQ return and spurious interrupt tests passed.",) if irq_test else
                                      ("rum kernel panic", FAULT_CASES[fault][2], "CPU halted.") if fault
-                                     else ("rum OS v0.6.0", "[ok] Bootloader",
+                                     else ((project / "assets/disk/readme.txt").read_text().splitlines()[0], "[ok] Bootloader",
                                            "[ok] CPU protection", "[ok] Exception handling",
                                            "[ok] System timer", "[ok] PS/2 keyboard (US layout)",
                                            "[ok] Memory map", "[ok] Physical memory",
