@@ -31,7 +31,7 @@ static bool accessible(struct paging_space *space, uint32_t address, uint32_t by
                      paging_user_accessible(space, address, bytes, write));
 }
 
-static rum_result_t memory_region(struct paging_space *space, uint32_t address, bool allocate,
+static rum_result_t memory_region(struct paging_space *space, uint32_t address, uint32_t operation,
                                   uint32_t user_stack)
 {
     /* One user thread currently owns each space. Keep the packet snapshot,
@@ -39,7 +39,7 @@ static rum_result_t memory_region(struct paging_space *space, uint32_t address, 
        scope. No filesystem callbacks, waits or temporary heap allocations. */
     if (fs_operation_active() || block_request_active() || !task_switch_hold()) return -RUM_EBUSY;
     rum_result_t result;
-    if (allocate) {
+    if (operation == RUM_SYS_VM_ALLOCATE) {
         struct rum_vm_allocate_request request;
         if (!accessible(space, address, sizeof request, true) ||
             !paging_copy_from_user(space, &request, address, sizeof request)) result = -RUM_EFAULT;
@@ -49,6 +49,12 @@ static rum_result_t memory_region(struct paging_space *space, uint32_t address, 
                validated packet, so this copy cannot lose its writable pages. */
             if (!result && !paging_copy_to_user(space, address, &request, sizeof request)) cpu_halt();
         }
+    } else if (operation == RUM_SYS_VM_PROTECT) {
+        struct rum_vm_protect_request request;
+        if (!accessible(space, address, sizeof request, false) ||
+            !paging_copy_from_user(space, &request, address, sizeof request)) result = -RUM_EFAULT;
+        else result = paging_region_protect(space, &request, user_stack);
+        /* The copied packet may become read-only with its region. No copyout. */
     } else {
         struct rum_vm_release_request request;
         if (!accessible(space, address, sizeof request, false) ||
@@ -686,10 +692,15 @@ void syscall_dispatch(struct exception_frame *frame)
     struct paging_space *space = task_current_process_space();
     struct process_handles *handles = task_current_handles();
     rum_result_t result;
-    switch (frame->eax) {
-    case RUM_SYS_VM_ALLOCATE: case RUM_SYS_VM_RELEASE:
+    bool memory_call = frame->eax == RUM_SYS_VM_ALLOCATE || frame->eax == RUM_SYS_VM_RELEASE ||
+                       frame->eax == RUM_SYS_VM_PROTECT;
+    bool needs_buffers = !memory_call && frame->eax != RUM_SYS_EXIT;
+    bool retained = needs_buffers && task_user_buffers_begin();
+    if (needs_buffers && !retained) result = -RUM_EBUSY;
+    else switch (frame->eax) {
+    case RUM_SYS_VM_ALLOCATE: case RUM_SYS_VM_RELEASE: case RUM_SYS_VM_PROTECT:
         result = frame->ecx || frame->edx ? -RUM_EINVAL :
-            memory_region(space, frame->ebx, frame->eax == RUM_SYS_VM_ALLOCATE,
+            memory_region(space, frame->ebx, frame->eax,
                           exception_frame_esp(frame)); break;
     case RUM_SYS_EXIT: task_exit_with_status((rum_result_t)frame->ebx);
     case RUM_SYS_GETPID: result = (rum_result_t)task_current_process_id(); break;
@@ -744,6 +755,7 @@ void syscall_dispatch(struct exception_frame *frame)
     case RUM_SYS_SESSION: result = session_control(space, frame->ebx, frame->ecx, frame->edx); break;
     default: result = -RUM_ENOSYS; break;
     }
+    if (retained && !task_user_buffers_end()) cpu_halt();
     frame->eax = (uint32_t)result;
     terminal_session_reconcile();
     task_exit_shell_if_requested();

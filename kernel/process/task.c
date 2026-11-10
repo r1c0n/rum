@@ -54,6 +54,7 @@ struct task {
     uint32_t switch_holds;
     uint32_t slice_ticks;
     bool reschedule;
+    bool user_buffers_held;
     void (*entry)(void *);
     void *argument;
     struct exception_user_frame user_frame;
@@ -851,6 +852,27 @@ static void schedule(void)
     (void)reap_exited(false);
 }
 
+bool task_user_buffers_begin(void)
+{
+    if (!ready || irq_in_handler()) return false;
+    uint32_t saved = cpu_interrupt_save();
+    bool held = (saved & IF) && current->process->kind == TASK_PROCESS && !current->user_buffers_held &&
+                paging_user_buffers_acquire(current->process->space);
+    if (held) current->user_buffers_held = true;
+    cpu_interrupt_restore(saved);
+    return held;
+}
+
+bool task_user_buffers_end(void)
+{
+    if (!ready || irq_in_handler()) return false;
+    uint32_t saved = cpu_interrupt_save();
+    bool released = current->user_buffers_held && paging_user_buffers_release(current->process->space);
+    if (released) current->user_buffers_held = false;
+    cpu_interrupt_restore(saved);
+    return released;
+}
+
 bool task_switch_hold(void)
 {
     if (!ready || irq_in_handler()) return false;
@@ -911,6 +933,9 @@ static _Noreturn void terminate_current(enum task_termination termination,
     cpu_interrupt_enable();
     terminal_session_exit(current->id);
     if (process_handles_destroy(&current->process->handles)) cpu_halt();
+    /* Cancellation can abandon a blocked syscall's C continuation. Its
+       thread-owned lease must end before publishing EXITED and reaping. */
+    if (current->user_buffers_held && !task_user_buffers_end()) cpu_halt();
     (void)cpu_interrupt_save();
     /* Abandon the complete descendant tree before publishing the parent's
        exit. Adopt it into boot's cleanup ownership, wake/cancel live members,

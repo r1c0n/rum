@@ -1,4 +1,10 @@
 #include <rum/user.h>
+rum_result_t rum_vm_protect(rum_address_t address, rum_size_t bytes, uint32_t protection)
+{
+    struct rum_vm_protect_request request = { .version = RUM_VM_ABI_VERSION, .size = sizeof request,
+        .address = address, .bytes = bytes, .protection = protection };
+    return rum_syscall3(RUM_SYS_VM_PROTECT, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
 rum_result_t rum_vm_allocate(struct rum_vm_allocate_request *request)
 {
     return rum_syscall3(RUM_SYS_VM_ALLOCATE, (rum_address_t)(uintptr_t)request, 0, 0);
