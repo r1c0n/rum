@@ -1,4 +1,39 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
+.PHONY: test-executable-host
+build/tests/elf-stream-test: tests/elf-stream-test.c kernel/process/elf.c kernel/include/rum/elf.h kernel/include/rum/paging.h kernel/include/rum/cpu_policy.h sdk/include/rum/elf-image.h $(ABI_HEADERS) $(LAYOUT_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Ikernel/include -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror $(filter %.c,$^) -o $@
+test-executable-host: build/tests/elf-stream-test build/tools/check-user-elf
+	./build/tests/elf-stream-test
+test-host test-build: build/tests/elf-stream-test
+.PHONY: test-executables
+build/tests/user/large-loader.o: tests/large-loader-user.c $(USER_INCLUDE_STAMP) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/tests/user/large-loader-data.o: tests/large-loader-data.s
+	@mkdir -p $(@D)
+	$(AS) $< -o $@
+build/tests/user/large-loader.debug.elf: build/tests/user/large-loader.o build/tests/user/large-loader-data.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+build/tests/user/large-loader.elf: build/tests/user/large-loader.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@
+	build/tools/check-user-elf $@ $<
+build/tests/large-loader-image.o: tests/large-loader-image.s build/tests/user/large-loader.elf
+	@mkdir -p $(@D)
+	$(AS) $< -o $@
+build/tests/large-loader.iso: build/tests/large-loader.elf $(TESTS_RULES)
+	@mkdir -p build/large-loader-isodir/boot/grub
+	cp $< build/large-loader-isodir/boot/rum.elf
+	printf 'set timeout=0\nmenuentry "rum large executable tests" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/large-loader-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/large-loader-isodir
+build/tests/elf-loader.iso: build/tests/elf-loader.elf $(TESTS_RULES)
+	@mkdir -p build/elf-loader-isodir/boot/grub
+	cp $< build/elf-loader-isodir/boot/rum.elf
+	printf 'set timeout=0\nmenuentry "rum ELF loader tests" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/elf-loader-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/elf-loader-isodir
+test-executables: test-executable-host build/tests/elf-loader.elf build/tests/elf-loader.iso build/tests/large-loader.elf build/tests/large-loader.iso
+	python3 tests/lifecycle-qemu-test.py --qemu $(QEMU) --executable-only
+test-build test-lifecycle: build/tests/large-loader.elf build/tests/large-loader.iso
 RUNTIME_C_SOURCES := sdk/lib/heap.c sdk/lib/string.c sdk/lib/stdio.c sdk/lib/format.c sdk/lib/runtime.c
 .PHONY: test-runtime-host
 build/tests/runtime-test: tests/runtime-test.c tests/runtime-renames.h $(RUNTIME_C_SOURCES) $(wildcard sdk/include/c/*.h) sdk/include/rum/user.h $(ABI_HEADERS)
@@ -252,6 +287,7 @@ PROCESS_FAULT_OBJECTS := $(PROCESS_FAULT_KERNELS:.elf=.o)
 TEST_DEPENDENCIES := $(FAULT_OBJECTS:.o=.d) $(PAGING_OBJECTS:.o=.d) $(CPU_OBJECTS:.o=.d) $(PROCESS_FAULT_OBJECTS:.o=.d) build/tests/cpu-probe.d build/tests/process-fault-probe.d build/tests/syscall-kernel.d build/tests/syscall-probe.d build/tests/elf-loader-kernel.d build/tests/elf-loader-image.d build/tests/paging-spaces.d build/tests/user-memory.d build/tests/irq-kernel.d build/tests/storage-kernel.d build/tests/storage-checks.d build/tests/task-kernel.d build/tests/task-fault-kernel.d build/tests/task-double-fault-kernel.d build/tests/task-stack-fault.d
 TEST_DEPENDENCIES += build/tests/user/vm-regions.d build/tests/vm-regions-kernel.d
 TEST_DEPENDENCIES += build/tests/user/runtime.d build/tests/runtime-kernel.d
+TEST_DEPENDENCIES += build/tests/user/large-loader.d build/tests/large-loader-kernel.d
 STORAGE_HOST_SOURCES := kernel/mm/heap.c kernel/fs/path.c kernel/fs/fs-types.c kernel/core/memory.c tests/page-backend.c tests/fs-backend.c kernel/fs/fs.c
 TEST_DEPENDENCIES += build/tests/fs-kernel.d build/tests/fs-checks.d build/tests/fs-backend.d
 STORAGE_HOST_HEADERS := kernel/include/rum/heap.h tests/test-files.h kernel/include/rum/fs.h kernel/include/rum/path.h kernel/include/rum/fs_types.h kernel/include/rum/fs_limits.h $(ABI_HEADERS) kernel/include/rum/paging.h kernel/include/rum/pmm.h kernel/include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
@@ -533,7 +569,7 @@ build/tests/process-syscall.elf: build/tests/process-syscall-kernel.o build/test
 	grub-file --is-x86-multiboot $@
 
 .PHONY: test-userspace-shell
-test-userspace-shell: all build/tests/process-syscall.elf
+test-userspace-shell: all build/tests/process-syscall.elf build/tests/user/large-loader.elf
 	python3 tests/process-syscall-qemu-test.py --qemu $(QEMU)
 	python3 tests/userspace-shell-test.py --qemu $(QEMU)
 
@@ -689,6 +725,9 @@ build/tests/elf-loader-image.o: tests/elf-loader-image.s build/user/system/hello
 build/tests/elf-loader.elf: build/tests/elf-loader-kernel.o build/tests/elf-loader-image.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
+build/tests/large-loader.elf: build/tests/large-loader-kernel.o build/tests/large-loader-image.o $(filter-out build/tests/fault-trigger.o build/arch/i386/interrupt.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
 
 build/tests/paging-ok.o: PAGING_CASE=0
 build/tests/paging-null.o: PAGING_CASE=1
@@ -829,6 +868,7 @@ build/tests/ata-test: tests/ata-test.c drivers/storage/ata.c kernel/io/block.c k
 test-host: build/tests/ata-test
 
 test-host: build/tests/block-test build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
+	./build/tests/elf-stream-test
 	./build/tests/runtime-test
 	./build/tests/timer-test
 	./build/tests/session-test

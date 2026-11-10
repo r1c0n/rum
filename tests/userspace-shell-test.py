@@ -131,6 +131,9 @@ def commands(console):
         assert tool.upper() + ".ELF\r\n" in listing
     console.command("hello", "Hello from rum userspace!")
     console.command("heapdemo /WELCOME.TXT", "Heap growth, data preservation and release passed")
+    console.command("run /RUM/LARGE.ELF n", "Program exited with status 0.")
+    console.command("run /RUM/LARGE.ELF l", "Program exited with status 0.")
+    console.command("run /RUM/LARGE.ELF f", "Program stopped after a user fault.")
     console.command("write /rum/TEST.TXT writable system directory")
     console.command("cat /rum/TEST.TXT", "writable system directory")
     console.command("rm /rum/TEST.TXT")
@@ -186,6 +189,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="rum-shell-disk-") as temporary:
         disk, source = Path(temporary) / "fat16.raw", Path(temporary) / "source"
         images.build(disk); images.seed_system(disk)
+        images.command("mcopy", "-i", str(disk), str(ROOT / "build/tests/user/large-loader.elf"), "::/RUM/LARGE.ELF")
         images.command("mmd", "-i", str(disk), "::/DOCS")
         fixtures = {"DOCS/NOTE.TXT": b"A\0\xff\x1b\r\n", "DOCS/EMPTY.TXT": b"",
                     "DOCS/LINES.TXT": b"one\r\ntwo\nthree\rfour\r",

@@ -11,7 +11,7 @@ OBJECT_SUFFIXES = {".o", ".d", ".elf", ".map"}
 STAGING = {"isodir", "recovery-isodir", "console-isodir", "console-supervisor-isodir",
            "preemption-isodir", "lifecycle-isodir", "lifecycle-ids-isodir",
            "sleep-isodir", "integration-isodir", "readonly-isodir", "shared-handles-isodir", "pipes-isodir",
-           "runtime-isodir"}
+           "runtime-isodir", "elf-loader-isodir", "large-loader-isodir"}
 
 
 def outputs(root):

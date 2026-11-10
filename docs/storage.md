@@ -8,10 +8,11 @@ process and filesystem ownership. See [memory](memory.md).
 
 Files live on FAT16 at `/`; `/RUM` contains compiled programs. There is no RAM
 filesystem or embedded-file installer. Executables are read through ordinary
-handles into a temporary kernel buffer, validated and copied into a private
-process address space. The buffer and file handle are then released.
+filesystem references. The loader validates a bounded header snapshot, then
+streams file-backed segments into a private process address space. It does not
+buffer the complete image. The executable reference closes before publication.
 `RUM_ELF_IMAGE_LIMIT` in the public ELF header bounds executable size separately
-from filesystem file sizes.
+from filesystem file sizes. See [executable loading](executable-loading.md).
 
 See [system disk](system-volume.md) for image preparation,
 [files and paths](filesystems.md) for the namespace and [FAT16](fat16.md) for

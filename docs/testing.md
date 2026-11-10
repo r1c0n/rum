@@ -38,6 +38,13 @@ growth/shrink preservation, recoverable exhaustion, concurrent private heaps,
 file streams, clock packets and page/handle cleanup after exit, fault and
 cancellation. `make test-runtime-host` runs only the fast host portion.
 
+Use `--suite executables` / `-Suite executables` for ELF validation and larger
+program loading. Host checks inject failures at every read, copy, protection and
+allocation stage. Guest checks cover larger LOADs, large BSS, inherited-handle
+rollback, parent offsets, physical exhaustion and fault/cancellation cleanup
+through both boot paths. `make test-executable-host` runs only the host portion.
+The shell group additionally loads the large fixture from a real FAT16 disk.
+
 * Portable host tests cover memory, paths, handles, ABI layouts, terminal and
   keyboard rules, sessions, recovery commands, Snake and the ATA port model.
   Guest Snake checks cover rendering, pause/timer behavior and cleanup; gameplay

@@ -1,18 +1,17 @@
-/* Host build check, not the kernel's future untrusted executable loader. */
+/* Host build check using the same executable policy as the kernel loader. */
 #include <stdbool.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <rum/abi/elf.h>
 #include <rum/abi/layout.h>
-#include <rum/process_limits.h>
+#include <rum/elf-image.h>
 
 #if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
 #error "The ELF host checker currently requires a little-endian host"
 #endif
 
 struct image {
-    unsigned char *data;
+    FILE *file;
     size_t bytes;
     struct rum_elf_header header;
     struct rum_elf_program programs[RUM_ELF_PROGRAM_LIMIT];
@@ -26,73 +25,26 @@ static bool failure(const char *path, const char *reason)
 
 static bool read_image(const char *path, struct image *image, bool asset)
 {
-    FILE *file = fopen(path, "rb");
+    FILE *file = image->file = fopen(path, "rb");
     if (!file) return failure(path, "cannot open ELF");
     bool ok = fseek(file, 0, SEEK_END) == 0;
     long length = ok ? ftell(file) : -1;
     ok = length >= (long)sizeof(image->header) && length <= 64 * 1024 * 1024 &&
          (!asset || length <= RUM_ELF_IMAGE_LIMIT) && fseek(file, 0, SEEK_SET) == 0;
-    if (ok) {
-        image->bytes = (size_t)length;
-        image->data = malloc(image->bytes);
-        ok = image->data && fread(image->data, 1, image->bytes, file) == image->bytes;
-    }
-    fclose(file);
-    if (!ok) return failure(path, "invalid file size, read failure or 64 KiB asset limit");
-    memcpy(&image->header, image->data, sizeof(image->header));
+    if (!ok) return failure(path, "file size outside the supported executable/debug limits");
+    image->bytes = (size_t)length;
+    if (fread(&image->header, 1, sizeof image->header, file) != sizeof image->header)
+        return failure(path, "cannot read ELF header");
     struct rum_elf_header *header = &image->header;
-    if (memcmp(header->ident, "\177ELF\1\1\1\0\0", 9) ||
-        header->type != RUM_ELF_EXEC || header->machine != RUM_ELF_I386 ||
-        header->version != RUM_ELF_VERSION || header->flags ||
-        header->ehsize != sizeof(*header) || header->phentsize != sizeof(image->programs[0]) ||
-        !header->phnum || header->phnum > RUM_ELF_PROGRAM_LIMIT ||
-        header->phoff < sizeof(*header) || header->phoff > image->bytes ||
-        (size_t)header->phnum * header->phentsize > image->bytes - header->phoff)
+    uint64_t limit = asset ? RUM_ELF_IMAGE_LIMIT : 64 * 1024 * 1024;
+    if (!rum_elf_header_valid(header, image->bytes, limit))
         return failure(path, "expected static System V little-endian i386 ELF32 ET_EXEC");
-    memcpy(image->programs, image->data + header->phoff, header->phnum * header->phentsize);
-    bool entry = false, stack = false;
-    uint32_t previous_end = RUM_ABI_PROGRAM_BASE;
-    uint32_t pages = RUM_ABI_STACK_SIZE / RUM_ABI_PAGE_SIZE;
-    for (unsigned i = 0; i < header->phnum; ++i) {
-        const struct rum_elf_program *program = &image->programs[i];
-        if (program->type == RUM_ELF_PT_NULL) continue;
-        if (program->type == RUM_ELF_PT_GNU_STACK) {
-            if (stack || program->flags != (RUM_ELF_PF_R | RUM_ELF_PF_W) ||
-                program->file_bytes || program->memory_bytes)
-                return failure(path, "expected one nonexecutable empty stack descriptor");
-            stack = true;
-            continue;
-        }
-        if (program->type != RUM_ELF_PT_LOAD)
-            return failure(path, "unsupported interpreter, dynamic, TLS or program header");
-        if (program->file_bytes > program->memory_bytes || program->offset > image->bytes ||
-            program->file_bytes > image->bytes - program->offset ||
-            !(program->flags & RUM_ELF_PF_R) || (program->flags & ~7u) ||
-            ((program->flags & (RUM_ELF_PF_W | RUM_ELF_PF_X)) == (RUM_ELF_PF_W | RUM_ELF_PF_X)))
-            return failure(path, "invalid segment size, bounds or permissions");
-        if (!program->memory_bytes) continue;
-        uint32_t align = program->alignment;
-        if ((align > 1 && ((align & (align - 1)) ||
-             (program->address % align) != (program->offset % align))) ||
-            (program->address % RUM_ABI_PAGE_SIZE) != (program->offset % RUM_ABI_PAGE_SIZE))
-            return failure(path, "invalid segment alignment");
-        if (program->address < RUM_ABI_PROGRAM_BASE || program->address >= RUM_ABI_PROGRAM_END ||
-            program->memory_bytes > RUM_ABI_PROGRAM_END - program->address)
-            return failure(path, "segment outside user program window");
-        uint32_t start = program->address & ~(RUM_ABI_PAGE_SIZE - 1u);
-        uint32_t end = (program->address + program->memory_bytes + RUM_ABI_PAGE_SIZE - 1u) &
-                       ~(RUM_ABI_PAGE_SIZE - 1u);
-        if (start < previous_end) return failure(path, "unordered or page-overlapping segments");
-        previous_end = end;
-        uint32_t count = (end - start) / RUM_ABI_PAGE_SIZE;
-        if (count > RUM_PROCESS_USER_BYTES / RUM_ABI_PAGE_SIZE - pages)
-            return failure(path, "mapped image plus user stack exceeds process budget");
-        pages += count;
-        if ((program->flags & RUM_ELF_PF_X) && header->entry >= program->address &&
-            header->entry - program->address < program->file_bytes) entry = true;
-    }
-    if (!entry || !stack) return failure(path, "missing file-backed executable entry or stack descriptor");
-    return true;
+    if (fseek(file, (long)header->phoff, SEEK_SET) ||
+        fread(image->programs, sizeof image->programs[0], header->phnum, file) != header->phnum)
+        return failure(path, "cannot read program headers");
+    struct rum_elf_plan plan;
+    return rum_elf_make_plan(header, image->programs, image->bytes, limit, &plan) ||
+           failure(path, "unsupported segment, alignment, entry, stack, overlap or memory budget");
 }
 
 static bool same_load_image(const struct image *asset, const struct image *debug)
@@ -111,7 +63,15 @@ static bool same_load_image(const struct image *asset, const struct image *debug
         if (a->address != b->address || a->file_bytes != b->file_bytes ||
             a->memory_bytes != b->memory_bytes || a->flags != b->flags || a->alignment != b->alignment)
             return false;
-        if (memcmp(asset->data + a->offset, debug->data + b->offset, a->file_bytes)) return false;
+        unsigned char left[4096], right[4096];
+        if (fseek(asset->file, (long)a->offset, SEEK_SET) || fseek(debug->file, (long)b->offset, SEEK_SET)) return false;
+        uint32_t remaining = a->file_bytes;
+        while (remaining) {
+            size_t chunk = remaining < sizeof left ? remaining : sizeof left;
+            if (fread(left, 1, chunk, asset->file) != chunk || fread(right, 1, chunk, debug->file) != chunk ||
+                memcmp(left, right, chunk)) return false;
+            remaining -= (uint32_t)chunk;
+        }
     }
 }
 
@@ -128,7 +88,7 @@ int main(int argc, char **argv)
         if (ok && !same_load_image(&asset, &debug)) ok = failure(argv[1], "stripping changed the load image");
     }
     if (ok) printf("rum: validated user ELF32: %s (%zu asset bytes)\n", argv[1], asset.bytes);
-    free(asset.data);
-    free(debug.data);
+    if (asset.file) fclose(asset.file);
+    if (debug.file) fclose(debug.file);
     return ok ? 0 : 1;
 }

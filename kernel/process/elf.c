@@ -2,24 +2,16 @@
 #include <rum/abi/elf.h>
 #include <rum/abi/layout.h>
 #include <rum/cpu_policy.h>
+#include <rum/cpu.h>
 #include <rum/elf.h>
+#include <rum/elf-image.h>
+#include <rum/abi/error.h>
 #include <rum/memory.h>
 #include <rum/memory_layout.h>
 #include <rum/paging.h>
 #include <rum/process_limits.h>
 
 #define STACK_PAGES (RUM_USER_STACK_SIZE / RUM_PAGE_SIZE)
-
-struct load_segment {
-    struct rum_elf_program program;
-    uint32_t start, pages;
-};
-
-struct load_plan {
-    uint32_t entry;
-    unsigned count;
-    struct load_segment segments[RUM_ELF_PROGRAM_LIMIT];
-};
 
 bool elf_arguments_valid(const struct rum_arguments *arguments)
 {
@@ -37,65 +29,32 @@ bool elf_arguments_valid(const struct rum_arguments *arguments)
     return cursor == arguments->string_bytes;
 }
 
-static bool plan_image(const unsigned char *image, size_t bytes, struct load_plan *plan)
+static rum_result_t read_exact(const struct elf_source *source, uint32_t offset,
+                               void *buffer, uint32_t bytes)
 {
-    if (!image || !plan || bytes < sizeof(struct rum_elf_header) || bytes > RUM_ELF_IMAGE_LIMIT)
-        return false;
-
-    struct rum_elf_header header;
-    memcpy(&header, image, sizeof header);
-    static const unsigned char ident[] = {0x7f, 'E', 'L', 'F', 1, 1, 1, 0, 0};
-    size_t program_bytes = (size_t)header.phnum * sizeof(struct rum_elf_program);
-    if (memcmp(header.ident, ident, sizeof ident) || header.type != RUM_ELF_EXEC ||
-        header.machine != RUM_ELF_I386 || header.version != RUM_ELF_VERSION || header.flags ||
-        header.ehsize != sizeof header || header.phentsize != sizeof(struct rum_elf_program) ||
-        !header.phnum || header.phnum > RUM_ELF_PROGRAM_LIMIT ||
-        header.phoff < sizeof header || header.phoff > bytes ||
-        program_bytes > bytes - header.phoff) return false;
-
-    *plan = (struct load_plan){ .entry = header.entry };
-    bool entry = false, stack = false;
-    uint32_t previous_end = RUM_USER_BASE;
-    uint32_t pages = STACK_PAGES;
-    for (uint32_t i = 0; i < header.phnum; ++i) {
-        struct rum_elf_program program;
-        memcpy(&program, image + header.phoff + i * sizeof program, sizeof program);
-        if (program.type == RUM_ELF_PT_NULL) continue;
-        if (program.type == RUM_ELF_PT_GNU_STACK) {
-            if (stack || program.flags != (RUM_ELF_PF_R | RUM_ELF_PF_W) ||
-                program.file_bytes || program.memory_bytes) return false;
-            stack = true;
-            continue;
-        }
-        if (program.type != RUM_ELF_PT_LOAD || program.file_bytes > program.memory_bytes ||
-            program.offset > bytes || program.file_bytes > bytes - program.offset ||
-            !(program.flags & RUM_ELF_PF_R) || (program.flags & ~7u) ||
-            (program.flags & (RUM_ELF_PF_W | RUM_ELF_PF_X)) ==
-                (RUM_ELF_PF_W | RUM_ELF_PF_X)) return false;
-        if (!program.memory_bytes) continue;
-
-        uint32_t alignment = program.alignment;
-        if ((alignment > 1 && ((alignment & (alignment - 1)) ||
-             program.address % alignment != program.offset % alignment)) ||
-            program.address % RUM_PAGE_SIZE != program.offset % RUM_PAGE_SIZE ||
-            program.address < RUM_USER_BASE || program.address >= RUM_USER_PROGRAM_END ||
-            program.memory_bytes > RUM_USER_PROGRAM_END - program.address) return false;
-
-        uint32_t start = program.address & ~(RUM_PAGE_SIZE - 1u);
-        uint32_t end = (program.address + program.memory_bytes + RUM_PAGE_SIZE - 1u) &
-                       ~(RUM_PAGE_SIZE - 1u);
-        uint32_t count = (end - start) / RUM_PAGE_SIZE;
-        if (start < previous_end || count > RUM_PROCESS_USER_BYTES / RUM_PAGE_SIZE - pages)
-            return false;
-        previous_end = end;
-        pages += count;
-        plan->segments[plan->count++] = (struct load_segment){
-            .program = program, .start = start, .pages = count,
-        };
-        if ((program.flags & RUM_ELF_PF_X) && header.entry >= program.address &&
-            header.entry - program.address < program.file_bytes) entry = true;
+    if (offset > source->bytes || bytes > source->bytes - offset) return -RUM_ENOEXEC;
+    unsigned char *out = buffer;
+    while (bytes) {
+        uint32_t chunk = bytes < ELF_READ_CHUNK ? bytes : ELF_READ_CHUNK;
+        rum_result_t result = source->read(source->context, offset, out, chunk);
+        if (result < 0) return result;
+        if (!result || (uint32_t)result > chunk) return -RUM_EIO;
+        offset += (uint32_t)result; out += result; bytes -= (uint32_t)result;
     }
-    return entry && stack;
+    return 0;
+}
+
+static rum_result_t plan_image(const struct elf_source *source, struct rum_elf_plan *plan)
+{
+    if (source->bytes < sizeof(struct rum_elf_header) || source->bytes > RUM_ELF_IMAGE_LIMIT) return -RUM_ENOEXEC;
+    struct rum_elf_header header;
+    rum_result_t result = read_exact(source, 0, &header, sizeof header);
+    if (result < 0) return result;
+    if (!rum_elf_header_valid(&header, source->bytes, RUM_ELF_IMAGE_LIMIT)) return -RUM_ENOEXEC;
+    struct rum_elf_program programs[RUM_ELF_PROGRAM_LIMIT];
+    result = read_exact(source, header.phoff, programs, header.phnum * sizeof programs[0]);
+    if (result < 0) return result;
+    return rum_elf_make_plan(&header, programs, source->bytes, RUM_ELF_IMAGE_LIMIT, plan) ? 0 : -RUM_ENOEXEC;
 }
 
 static bool build_stack(struct paging_space *space, const struct rum_arguments *arguments,
@@ -118,39 +77,57 @@ static bool build_stack(struct paging_space *space, const struct rum_arguments *
     return true;
 }
 
-bool elf_load_process(const void *image, size_t image_bytes,
-                      const struct rum_arguments *arguments,
-                      struct task_process *process)
+rum_result_t elf_load_process_from_source(const struct elf_source *source,
+                                         const struct rum_arguments *arguments,
+                                         struct task_process *process)
 {
-    if (!process) return false;
+    if (!process) return -RUM_EINVAL;
     *process = (struct task_process){0};
-    struct load_plan plan;
-    if (!elf_arguments_valid(arguments) || !plan_image(image, image_bytes, &plan)) return false;
+    if (!source || !source->read || !elf_arguments_valid(arguments)) return -RUM_EINVAL;
+    struct rum_elf_plan plan;
+    rum_result_t result = plan_image(source, &plan);
+    if (result < 0) return result;
 
     struct paging_space *space = paging_space_create();
-    if (!space) return false;
-    const unsigned char *bytes = image;
-    bool success = true;
-    for (unsigned i = 0; success && i < plan.count; ++i) {
-        const struct load_segment *segment = &plan.segments[i];
-        success = paging_user_allocate(space, segment->start, segment->pages, PAGING_WRITABLE) &&
-                  paging_copy_to_user(space, segment->program.address,
-                                      bytes + segment->program.offset,
-                                      segment->program.file_bytes);
-        if (success && !(segment->program.flags & RUM_ELF_PF_W))
-            success = paging_user_protect(space, segment->start, segment->pages, 0);
+    if (!space) return -RUM_ENOMEM;
+    unsigned char buffer[ELF_READ_CHUNK];
+    for (unsigned i = 0; !result && i < plan.count; ++i) {
+        const struct rum_elf_segment *segment = &plan.segments[i];
+        if (!paging_user_allocate(space, segment->start, segment->pages, PAGING_WRITABLE)) { result = -RUM_ENOMEM; break; }
+        uint32_t done = 0;
+        while (!result && done < segment->program.file_bytes) {
+            uint32_t bytes = segment->program.file_bytes - done;
+            if (bytes > sizeof buffer) bytes = sizeof buffer;
+            result = read_exact(source, segment->program.offset + done, buffer, bytes);
+            if (!result && !paging_copy_to_user(space, segment->program.address + done, buffer, bytes)) result = -RUM_EIO;
+            done += bytes;
+        }
+        if (!result && !(segment->program.flags & RUM_ELF_PF_W) &&
+            !paging_user_protect(space, segment->start, segment->pages, 0)) result = -RUM_EIO;
     }
     uint32_t stack = 0;
-    if (success)
-        success = paging_user_allocate(space, RUM_USER_STACK_BASE, STACK_PAGES, PAGING_WRITABLE) &&
-                  build_stack(space, arguments, &stack);
-    if (!success) {
-        (void)paging_space_destroy(space);
-        return false;
+    if (!result && !paging_user_allocate(space, RUM_USER_STACK_BASE, STACK_PAGES, PAGING_WRITABLE)) result = -RUM_ENOMEM;
+    if (!result && !build_stack(space, arguments, &stack)) result = -RUM_EIO;
+    if (result) {
+        if (!paging_space_destroy(space)) cpu_halt();
+        return result;
     }
 
     process->space = space;
     cpu_user_frame_initialize(&process->user_frame, plan.entry, stack);
-    return true;
+    return 0;
+}
+
+static rum_result_t read_memory(void *context, uint32_t offset, void *out, uint32_t bytes)
+{
+    memcpy(out, (const unsigned char *)context + offset, bytes);
+    return (rum_result_t)bytes;
+}
+
+bool elf_load_process(const void *image, size_t image_bytes,
+                      const struct rum_arguments *arguments, struct task_process *process)
+{
+    const struct elf_source source = { .bytes = image_bytes, .context = (void *)image, .read = image ? read_memory : NULL };
+    return elf_load_process_from_source(&source, arguments, process) == 0;
 }
 
