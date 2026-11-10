@@ -1,4 +1,35 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
+RUNTIME_C_SOURCES := sdk/lib/heap.c sdk/lib/string.c sdk/lib/stdio.c sdk/lib/format.c sdk/lib/runtime.c
+.PHONY: test-runtime-host
+build/tests/runtime-test: tests/runtime-test.c tests/runtime-renames.h $(RUNTIME_C_SOURCES) $(wildcard sdk/include/c/*.h) sdk/include/rum/user.h $(ABI_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Isdk/include/c -Isdk/include -include tests/runtime-renames.h -std=gnu11 -O2 -fno-builtin -Wall -Wextra -Werror $(filter %.c,$^) -o $@
+test-runtime-host: build/tests/runtime-test build/tests/timer-test build/tests/abi-test
+	./build/tests/runtime-test
+	./build/tests/timer-test
+	./build/tests/abi-test
+test-host: build/tests/runtime-test
+test-build: build/tests/runtime-test
+.PHONY: test-runtime
+build/tests/user/runtime.o: tests/runtime-user.c $(USER_INCLUDE_STAMP) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/tests/user/runtime.debug.elf: build/tests/user/runtime.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+build/tests/user/runtime.elf: build/tests/user/runtime.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@
+	build/tools/check-user-elf $@ $<
+build/tests/runtime-image.o: tests/runtime-image.s build/tests/user/runtime.elf
+	@mkdir -p $(@D)
+	$(AS) $< -o $@
+build/tests/runtime.iso: build/tests/runtime.elf $(TESTS_RULES)
+	@mkdir -p build/runtime-isodir/boot/grub
+	cp $< build/runtime-isodir/boot/rum.elf
+	printf 'set timeout=0\nmenuentry "rum runtime tests" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/runtime-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/runtime-isodir
+test-runtime: test-runtime-host build/tests/runtime.elf build/tests/runtime.iso
+	python3 tests/lifecycle-qemu-test.py --qemu $(QEMU) --runtime-only
+test-build test-lifecycle: build/tests/runtime.elf build/tests/runtime.iso
 COMMAND_HOST_NAMES := cat head wc hexdump more help
 COMMAND_HOST_OBJECTS := $(addprefix build/tests/command-,$(addsuffix .o,$(COMMAND_HOST_NAMES)))
 $(COMMAND_HOST_OBJECTS): build/tests/command-%.o: system/commands/%.c system/lib/stream.h system/lib/pager.h sdk/include/rum/tools.h sdk/include/rum/user.h $(ABI_HEADERS) $(TESTS_RULES)
@@ -206,6 +237,9 @@ FAULT_COMMON := build/tests/fs-backend.o $(filter-out build/kernel/core/init.o,$
 build/tests/vm-regions.elf: build/tests/vm-regions-kernel.o build/tests/vm-regions-image.o $(filter-out build/tests/fault-trigger.o build/arch/i386/interrupt.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
+build/tests/runtime.elf: build/tests/runtime-kernel.o build/tests/runtime-image.o $(filter-out build/tests/fault-trigger.o build/arch/i386/interrupt.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
 PAGING_CASES := ok null text rodata unmapped readonly
 PAGING_KERNELS := $(addprefix build/tests/paging-,$(addsuffix .elf,$(PAGING_CASES)))
 PAGING_OBJECTS := $(PAGING_KERNELS:.elf=.o)
@@ -217,6 +251,7 @@ PROCESS_FAULT_KERNELS := $(addprefix build/tests/process-fault-,$(addsuffix .elf
 PROCESS_FAULT_OBJECTS := $(PROCESS_FAULT_KERNELS:.elf=.o)
 TEST_DEPENDENCIES := $(FAULT_OBJECTS:.o=.d) $(PAGING_OBJECTS:.o=.d) $(CPU_OBJECTS:.o=.d) $(PROCESS_FAULT_OBJECTS:.o=.d) build/tests/cpu-probe.d build/tests/process-fault-probe.d build/tests/syscall-kernel.d build/tests/syscall-probe.d build/tests/elf-loader-kernel.d build/tests/elf-loader-image.d build/tests/paging-spaces.d build/tests/user-memory.d build/tests/irq-kernel.d build/tests/storage-kernel.d build/tests/storage-checks.d build/tests/task-kernel.d build/tests/task-fault-kernel.d build/tests/task-double-fault-kernel.d build/tests/task-stack-fault.d
 TEST_DEPENDENCIES += build/tests/user/vm-regions.d build/tests/vm-regions-kernel.d
+TEST_DEPENDENCIES += build/tests/user/runtime.d build/tests/runtime-kernel.d
 STORAGE_HOST_SOURCES := kernel/mm/heap.c kernel/fs/path.c kernel/fs/fs-types.c kernel/core/memory.c tests/page-backend.c tests/fs-backend.c kernel/fs/fs.c
 TEST_DEPENDENCIES += build/tests/fs-kernel.d build/tests/fs-checks.d build/tests/fs-backend.d
 STORAGE_HOST_HEADERS := kernel/include/rum/heap.h tests/test-files.h kernel/include/rum/fs.h kernel/include/rum/path.h kernel/include/rum/fs_types.h kernel/include/rum/fs_limits.h $(ABI_HEADERS) kernel/include/rum/paging.h kernel/include/rum/pmm.h kernel/include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
@@ -794,6 +829,7 @@ build/tests/ata-test: tests/ata-test.c drivers/storage/ata.c kernel/io/block.c k
 test-host: build/tests/ata-test
 
 test-host: build/tests/block-test build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
+	./build/tests/runtime-test
 	./build/tests/timer-test
 	./build/tests/session-test
 	./build/tests/handles-test

@@ -130,6 +130,7 @@ def commands(console):
     for tool in ("shell", "help", "about", "echo", "clear", "ls", "cat", "pwd", "cd", "write", "mkdir", "rm", "run", "exit", "recovery", "snake"):
         assert tool.upper() + ".ELF\r\n" in listing
     console.command("hello", "Hello from rum userspace!")
+    console.command("heapdemo /WELCOME.TXT", "Heap growth, data preservation and release passed")
     console.command("write /rum/TEST.TXT writable system directory")
     console.command("cat /rum/TEST.TXT", "writable system directory")
     console.command("rm /rum/TEST.TXT")
