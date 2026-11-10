@@ -13,6 +13,20 @@ void tool_output(const void *buffer, unsigned bytes)
     }
 }
 void tool_print(const char *s) { tool_output(s, tool_length(s)); }
+void tool_line_color(const char *text, uint32_t foreground)
+{
+    unsigned n = tool_length(text); int painted = 0;
+    if (n <= RUM_TERM_MAX_LINE && rum_isatty(RUM_STDOUT) == 1 && rum_isatty(RUM_STDIN) == 1 &&
+        rum_terminal_begin_inline() == 0) {
+        struct rum_terminal_cell cells[RUM_TERM_MAX_LINE];
+        for (unsigned i = 0; i < n; ++i)
+            cells[i] = (struct rum_terminal_cell){ (uint8_t)text[i], (uint8_t)foreground, RUM_COLOR_BLACK, 0 };
+        painted = rum_terminal_styled_line(cells, n, n) == 0;
+        if (rum_terminal_end() < 0) rum_exit(1);
+    }
+    if (!painted) tool_print(text);
+    tool_print("\n");
+}
 void tool_number(int32_t value)
 {
     char digits[12]; unsigned n = 0, magnitude = (uint32_t)value;

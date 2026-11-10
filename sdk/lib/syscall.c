@@ -43,6 +43,11 @@ rum_result_t rum_terminal_line(const char *text, uint32_t bytes, uint32_t cursor
     struct rum_terminal_request request = { .operation = RUM_TERM_LINE, .count = bytes, .x = cursor,
         .data = (rum_address_t)(uintptr_t)text }; return terminal_call(&request);
 }
+rum_result_t rum_terminal_styled_line(const struct rum_terminal_cell *cells, uint32_t count, uint32_t cursor)
+{
+    struct rum_terminal_request request = { .operation = RUM_TERM_STYLED_LINE, .count = count, .x = cursor,
+        .data = (rum_address_t)(uintptr_t)cells }; return terminal_call(&request);
+}
 rum_result_t rum_terminal_scroll(uint32_t direction)
 {
     struct rum_terminal_request request = { .operation = RUM_TERM_SCROLL, .x = direction };

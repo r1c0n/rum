@@ -71,6 +71,16 @@ int main(void)
     assert(!memcmp(history_page, mapped, sizeof history_page));
     assert(!terminal_session_begin_inline(1) && !terminal_scrolled());
     terminal_scroll(-1); terminal_session_exit(1); assert(!terminal_scrolled());
+    terminal_initialize(); assert(!terminal_session_begin_inline(1));
+    struct rum_terminal_cell styled[] = {{'/', RUM_COLOR_LIGHT_CYAN, 0, 0},
+        {'>', RUM_COLOR_LIGHT_GREEN, 0, 0}, {'x', RUM_COLOR_WHITE, 0, 0}};
+    terminal_session_styled_line(styled, 3, 2);
+    assert(((uint16_t *)mapped)[0] == 0x0b2f && ((uint16_t *)mapped)[1] == 0x0a3e &&
+           ((uint16_t *)mapped)[2] == 0x0f78 && terminal_state().x == 2);
+    assert(terminal_session_output(2)); terminal_writestring("notice\n");
+    terminal_session_styled_line(styled, 3, 3);
+    assert(((uint16_t *)mapped)[2 * 80] == 0x0b2f && !terminal_session_end(1));
+    assert(terminal_state().foreground == VGA_LIGHT_GREY);
     assert(munmap(mapped, 4096) == 0);
     puts("PASS: terminal snapshot, colors/cursor, status guard, denied contexts, ownership changes and repeated cleanup");
     return 0;

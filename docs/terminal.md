@@ -101,6 +101,7 @@ remains a stream; scrollback browsing only changes the VGA viewport.
 | `rum_terminal_begin()` | Acquire a foreground interactive session |
 | `rum_terminal_begin_inline()` | Acquire a foreground inline editing surface |
 | `rum_terminal_line(text, bytes, cursor)` | Replace the inline prompt/line and position its cursor |
+| `rum_terminal_styled_line(cells, count, cursor)` | Replace an inline line with per-character colors in one validated update |
 | `rum_terminal_scroll(direction)` | Page through retained output, or return to the live screen |
 | `rum_terminal_end()` | Restore fullscreen state, or commit an inline line, and release |
 | `rum_terminal_cells(x, y, cells, count)` | Draw a bounded horizontal span without moving the cursor |
@@ -108,9 +109,21 @@ remains a stream; scrollback browsing only changes the VGA viewport.
 | `rum_terminal_color(foreground, background)` | Set palette indices for ordinary stream output |
 | `rum_terminal_read(events, capacity, milliseconds, ticks)` | Read character/key events, optionally waiting for a bounded duration |
 
+Styled lines use `RUM_TERM_STYLED_LINE` and advertise
+`RUM_TERM_FEATURE_STYLED_LINE`. They follow LINE's inline ownership, wrapping,
+cursor and redraw rules, with up to `RUM_TERM_MAX_LINE` cells rather than one
+horizontal row. The complete array is copied and validated before the first
+display or serial update. Invalid characters, palette indices, reserved bytes,
+cursor values or inaccessible storage leave the existing line unchanged.
+Arrays may cross page boundaries when the entire range is readable.
+Serial output retains the line's characters and editing behavior without color
+escape sequences. Test capability bits rather than requiring an exact feature
+mask, since new features can be added without changing ABI version 1.
+
 Cells contain character, foreground, background and a zero reserved byte. The
 character must be printable ASCII (32–126), and colors use the 16 `RUM_COLOR_*`
-palette indices. A request cannot cross a row or exceed 80 cells. Every cell is
+palette indices. A `rum_terminal_cells` request cannot cross a row or exceed
+80 cells. Every cell is
 validated before any of that request is drawn. Zero cells validates the
 position/session but ignores the cell pointer. Drawing and cursor operations
 reject the status row, out-of-range positions and arithmetic wraparound.

@@ -12,6 +12,8 @@ terminal = importlib.util.module_from_spec(spec); spec.loader.exec_module(termin
 shell = terminal.shell
 shell.ARTIFACTS = ROOT / "build/test-artifacts/editing"
 images = shell.images
+spec = importlib.util.spec_from_file_location("shell_tools_checks", ROOT / "tests/shell-tools-checks.py")
+tools = importlib.util.module_from_spec(spec); spec.loader.exec_module(tools)
 
 
 def submit(console, expected):
@@ -89,6 +91,7 @@ def run(qemu, disk, ram, iso, screen):
             terminal.contains(c, "exited with status 0.", start)
             terminal.wait_screen(c, screen, lambda r: any(row.rstrip() == "/> echo ac" for row in r[:24]))
             time.sleep(0.05); c.type("b"); c.send("end"); submit(c, "abc\r\n")
+        tools.run(c, terminal, screen)
         c.command("wait", "Program exited with status 0.")
         # Duplicate/evicted history is model-tested; whole-session cleanup is real.
         c.command("recovery", "Kernel recovery shell.")
@@ -100,6 +103,7 @@ def run(qemu, disk, ram, iso, screen):
     assert images.file_bytes(disk, "/COPY.TXT") == b"a  b  z"
     assert images.file_bytes(disk, "/QUOTED.TXT") == b"a  b  z\n"
     images.audit(disk)
+    tools.verify(images, disk)
     print(f"PASS: {ram} MiB shell editing: quoted argv, parse-before-I/O, navigation/scrollback ABI, history, completion, wrapped lines, asynchronous redraw and cleanup", flush=True)
 
 
@@ -116,6 +120,7 @@ def main():
                            ("/SP&CE.TXT", b"unsupported FAT spelling\n"),
                            ("/NORTH.TXT", b"other\n")):
             source.write_bytes(data); images.command("mcopy", "-i", str(disk), str(source), "::" + path)
+        tools.seed(images, disk, source)
         original = disk.read_bytes()
         for ram, iso in ((16, False), (64, True)):
             disk.write_bytes(original); run(args.qemu, disk, ram, iso, screen)
