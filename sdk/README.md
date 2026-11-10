@@ -73,6 +73,10 @@ The [executable contract](../docs/executable-loading.md) supports files up to
 16 MiB within the existing process memory budget. The kernel and host validator
 share public validation code; the validator needs no kernel-private headers.
 
-The current build is integrated with the repository Makefile. A standalone SDK export, library
-archive, and external-project template are separate work; this source layout
-does not yet provide an independently installable development package.
+`./rum sdk` or `.\rum.ps1 sdk` exports `build/rum-sdk.zip`: public headers,
+startup object, runtime archive, processed linker script, host validator source,
+application builder, external-project template and target/version metadata.
+See [SDK installation and application builds](../docs/sdk.md) and the
+[packaged README](README-sdk.md). The optional
+[Doom probe](../docs/doom-compatibility.md) records remaining application-port
+requirements and exercises the upstream zone allocator and WAD I/O in userspace.

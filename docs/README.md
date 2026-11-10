@@ -20,6 +20,8 @@ programs and persistent files. With no usable disk, rum opens recovery.
 - [Memory layout](memory-layout.md) and [memory management](memory.md)
 - [User virtual-memory contracts](virtual-memory.md)
 - [Application heap and C runtime](application-runtime.md)
+- [Standalone SDK and application builds](sdk.md)
+- [Doom compatibility probe](doom-compatibility.md)
 - [Executable loading and limits](executable-loading.md)
 - [Heap and storage](storage.md)
 - [Interrupts](interrupts.md) and [exceptions](exceptions.md)

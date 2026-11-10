@@ -2,9 +2,12 @@
 
 Build static i386 applications without the rum source tree. This development
 SDK targets the 0.7 kernel interfaces; it is not compatible with the older
-0.6 release. `sdk.json` records the target, interface version, source commit,
+0.6 release. `sdk.json` records the target, interface version, source provenance,
 required kernel features and SHA-256 hashes of the packaged files. SDK format
 version 1 is separate from the OS release number and syscall ABI version 1.
+Git builds record the commit and whether sources were modified. A clean release
+snapshot preserves that identity without Git; other source archives may report
+unknown provenance. File hashes still describe the exact packaged contents.
 
 ## Requirements
 
@@ -103,3 +106,28 @@ ABI version 1 and individual packet versions describe the public wire formats;
 they are not a promise that every earlier kernel implements every operation.
 Match the required feature set in `sdk.json` to the kernel being used. Unknown
 syscalls fail with `ENOSYS`; unknown packet versions/flags are rejected.
+
+## Optional Doom compatibility probe
+
+The SDK includes a probe for DoomGeneric revision
+`e257a09527062bfb986b6e5e0780839b6cbd5b71`. From a separate work directory:
+
+```sh
+python3 "$RUM_SDK/tools/probe-doom.py" --source ./doomgeneric-source --output ./doom-report --cross-prefix /path/to/i686-elf- --fetch
+```
+
+Only `--fetch` downloads source. Existing checkouts must be clean and match the
+pinned revision; the probe never changes them. Omit `--fetch` for offline runs.
+No WAD data is downloaded or bundled. Upstream source is GPL-2.0-or-later; keep
+its license and source obligations when distributing combined binaries.
+
+The report separates engine compilation, partial/full link diagnostics and a
+successfully linked `DOOMIO.elf`. The latter uses the unmodified upstream zone
+allocator and standard-C WAD backend, with a small rum adapter. It checks a
+synthetic single-lump test WAD; it does not start the game. Probe-only
+`inttypes.h` and `strings.h` declaration bridges are explicitly reported and
+are not added to the normal application include path.
+
+Compile gaps remain in the general C/POSIX and math surface. Graphics, complete
+key press/release delivery and game/config path adaptation remain port work.
+Successful SDK packaging or the headless probe does not declare Doom playable.

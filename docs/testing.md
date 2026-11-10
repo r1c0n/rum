@@ -45,6 +45,12 @@ rollback, parent offsets, physical exhaustion and fault/cancellation cleanup
 through both boot paths. `make test-executable-host` runs only the host portion.
 The shell group additionally loads the large fixture from a real FAT16 disk.
 
+Use `--suite sdk` / `-Suite sdk` for standalone SDK export, manifest validation,
+an external project build and real application execution through both boot
+paths. Normal tests are offline. The optional [Doom probe](doom-compatibility.md)
+compiles pinned upstream sources and runs its zone/WAD backend separately.
+The full suite includes the SDK host check and a bounded SDK guest group.
+
 * Portable host tests cover memory, paths, handles, ABI layouts, terminal and
   keyboard rules, sessions, recovery commands, Snake and the ATA port model.
   Guest Snake checks cover rendering, pause/timer behavior and cleanup; gameplay
