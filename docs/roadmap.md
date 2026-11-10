@@ -105,21 +105,24 @@ integer formatting, monotonic timing, errors and supported C functions.
 
 ### 5. Larger executable loading
 
-- [ ] Replace the current small image-loading bound with explicit executable,
+- [x] Replace the current small image-loading bound with explicit executable,
   segment and committed-memory limits appropriate to supported RAM sizes.
-- [ ] Load bounded portions of an image instead of relying on a large fixed
+- [x] Load bounded portions of an image instead of relying on a large fixed
   kernel-stack buffer or allocating the entire file unnecessarily.
-- [ ] Validate ELF32 header and program-header arithmetic, file spans, alignment,
+- [x] Validate ELF32 header and program-header arithmetic, file spans, alignment,
   segment overlaps, `p_filesz <= p_memsz`, entry points and reserved ranges.
-- [ ] Preserve zero-filled BSS, guarded stacks, process isolation and the
+- [x] Preserve zero-filled BSS, guarded stacks, process isolation and the
   permission policy from step 3. Charge all mappings against process limits.
-- [ ] Keep static i386 executables as the supported format and update the host
+- [x] Keep static i386 executables as the supported format and update the host
   ELF validator and SDK linker contract alongside the kernel loader.
 
 Load valid images beyond the old limit, multiple segments and large BSS.
 Reject truncated files, overflowing offsets, overlapping or forbidden mappings
 and invalid entry points. Inject read/allocation failures and verify complete
 rollback without changing the parent or its descriptors.
+
+See [Executable loading](executable-loading.md) for streamed reads, public
+limits, validation, failure results and SDK checks.
 
 ### 6. Standalone SDK and application compatibility probe
 

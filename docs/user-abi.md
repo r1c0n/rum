@@ -110,9 +110,10 @@ installation manifest. `prepare-disk` installs them in `/RUM` on the FAT16 root.
 No user ELF is linked into the kernel or loaded as a boot module. Symbol-rich
 ELFs and linker maps stay under `build/user/debug/`.
 
-The common filesystem loader copies a bounded executable image before applying
-`elf_load_process`. Test fixtures load byte buffers through the same validator. The loader validates the complete ELF and argument
-packet before creating an address space. It then allocates distinct zeroed pages
+The common filesystem loader reads executable headers and validated LOAD spans
+in chunks of at most 512 bytes. Test fixtures load byte buffers through the same
+implementation. The loader validates the ELF layout and argument packet before
+creating an address space. It then allocates distinct zeroed pages
 for each LOAD segment, copies only file-backed bytes, applies final read/write
 permissions, maps the fixed 64 KiB stack, and builds `argc`, `argv`, and an empty
 `envp` at a 16-byte-aligned ESP.
@@ -262,9 +263,12 @@ nonexecutable GNU-stack descriptor. The loader zeroes BSS, segment padding, and
 unused stack bytes before publication. i386 non-PAE paging has no NX bit, so
 rejecting writable executable input remains a software policy.
 
-Each stripped executable must fit `RUM_ELF_IMAGE_LIMIT` (64 KiB). This loader bound is independent of FAT16 file sizes.
-The debug and stripped ELFs are compared to ensure stripping did not change the
-load image.
+Each stripped executable must fit `RUM_ELF_IMAGE_LIMIT` (16 MiB). LOAD pages and
+the stack share the existing 16 MiB committed-memory budget with later heap
+allocations. This is independent of FAT16 file sizes and does not reserve RAM.
+The debug and stripped ELFs are compared in bounded chunks to ensure stripping
+did not change the load image. See [executable loading](executable-loading.md)
+for complete limits, validation and failure behavior.
 
 ## CPU restrictions
 

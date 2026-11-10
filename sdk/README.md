@@ -69,7 +69,10 @@ The kernel uses the same canonical ABI definitions alongside its private
 `kernel/include/rum/` headers. Never copy kernel-private structures into the SDK
 or include private headers from an application.
 
-The current build is integrated with the repository Makefile. The host validator
-also consumes kernel resource-policy headers. A standalone SDK export, library
+The [executable contract](../docs/executable-loading.md) supports files up to
+16 MiB within the existing process memory budget. The kernel and host validator
+share public validation code; the validator needs no kernel-private headers.
+
+The current build is integrated with the repository Makefile. A standalone SDK export, library
 archive, and external-project template are separate work; this source layout
 does not yet provide an independently installable development package.

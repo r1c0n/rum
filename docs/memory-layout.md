@@ -52,9 +52,9 @@ must be able to switch stacks while changing CR3. They remain supervisor-only.
 | Kernel stack | 16 KiB plus a 4 KiB guard | Stack-slot paging |
 | Kernel stack slots | 18: idle, 16 workers, emergency | Layout assertions |
 | User stack | 64 KiB plus a 4 KiB guard | User mapping API |
-| Arguments | 32 including `argv[0]` | Public ABI; launch path pending |
-| Argument strings | 4096 bytes including NULs | Public ABI; launch path pending |
-| Executable images | 64 KiB | ELF loader |
+| Arguments | 32 including `argv[0]` | Public ABI and launch validation |
+| Argument strings | 4096 bytes including NULs | Public ABI and launch validation |
+| Executable files | 16 MiB; LOAD pages and stack still share the 16 MiB process budget | ELF loader |
 | Process handles | 32 including standard streams | Per-process table; files use slots 3–31 |
 
 Physical RAM or kernel metadata can run out before a policy limit is reached.
@@ -90,8 +90,9 @@ that frame remains responsible for it.
 ## Process publication and cleanup
 
 A process address space is built while it is inactive and owned by the caller.
-`elf_load_process` validates the complete image and argument
-packet, maps program and stack pages, and returns that private space with a
+The [ELF loader](executable-loading.md) validates a bounded header snapshot and
+argument packet, streams file-backed segments, maps program and stack pages,
+and returns that private space with a
 trusted CPU frame. Everything must be complete before `task_create_process` is
 called.
 
