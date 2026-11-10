@@ -115,7 +115,9 @@ void shell_run_pipeline(struct shell_pipeline *plan)
 cleanup:
     close_owned(pipes, pipe_count); close_owned(files, SHELL_PIPELINE_LIMIT * 2);
     if (error < 0) {
-        tool_error(failed, error);
+        /* A stage can fault or be cancelled before later stages are spawned.
+           EINTR describes that job result, not a failure to load this command. */
+        if (error != -RUM_EINTR) tool_error(failed, error);
         if (rum_job_cancel(job) < 0) rum_exit(1);
     } else {
         error = rum_job_commit(job);
@@ -128,7 +130,7 @@ cleanup:
     rum_result_t waited = rum_job_wait(job, 0, &entry);
     if (waited != 1) { tool_error("shell", waited); rum_exit(1); }
     if (rum_job_release(job) < 0) rum_exit(1);
-    if (!error) tool_child_status(&entry.result, 0);
+    if (!error || error == -RUM_EINTR) tool_child_status(&entry.result, 0);
 }
 
 void shell_job_notices(int editing)
