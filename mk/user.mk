@@ -2,16 +2,17 @@ USER_RULES := Makefile mk/config.mk mk/user.mk
 .PHONY: user test-user
 
 SYSTEM_COMMANDS := help about echo clear ls cat more head wc hexdump pwd cd write mkdir rm touch cp mv stat setup sync run exit recovery ps kill sleep jobs fg wait
-SDK_EXAMPLES := hello nonzero fault spin readline
+SDK_EXAMPLES := hello nonzero fault spin readline heapdemo
 APP_PROGRAMS := snake
 USER_PROGRAMS := shell $(SYSTEM_COMMANDS) $(APP_PROGRAMS) $(SDK_EXAMPLES)
-USER_CPPFLAGS := -Isdk/include -Ibuild/user/include
+USER_CPPFLAGS := -Isdk/include/c -Isdk/include -Ibuild/user/include
 USER_INCLUDE_STAMP := build/user/include/.abi-stamp
 USER_CFLAGS := -std=gnu11 -ffreestanding -O2 -g -Wall -Wextra -Werror \
                -Wstrict-prototypes -Wmissing-prototypes -fno-stack-protector \
                -fno-pie -fno-pic -fno-builtin -fno-asynchronous-unwind-tables \
                -msoft-float -mno-mmx -mno-sse -mno-sse2
-USER_RUNTIME := build/sdk/lib/start.o build/sdk/lib/syscall-entry.o build/sdk/lib/syscall.o build/sdk/lib/tools.o
+USER_RUNTIME := build/sdk/lib/start.o build/sdk/lib/syscall-entry.o build/sdk/lib/syscall.o build/sdk/lib/tools.o \
+                build/sdk/lib/heap.o build/sdk/lib/string.o build/sdk/lib/stdio.o build/sdk/lib/format.o build/sdk/lib/runtime.o
 USER_DEBUG := $(addprefix build/user/debug/,$(addsuffix .elf,$(USER_PROGRAMS)))
 USER_ASSETS := $(addprefix build/user/system/,$(addsuffix .elf,$(USER_PROGRAMS)))
 USER_DEPENDENCIES := $(USER_RUNTIME:.o=.d) $(addprefix build/user/objects/,$(addsuffix .d,$(USER_PROGRAMS)))

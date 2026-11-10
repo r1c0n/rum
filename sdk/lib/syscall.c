@@ -1,4 +1,21 @@
 #include <rum/user.h>
+rum_result_t rum_clock(struct rum_clock_request *request)
+{
+    return rum_syscall3(RUM_SYS_CLOCK, (rum_address_t)(uintptr_t)request, 0, 0);
+}
+rum_result_t rum_monotonic_ms(uint64_t *milliseconds)
+{
+    if (!milliseconds) return -RUM_EINVAL;
+    struct rum_clock_request request = { .version = RUM_CLOCK_ABI_VERSION, .size = sizeof request };
+    rum_result_t result = rum_clock(&request);
+    if (result < 0) return result;
+    if (!request.tick_hz) return -RUM_EIO;
+    uint64_t ticks = (uint64_t)request.ticks_hi << 32 | request.ticks_lo;
+    uint64_t seconds = ticks / request.tick_hz;
+    if (seconds > (UINT64_MAX - 999) / 1000) return -RUM_EOVERFLOW;
+    *milliseconds = seconds * 1000 + (ticks % request.tick_hz) * 1000 / request.tick_hz;
+    return 0;
+}
 rum_result_t rum_vm_protect(rum_address_t address, rum_size_t bytes, uint32_t protection)
 {
     struct rum_vm_protect_request request = { .version = RUM_VM_ABI_VERSION, .size = sizeof request,

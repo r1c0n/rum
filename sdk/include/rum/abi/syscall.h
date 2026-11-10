@@ -44,7 +44,8 @@
 #define RUM_SYS_VM_ALLOCATE 32 /* ebx: in/out rum_vm_allocate_request; other args zero */
 #define RUM_SYS_VM_RELEASE 33 /* ebx: rum_vm_release_request; other args zero */
 #define RUM_SYS_VM_PROTECT 34 /* ebx: rum_vm_protect_request; other args zero */
-#define RUM_SYS_COUNT  35
+#define RUM_SYS_CLOCK 35 /* ebx: in/out rum_clock_request; other arguments zero */
+#define RUM_SYS_COUNT  36
 #define RUM_ABI_PID_MAX 0x7FFFFFFF /* Positive IDs fit the signed result type. */
 
 #define RUM_STDIN  0
