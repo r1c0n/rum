@@ -32,7 +32,11 @@ def run(c, terminal, screen):
     c.send("ret"); c.wait("/> ")
 
     c.type("help\n")
-    raw, first = terminal.wait_screen(c, screen, lambda rows: rows[0].startswith("rum help") and rows[1].startswith("rum commands"))
+    # Each row is a separate terminal syscall; the title and first body row can
+    # be visible before the footer is drawn. Wait for the complete first page
+    # before checking its colors, without relying on a host timing delay.
+    raw, first = terminal.wait_screen(c, screen, lambda rows: rows[0].startswith("rum help") and
+        rows[1].startswith("rum commands") and rows[23].startswith("Space/PgDn next"))
     assert raw[1] == 0x1f and raw[(23 * 80) * 2 + 1] == 0x1e and "uptime:" in first[24]
     c.send("pgdn")
     terminal.wait_screen(c, screen, lambda rows: any(row.rstrip() == "text:" for row in rows[1:23]))
