@@ -27,8 +27,10 @@ The exact ISO extracted from the package is booted too. No caller's disk is
 used and the original build directory is not cleaned.
 
 Results are saved under `build/release-check/<commit>-<time>/`: `result.json`,
-logs, guest diagnostics, kernel, ISO, package and a pristine `rum-system.raw`.
-The report records ISO, SDK and system-disk SHA256 values. Only a report with
+logs, guest diagnostics, kernel, ISO, SDK, package, a pristine `rum-system.raw`
+and `vm-images/rum-vm-images.zip`. The VM bundle is built from the same clean
+program assets and ISO, with raw/VMDK/VDI contents compared by `qemu-img`.
+The report records ISO, SDK, system-disk and VM-archive SHA256 values. Only a report with
 `passed: true` represents a successful check.
 
 The release gate combines subsystem checks with the production workflow:
@@ -74,7 +76,8 @@ README/docs require a new clean release check.
 
 ## Prepare VM downloads
 
-After building the intended source commit:
+The clean release check prepares the VM download automatically. To create
+another fresh bundle after building the intended source commit:
 
 ```sh
 python3 scripts/prepare-vm-images.py --output build/vm-images-release

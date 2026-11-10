@@ -83,8 +83,8 @@ def main():
                 metadata = json.loads(archive.read("rum-sdk/sdk.json"))
                 assert metadata["source_commit"] == source["commit"] and metadata["source_dirty"] is False
                 assert set(archive.namelist()) == {"rum-sdk/sdk.json"} | {"rum-sdk/" + name for name in metadata["files"]}
-                for name, digest in metadata["files"].items():
-                    assert hashlib.sha256(archive.read("rum-sdk/" + name)).hexdigest() == digest
+                for name, member_digest in metadata["files"].items():
+                    assert hashlib.sha256(archive.read("rum-sdk/" + name)).hexdigest() == member_digest
                 for member, target in (("lib/crt0.o", "lib/start.o"), ("lib/librum.a", "lib/librum.a"),
                                        ("linker/user.ld", "linker/user.ld")):
                     path = work / "build/sdk" / target; path.parent.mkdir(parents=True, exist_ok=True)
