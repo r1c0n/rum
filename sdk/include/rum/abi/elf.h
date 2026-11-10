@@ -2,14 +2,18 @@
 #define RUM_ABI_ELF_H
 
 #include <rum/abi/types.h>
+#include <rum/abi/layout.h>
 
-/* Initial executable subset: static, little-endian ELF32 ET_EXEC for i386,
+/* Supported executable subset: static, little-endian ELF32 ET_EXEC for i386,
    no interpreter, dynamic linking or TLS. Program headers govern loading. */
 #define RUM_ELF_EXEC 2
 #define RUM_ELF_I386 3
 #define RUM_ELF_VERSION 1
 #define RUM_ELF_PROGRAM_LIMIT 16
-#define RUM_ELF_IMAGE_LIMIT 65536u
+#define RUM_ELF_IMAGE_LIMIT 0x01000000u /* Complete on-disk file: 16 MiB. */
+/* Each segment and all page-rounded segments plus the stack must fit the
+   committed-memory budget. These limits do not reserve physical RAM. */
+#define RUM_ELF_SEGMENT_MEMORY_LIMIT (RUM_ABI_MEMORY_BYTES - RUM_ABI_STACK_SIZE)
 #define RUM_ELF_PT_NULL 0
 #define RUM_ELF_PT_LOAD 1
 #define RUM_ELF_PT_GNU_STACK 0x6474E551

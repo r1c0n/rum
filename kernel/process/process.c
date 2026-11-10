@@ -3,11 +3,18 @@
 #include <rum/cpu.h>
 #include <rum/abi/error.h>
 #include <rum/handles.h>
-#include <rum/heap.h>
 #include <rum/memory.h>
 #include <rum/paging.h>
 #include <rum/process.h>
 #include <rum/process_limits.h>
+
+static rum_result_t executable_read(void *context, uint32_t offset, void *out, uint32_t bytes)
+{
+    if (task_current_cancelled()) return -RUM_EINTR;
+    struct fs_io_result io = fs_read(*(const fs_reference *)context, offset, out, bytes);
+    if (io.error != FS_OK) return process_fs_error(io.error);
+    return io.transferred <= bytes ? (rum_result_t)io.transferred : -RUM_EIO;
+}
 
 static rum_result_t start_process(const char *program, const struct rum_arguments *arguments,
                                   bool foreground, bool shell, struct process_handles *handles, task_id *child)
@@ -35,25 +42,19 @@ static rum_result_t start_process(const char *program, const struct rum_argument
         error = fs_open(task_current_filesystem(), path, FS_READ, &file);
     }
     if (error != FS_OK) return process_fs_error(error);
-    struct fs_information info;
+    struct fs_information info = {0};
     error = fs_stat(file, &info);
     rum_result_t result = process_fs_error(error);
     if (!result && (info.kind != FS_FILE || !info.size || info.size > RUM_ELF_IMAGE_LIMIT)) result = -RUM_ENOEXEC;
-    void *image = !result ? kmalloc((size_t)info.size) : NULL;
-    if (!result && !image) result = -RUM_ENOMEM;
-    size_t read = 0;
-    while (!result && read < info.size) {
-        struct fs_io_result io = fs_read(file, read, (char *)image + read, (size_t)info.size - read);
-        read += io.transferred;
-        if (io.error != FS_OK) result = process_fs_error(io.error);
-        else if (!io.transferred) result = -RUM_EIO;
-    }
+    struct task_process process = {0};
+    const struct elf_source source = { .bytes = info.size, .context = &file, .read = executable_read };
+    if (!result) result = elf_load_process_from_source(&source, arguments, &process);
     enum fs_error closed = fs_close(file);
     if (!result) result = process_fs_error(closed);
-    struct task_process process = {0};
-    if (!result && !elf_load_process(image, (size_t)info.size, arguments, &process)) result = -RUM_ENOEXEC;
-    (void)kfree(image);
-    if (result) return result;
+    if (result) {
+        if (process.space && !paging_space_destroy(process.space)) cpu_halt();
+        return result;
+    }
     if (task_current_cancelled()) {
         (void)paging_space_destroy(process.space);
         return -RUM_EINTR;

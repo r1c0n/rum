@@ -1,4 +1,11 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
+.PHONY: test-executable-host
+build/tests/elf-stream-test: tests/elf-stream-test.c kernel/process/elf.c kernel/include/rum/elf.h sdk/include/rum/elf-image.h $(ABI_HEADERS) $(LAYOUT_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Ikernel/include -Isdk/include -std=gnu11 -O2 -Wall -Wextra -Werror $(filter %.c,$^) -o $@
+test-executable-host: build/tests/elf-stream-test build/tools/check-user-elf
+	./build/tests/elf-stream-test
+test-host test-build: build/tests/elf-stream-test
 RUNTIME_C_SOURCES := sdk/lib/heap.c sdk/lib/string.c sdk/lib/stdio.c sdk/lib/format.c sdk/lib/runtime.c
 .PHONY: test-runtime-host
 build/tests/runtime-test: tests/runtime-test.c tests/runtime-renames.h $(RUNTIME_C_SOURCES) $(wildcard sdk/include/c/*.h) sdk/include/rum/user.h $(ABI_HEADERS)
@@ -829,6 +836,7 @@ build/tests/ata-test: tests/ata-test.c drivers/storage/ata.c kernel/io/block.c k
 test-host: build/tests/ata-test
 
 test-host: build/tests/block-test build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
+	./build/tests/elf-stream-test
 	./build/tests/runtime-test
 	./build/tests/timer-test
 	./build/tests/session-test

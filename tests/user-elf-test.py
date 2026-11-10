@@ -90,11 +90,15 @@ with tempfile.TemporaryDirectory(prefix="rum-user-elf-") as temporary:
         bad.write_bytes(original[:length])
         check(bad, False)
         cases += 1
-    bad.write_bytes(original + bytes(65537 - len(original)))
+    for length in (65536, 65537, 16 * 1024 * 1024):
+        with bad.open("wb") as output:
+            output.write(original)
+            output.truncate(length)
+        check(bad, True, debug)  # Trailing bytes are not loaded into the process.
+    with bad.open("ab") as output:
+        output.write(b"\0")
     check(bad, False)
     cases += 1
-    bad.write_bytes(original + bytes(65536 - len(original)))
-    check(bad, True, debug)  # Exact embedding boundary; trailing bytes are unused.
     text_offset = headers[loads[0]][1]
     mutation(text_offset, "B", original[text_offset] ^ 1, compare=True)
 print(f"PASS: static user ELF32, isolated headers, separate debug symbols, unchanged load image and {cases} rejected inputs")

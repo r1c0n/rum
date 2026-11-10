@@ -26,6 +26,18 @@ static const struct rum_arguments arguments = {
 };
 static unsigned rejected;
 
+static rum_result_t padded_read(void *context, uint32_t offset, void *out, uint32_t bytes)
+{
+    (void)context;
+    size_t actual = elf_loader_asset_end - elf_loader_asset_start;
+    memset(out, 0, bytes);
+    if (offset < actual) {
+        size_t copy = actual - offset; if (copy > bytes) copy = bytes;
+        memcpy(out, elf_loader_asset_start + offset, copy);
+    }
+    return (rum_result_t)bytes;
+}
+
 static void check(bool condition, const char *name)
 {
     if (!condition) {
@@ -304,14 +316,12 @@ void kernel_main(uint32_t magic, uint32_t information)
     bad = arguments; bad.string_bytes = 18; reject(elf_loader_asset_start, image_bytes, &bad);
     malformed_images(image_bytes);
 
-    unsigned char *padded = kcalloc(1, RUM_ELF_IMAGE_LIMIT);
-    check(padded != NULL, "64 KiB ELF boundary buffer");
-    memcpy(padded, elf_loader_asset_start, image_bytes);
+    const struct elf_source padded = { .bytes = RUM_ELF_IMAGE_LIMIT, .read = padded_read };
     struct task_process process;
-    check(elf_load_process(padded, RUM_ELF_IMAGE_LIMIT, &arguments, &process),
-          "accept exact RAM file size limit");
+    check(elf_load_process_from_source(&padded, &arguments, &process) == 0,
+          "accept exact file size limit without buffering unused bytes");
     inspect_process(&process);
-    check(paging_space_destroy(process.space) && kfree(padded), "release boundary image");
+    check(paging_space_destroy(process.space), "release boundary image");
 
     baseline = pmm_stats().free_pages;
     check(elf_load_process(elf_loader_asset_start, image_bytes, &arguments, &process),

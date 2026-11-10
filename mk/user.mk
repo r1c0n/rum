@@ -100,9 +100,9 @@ build/user/debug/%.elf: build/user/objects/%.o $(USER_RUNTIME) build/sdk/linker/
 	    -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 \
 	    -Wl,-Map,$(@:.elf=.map) $(filter %.o,$^) -lgcc -o $@
 
-build/tools/check-user-elf: sdk/tools/check-user-elf.c $(ABI_HEADERS) $(LAYOUT_HEADERS) sdk/include/rum/abi/elf.h
+build/tools/check-user-elf: sdk/tools/check-user-elf.c $(ABI_HEADERS) sdk/include/rum/elf-image.h
 	@mkdir -p $(@D)
-	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
 build/user/system/%.elf: build/user/debug/%.elf build/tools/check-user-elf
 	@mkdir -p $(@D)

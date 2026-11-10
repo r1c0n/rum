@@ -1,4 +1,5 @@
 #include <rum/abi/layout.h>
+#include <rum/abi/elf.h>
 
 OUTPUT_FORMAT(elf32-i386)
 OUTPUT_ARCH(i386)
@@ -22,9 +23,14 @@ SECTIONS
     .bss ALIGN(16) (NOLOAD) : { *(COMMON) *(.bss .bss.*) } :data
     __user_end = ALIGN(RUM_ABI_PAGE_SIZE);
     ASSERT(__user_end <= RUM_ABI_PROGRAM_END, "user image exceeds program window")
-    /* Initial 16 MiB process policy, reserving the 64 KiB user stack. */
+    /* The complete image shares its committed-memory budget with the stack. */
     ASSERT(__user_end - __user_start <= RUM_ABI_MEMORY_BYTES - RUM_ABI_STACK_SIZE,
-           "user image exceeds initial process budget")
+           "user image exceeds process budget")
+    ASSERT(SIZEOF(.text) <= RUM_ELF_SEGMENT_MEMORY_LIMIT &&
+           SIZEOF(.rodata) <= RUM_ELF_SEGMENT_MEMORY_LIMIT &&
+           SIZEOF(.data) + SIZEOF(.bss) <= RUM_ELF_SEGMENT_MEMORY_LIMIT,
+           "user segment exceeds executable contract")
+    /* Actual file size (including ELF tables) is checked by check-user-elf. */
     .unsupported : {
         *(.interp .dynamic .dynsym .dynstr .hash .gnu.hash)
         *(.rel.* .rela.* .plt .plt.* .got .got.* .tdata .tdata.* .tbss .tbss.*)
