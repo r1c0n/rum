@@ -45,6 +45,7 @@ def main():
                 console.command("recovery", "Kernel recovery shell.")
                 diag = console.command("diag")
                 for expected in ("Processes: 0 | 0 user tables, 0 user pages",
+                                 "Memory regions: 0 | dynamic: 0 | buffer leases: 0", "Paging metadata: 0 bytes",
                                  "Handles: 0 descriptors, 0 open descriptions, 0 aliases", "Terminal: normal"):
                     assert expected in diag, diag
             assert images.file_bytes(disk, "/SDKTEST.BIN") == bytes((i * 17) & 255 for i in range(8193))

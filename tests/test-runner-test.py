@@ -13,7 +13,7 @@ spec = importlib.util.spec_from_file_location("runner", ROOT / "scripts/test.py"
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 
-for failed in (None, "host", "preemption"):
+for failed in (None, "host", "preemption", "sdk"):
     with tempfile.TemporaryDirectory() as directory:
         def fake_run(name, command):
             return {"name": name, "seconds": 0, "returncode": int(name == failed)}

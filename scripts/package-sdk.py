@@ -11,6 +11,22 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def source_identity(root):
+    try:
+        location = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=root, text=True, capture_output=True)
+        if location.returncode == 0 and Path(location.stdout.strip()).resolve() == root.resolve():
+            revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+            dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True))
+            return revision, dirty
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    snapshot = root / ".rum-source.json"
+    if snapshot.is_file():
+        information = json.loads(snapshot.read_text())
+        return information["commit"], information["dirty"]
+    return None, None  # A source archive need not include Git history.
+
+
 def package(output=None, root=ROOT):
     output = Path(output) if output else root / "build/rum-sdk.zip"
     if output.suffix.lower() != ".zip" or output.is_symlink() or output.is_dir():
@@ -22,7 +38,7 @@ def package(output=None, root=ROOT):
     paths += [root / "sdk" / name for name in (
         "tools/build.py", "tools/check-user-elf.c", "tools/probe-doom.py",
         "template/Makefile", "template/build.ps1", "template/main.c",
-        "probes/doom/headless.c", "probes/doom/include/inttypes.h", "probes/doom/include/strings.h")]
+        "probes/doom/headless.c", "probes/doom/platform.c", "probes/doom/include/inttypes.h", "probes/doom/include/strings.h")]
     for path in sorted(paths):
         if path.is_symlink():
             raise ValueError(f"SDK input cannot be a symlink: {path}")
@@ -32,8 +48,7 @@ def package(output=None, root=ROOT):
                            ("build/sdk/linker/user.ld", "linker/user.ld"),
                            ("sdk/README-sdk.md", "README.md")):
         entries[target] = (root / source).read_bytes()
-    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
-    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True))
+    revision, dirty = source_identity(root)
     metadata = {"format_version": 1, "sdk_interface_version": 1, "development_series": "0.7",
                 "target": "i686-elf", "abi_version": 1, "source_commit": revision, "source_dirty": dirty,
                 "required_features": ["private-regions-v1", "monotonic-clock-v1", "filesystem-v1"],

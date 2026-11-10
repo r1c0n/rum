@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 import shlex
 import subprocess
-import sys
 
 SDK = Path(__file__).resolve().parents[1]
 CFLAGS = ["-std=gnu11", "-ffreestanding", "-O2", "-g", "-Wall", "-Wextra",
@@ -30,10 +29,17 @@ def run(command):
 
 def validator(directory, host_cc):
     output = directory / ("check-user-elf.exe" if os.name == "nt" else "check-user-elf")
-    headers = list((SDK / "include/rum").rglob("*.h"))
+    headers = sorted((SDK / "include/rum").rglob("*.h"))
     source = SDK / "tools/check-user-elf.c"
-    if not output.exists() or output.stat().st_mtime < max(path.stat().st_mtime for path in [source, *headers]):
+    digest = hashlib.sha256()
+    for path in [source, *headers]:
+        digest.update(path.relative_to(SDK).as_posix().encode() + b"\0" + path.read_bytes())
+    signature = output.with_suffix(".sha256")
+    identity = digest.hexdigest()
+    # ZIP timestamps are fixed, so mtime alone cannot detect an SDK update.
+    if not output.exists() or not signature.exists() or signature.read_text() != identity:
         run([host_cc, "-std=gnu11", "-O2", "-Wall", "-Wextra", "-Werror", "-I" + str(SDK / "include"), source, "-o", output])
+        signature.write_text(identity)
     return output
 
 

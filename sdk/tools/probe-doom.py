@@ -35,6 +35,8 @@ def sources(path, fetch):
 
 
 def probe(source, output, prefix, jobs=4, fetch=False):
+    if output == source or output.is_relative_to(source):
+        raise ValueError("probe output must be outside the upstream source checkout")
     engine = sources(source, fetch)
     output.mkdir(parents=True, exist_ok=True)
     builder = load_builder(); config = builder.configuration(prefix)
@@ -67,9 +69,23 @@ def probe(source, output, prefix, jobs=4, fetch=False):
     if built:
         symbols = subprocess.check_output([prefix + "nm", "--undefined-only", *map(str, built)], text=True)
         undefined = sorted(set(re.findall(r"\bU\s+(\S+)", symbols)))
+    platform = objects / "rum-platform.o"
+    subprocess.run([config["cc"], *flags, "-c", str(adapter / "platform.c"), "-o", str(platform)], check=True)
+    partial = subprocess.run([config["cc"], "-nostdlib", "-r", *map(str, built), str(platform),
+                              "-o", str(output / "partial-engine.o")], capture_output=True, text=True)
+    (output / "partial-link.log").write_text(partial.stdout + partial.stderr)
+    full_link = "blocked by compile failures"
+    missing_link = []
+    if all(unit["compiled"] for unit in units):
+        linked = subprocess.run([config["cc"], *config["ldflags"], config["startup"], *map(str, built),
+            str(platform), *config["libraries"], "-o", str(output / "doom-engine.debug.elf")], capture_output=True, text=True)
+        (output / "full-link.log").write_text(linked.stdout + linked.stderr)
+        full_link = "passed (not executed)" if linked.returncode == 0 else "failed"
+        missing_link = sorted(set(re.findall(r"undefined reference to [`‘']([^'’]+)", linked.stderr)))
     report = {"upstream": UPSTREAM, "revision": REVISION, "engine_units": units,
               "compiled_units": sum(unit["compiled"] for unit in units), "total_units": len(units),
-              "full_engine_link": "blocked by compile failures" if not all(unit["compiled"] for unit in units) else "requires platform integration",
+              "full_engine_link": full_link, "missing_link_symbols": missing_link,
+              "partial_engine_link": "passed" if partial.returncode == 0 else "failed",
               "object_undefined_symbols": undefined, "headless_link": "passed", "headless_elf": smoke.name,
               "probe_only_headers": ["inttypes.h", "strings.h"],
               "remaining_platform_work": ["framebuffer presentation", "key press and release input", "full C/runtime and math dependencies", "FAT 8.3 data/config paths"],

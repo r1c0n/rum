@@ -64,6 +64,7 @@ def main():
                         target.chmod(member.mode & 0o777)
                     else:
                         raise RuntimeError(f"Unsupported snapshot object: {member.name}")
+            (work / ".rum-source.json").write_text(json.dumps({"commit": commit, "dirty": False}) + "\n")
             # A new temporary tree has no stale objects, staged user ELFs or disk images.
             make = ["make", f"-j{args.jobs}", f"TEST_JOBS={args.workers}", f"CROSS_PREFIX={args.cross_prefix}", f"QEMU={args.qemu}"]
             run(make + ["all"], work, output / "build.log")
@@ -75,7 +76,7 @@ def main():
             artifacts = work / "build/test-artifacts"
             if artifacts.exists():
                 shutil.copytree(artifacts, output / "test-artifacts", dirs_exist_ok=True)
-            for name in ("rum.iso", "rum.elf", "rum-system.raw"):
+            for name in ("rum.iso", "rum.elf", "rum-system.raw", "rum-sdk.zip"):
                 source = work / "build" / name
                 if source.is_file():
                     shutil.copy2(source, output / name)
@@ -84,6 +85,8 @@ def main():
             report["elapsed_seconds"] = round(time.monotonic() - started, 1)
             if (output / "rum.iso").is_file():
                 report["iso_sha256"] = hashlib.sha256((output / "rum.iso").read_bytes()).hexdigest()
+            if (output / "rum-sdk.zip").is_file():
+                report["sdk_sha256"] = hashlib.sha256((output / "rum-sdk.zip").read_bytes()).hexdigest()
             if (output / "rum-system.raw").is_file():
                 report["system_disk_sha256"] = hashlib.sha256((output / "rum-system.raw").read_bytes()).hexdigest()
             (output / "result.json").write_text(json.dumps(report, indent=2) + "\n")
