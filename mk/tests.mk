@@ -1,4 +1,9 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
+.PHONY: test-sdk-host test-sdk
+test-sdk-host: sdk
+	python3 tests/sdk-package-test.py --cross-prefix $(CROSS_PREFIX)
+test-sdk: all test-sdk-host
+	python3 tests/sdk-qemu-test.py --qemu $(QEMU)
 .PHONY: test-executable-host
 build/tests/elf-stream-test: tests/elf-stream-test.c kernel/process/elf.c kernel/include/rum/elf.h kernel/include/rum/paging.h kernel/include/rum/cpu_policy.h sdk/include/rum/elf-image.h $(ABI_HEADERS) $(LAYOUT_HEADERS)
 	@mkdir -p $(@D)

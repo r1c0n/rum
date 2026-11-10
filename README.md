@@ -36,6 +36,9 @@ rum opens its recovery console. Normal startup never formats an image.
 See [setup](docs/setup.md), [system disk](docs/system-volume.md) and
 [VMware/VirtualBox](docs/virtual-machines.md) for details.
 
+To build applications outside this repository, export the
+[standalone SDK](docs/sdk.md) with `.\rum.ps1 sdk` or `./rum sdk`.
+
 ## Using rum
 
 Type `help` for a paged command guide, or `help --all` for plain output.

@@ -126,25 +126,29 @@ limits, validation, failure results and SDK checks.
 
 ### 6. Standalone SDK and application compatibility probe
 
-- [ ] Export public headers, startup objects, a runtime library, linker script,
+- [x] Export public headers, startup objects, a runtime library, linker script,
   ELF validator and version/target information as a standalone SDK package.
-- [ ] Remove the exported validator's dependence on private kernel headers.
+- [x] Remove the exported validator's dependence on private kernel headers.
   Publish the executable and resource contracts external tools need.
-- [ ] Provide an external-project template and Windows/WSL and Linux build
+- [x] Provide an external-project template and Windows/WSL and Linux build
   instructions using the separate cross compiler. The template must build
   without repository-private include paths or access to kernel sources.
-- [ ] Document application arguments, memory limits, filesystem access, streams,
+- [x] Document application arguments, memory limits, filesystem access, streams,
   launch/exit behavior and ABI/runtime compatibility expectations.
-- [ ] Use a userspace Doom engine compile/link probe to identify missing heap,
+- [x] Use a userspace Doom engine compile/link probe to identify missing heap,
   C runtime, executable-loading and WAD file-I/O support. Where practical,
   exercise initialization and file access without a display.
-- [ ] Record remaining port dependencies and keep application code outside the
+- [x] Record remaining port dependencies and keep application code outside the
   kernel. A playable game, framebuffer and sound are not 0.7.0 release gates.
 
 Build and validate an application from an unpacked SDK in a separate directory.
 Run it with dynamic allocation, file I/O and recoverable failures, then verify
 cleanup after normal exit, fault and cancellation. The exported package must
 not require an OS rebuild to compile an application.
+
+See [Standalone SDK](sdk.md) for packaging, external builds and application
+contracts, and [Doom compatibility](doom-compatibility.md) for the pinned
+compile/link probe, tested zone/WAD subsystem and remaining port requirements.
 
 ### 7. Integration and release
 

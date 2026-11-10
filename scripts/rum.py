@@ -28,12 +28,13 @@ SUITES = {
     "vm": "test-vm",
     "runtime": "test-runtime",
     "executables": "test-executables",
+    "sdk": "test-sdk",
 }
 BOOT_ACTIONS = {"run", "run-kernel", "debug", "panic"}
 DISK_ACTIONS = BOOT_ACTIONS - {"panic"} | {"create-disk", "prepare-disk"}
 ACTIONS = ("build", "user", "run", "run-kernel", "debug", "test", "doctor",
            "setup", "toolchain", "clean", "prepare-disk", "create-disk",
-           "package", "vm-images", "release-check", "panic", "help")
+           "package", "sdk", "vm-images", "release-check", "panic", "help")
 
 
 def bounded(low, high):
@@ -109,16 +110,16 @@ def validate(args):
         args.output = ROOT / "build/vm-images"
     if args.output is not None:
         args.output = args.output.absolute()
-        if args.action not in {"package", "vm-images"}:
-            raise ValueError("--output is only supported for package and vm-images")
+        if args.action not in {"package", "sdk", "vm-images"}:
+            raise ValueError("--output is only supported for package, sdk and vm-images")
         if args.action == "vm-images" and (args.output.exists() or args.output.is_symlink()):
             raise ValueError("VM output already exists; choose a new directory")
-        if args.action == "package":
+        if args.action in {"package", "sdk"}:
             if args.output.suffix.lower() != ".zip" or args.output.is_symlink() or args.output.is_dir():
                 raise ValueError("package output must be a ZIP file path, not a directory or symlink")
             if not args.output.parent.is_dir():
                 raise ValueError("package output parent must already exist")
-    if args.no_build and args.action not in BOOT_ACTIONS | {"package", "vm-images"}:
+    if args.no_build and args.action not in BOOT_ACTIONS | {"package", "sdk", "vm-images"}:
         raise ValueError("--no-build applies only to boot or packaging")
     if args.suite != "all" and args.action != "test":
         raise ValueError("--suite requires the test action")
@@ -170,6 +171,10 @@ def dispatch(args):
             make("user")
         script("prepare-disk.py" if action == "prepare-disk" else "disk-image.py",
                args.disk, "--size-mib", str(args.size_mib))
+    elif action == "sdk":
+        if not args.no_build:
+            make("sdk-runtime")
+        script("package-sdk.py", *(["--output", args.output] if args.output else []))
     elif action in {"package", "vm-images"}:
         if not args.no_build:
             make("all")
