@@ -98,8 +98,10 @@ static void inspect(struct task_process *process)
         struct rum_elf_program *program = &programs[i];
         struct mapping *map = mapping(process->space, program->address, program->memory_bytes);
         assert(map && !!map->flags == !!(program->flags & RUM_ELF_PF_W));
-        assert(!memcmp(map->data, image + program->offset, program->file_bytes));
-        for (uint32_t n = program->file_bytes; n < map->pages * RUM_ABI_PAGE_SIZE; ++n) assert(!map->data[n]);
+        uint32_t prefix = program->address - map->address;
+        for (uint32_t n = 0; n < prefix; ++n) assert(!map->data[n]);
+        assert(!memcmp(map->data + prefix, image + program->offset, program->file_bytes));
+        for (uint32_t n = prefix + program->file_bytes; n < map->pages * RUM_ABI_PAGE_SIZE; ++n) assert(!map->data[n]);
     }
     assert(process->user_frame.core.eip == header.entry && process->user_frame.core.eflags == 0x202 &&
            !mapping(process->space, RUM_ABI_STACK_BASE - RUM_ABI_PAGE_SIZE, 1));
@@ -160,6 +162,15 @@ int main(void)
     input = (struct input){0}; source.bytes = RUM_ELF_IMAGE_LIMIT;
     assert(!elf_load_process_from_source(&source, &args, &process)); inspect(&process); assert(paging_space_destroy(process.space));
     source.bytes++; clean_failure(&source, -RUM_ENOEXEC);
+    input = (struct input){0}; source.bytes = sizeof header - 1; clean_failure(&source, -RUM_ENOEXEC); assert(!input.reads);
+    source.bytes = header.phoff + sizeof programs - 1; clean_failure(&source, -RUM_ENOEXEC);
+    source.bytes = programs[2].offset + programs[2].file_bytes - 1; clean_failure(&source, -RUM_ENOEXEC);
+    /* Congruent offsets are valid even when a LOAD starts inside a page. */
+    header.entry += 37; programs[0].offset += 37; programs[0].address += 37;
+    memcpy(image, &header, sizeof header); memcpy(image + header.phoff, programs, sizeof programs);
+    source.bytes = sizeof image;
+    assert(!elf_load_process_from_source(&source, &args, &process)); inspect(&process); assert(paging_space_destroy(process.space));
+    fixture();
     malformed(); assert(!spaces && !pages);
     puts("PASS: streaming ELF, BSS, permissions, bounds and rollback at every read/copy/allocation stage"); return 0;
 }

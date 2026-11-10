@@ -12,12 +12,22 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--qemu", default="qemu-system-i386")
-    parser.add_argument("--vm-only", action="store_true", help="Run only private memory-region lifecycle checks")
-    parser.add_argument("--runtime-only", action="store_true", help="Run only userspace heap/runtime checks")
+    focus = parser.add_mutually_exclusive_group()
+    focus.add_argument("--vm-only", action="store_true", help="Run only private memory-region lifecycle checks")
+    focus.add_argument("--runtime-only", action="store_true", help="Run only userspace heap/runtime checks")
+    focus.add_argument("--executable-only", action="store_true", help="Run only ELF loading and large-executable checks")
     args = parser.parse_args()
     artifacts = ROOT / "build/test-artifacts/lifecycle"
     artifacts.mkdir(parents=True, exist_ok=True)
-    for case in (("runtime",) if args.runtime_only else ("vm-regions",) if args.vm_only else ("lifecycle", "lifecycle-ids", "vm-regions", "runtime")):
+    if args.executable_only:
+        cases = ("elf-loader", "large-loader")
+    elif args.runtime_only:
+        cases = ("runtime",)
+    elif args.vm_only:
+        cases = ("vm-regions",)
+    else:
+        cases = ("lifecycle", "lifecycle-ids", "vm-regions", "runtime", "large-loader")
+    for case in cases:
         for boot, ram in (("elf", 16), ("iso", 64)):
             with tempfile.TemporaryDirectory(prefix="rum-lifecycle-") as temporary:
                 serial = Path(temporary) / "serial"
@@ -30,7 +40,7 @@ def main():
                 label = f"{case}-{boot}-{ram}m"
                 try:
                     deadline = time.monotonic() + 120
-                    marker = case.replace("-", "_")
+                    marker = "elf_loader_test" if case == "elf-loader" else case.replace("-", "_")
                     while True:
                         text = serial.read_text(errors="replace") if serial.exists() else ""
                         if f"rum_{marker}_ok" in text:
@@ -45,9 +55,12 @@ def main():
                     (artifacts / f"{label}.qemu.log").write_bytes(process.stderr.read())
                     if serial.exists():
                         (artifacts / f"{label}.serial.log").write_bytes(serial.read_bytes())
-            coverage = ("userspace heap, file streams, clock, isolation, OOM and exit/fault/cancel cleanup"
-                        if case == "runtime" else "private regions, zeroing, isolation, OOM, quota and exit/fault/cancel cleanup"
-                        if case == "vm-regions" else "lifecycle requests, ownership, permissions, failed copies, cleanup and limits")
+            coverage = {
+                "large-loader": "large streamed segments, BSS, parent descriptors, injected I/O/OOM and cleanup",
+                "elf-loader": "ELF validation, permissions, guarded stacks and allocation rollback",
+                "runtime": "userspace heap, file streams, clock, isolation, OOM and exit/fault/cancel cleanup",
+                "vm-regions": "private regions, zeroing, isolation, OOM, quota and exit/fault/cancel cleanup",
+            }.get(case, "lifecycle requests, ownership, permissions, failed copies, cleanup and limits")
             print(f"PASS: {label}: {coverage}", flush=True)
 
 
