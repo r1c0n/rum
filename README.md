@@ -5,8 +5,9 @@ Scottish island of Rùm.
 
 rum runs protected user programs on 32-bit x86 with BIOS firmware. It includes
 a userspace shell with pipes, redirection and background jobs, persistent FAT16
-storage, preemptive multitasking and ASCII Snake. QEMU, VMware Workstation and
-VirtualBox are supported.
+storage, preemptive multitasking and ASCII Snake. Applications have private
+memory, a growing heap and a small C runtime, with a standalone SDK for external
+projects. QEMU, VMware Workstation and VirtualBox are supported.
 
 ## Getting started
 

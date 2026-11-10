@@ -102,6 +102,42 @@ errors prevent loading programs. FAT16 is not journaled. Preserve a damaged
 image and inspect or repair a copy with host FAT tools; rum does not silently
 format or repair it. See [FAT16](fat16.md) for interrupted-write guarantees.
 
+## 0.7.0 validation record
+
+Validated November 9, 2026, from clean source snapshot
+`110836a41e60823015f2de6caf594afc03f06471`. Subsequent checklist and evidence
+updates change README/docs only.
+
+- All 25 regression groups passed with four build jobs and four guest workers.
+  The suite took 116.23 seconds; the complete clean check took 167.5 seconds,
+  including the build, fresh disk/VM downloads and artifact collection.
+- Both boot paths passed, with boot and extracted-package ISO checks at
+  16/64/256/1152 MiB. The external SDK workload combined a larger ELF, private
+  BSS, concurrent heap/file operations, recoverable exhaustion, protected
+  cross-page buffers, guard faults and cancellation. Resource ledgers returned
+  to baseline, and host FAT checks recovered identical file bytes.
+- Ubuntu/WSL and native Windows SDK exports matched every payload byte and
+  manifest hash. Native release packages booted the exact validated ISO on
+  both hosts, exercised heap/file I/O, pipelines, faults, Ctrl+C, shell restart
+  and Snake, then recovered saved files after a separate boot. PowerShell
+  launcher checks also passed.
+- Diskless, malformed, full and read-only volumes and injected block/FAT
+  failures preserved recovery. Raw/VMDK and raw/VDI conversions were identical.
+  Conversion checks do not claim a native VMware or VirtualBox test run.
+
+Validated ISO SHA256:
+
+```text
+b9939dfac5adf6369d0c0c9e5268c15985a1dbae42353adacf23120b4ac9fd35
+```
+
+Evidence and pristine release files are in
+`build/release-check/110836a41e60-20261109-231033/`: `result.json`, suite logs,
+`host-linux/result.json`, `host-windows/result.json` and `vm-images.log`.
+The report records the SDK, VM download and untouched system-disk hashes.
+Publish `rum.zip`, `rum-sdk.zip` and `vm-images/rum-vm-images.zip` as separate
+downloads. The standalone package contains no mutable disk or game assets.
+
 ## 0.6.0 validation record
 
 Validated November 8, 2026. The clean code/test snapshot is

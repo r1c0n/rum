@@ -1,9 +1,9 @@
 # rum roadmap
 
-rum 0.6.0 provides protected user processes, timer-driven scheduling, persistent
-FAT16 storage, a userspace shell, pipelines, background jobs and a userspace
-Snake game. The next releases build the memory and ownership contracts needed
-for larger, independently developed applications.
+rum 0.7.0 provides private user memory, a growing application heap, larger ELF
+loading and a standalone SDK alongside persistent FAT16 storage, a userspace
+shell, pipelines, background jobs and Snake. The next release builds common
+object ownership and access-rights contracts for kernel resources.
 
 The architecture separates low-level kernel mechanisms, executive services
 such as memory and object management, and userspace policy. The 32-bit x86 BIOS
@@ -152,17 +152,17 @@ compile/link probe, tested zone/WAD subsystem and remaining port requirements.
 
 ### 7. Integration and release
 
-- [ ] Combine larger ELF loading, heap growth, filesystem operations and
+- [x] Combine larger ELF loading, heap growth, filesystem operations and
   concurrent processes under bounded memory pressure.
-- [ ] Verify isolation, stack guards, buffer validation and page/region cleanup
+- [x] Verify isolation, stack guards, buffer validation and page/region cleanup
   across exit, fault, cancellation and partial construction failures.
-- [ ] Keep existing shell commands, pipelines, jobs, persistent files, Snake and
+- [x] Keep existing shell commands, pipelines, jobs, persistent files, Snake and
   kernel recovery working, including without a usable system disk.
-- [ ] Run focused host tests during development, then the complete release
+- [x] Run focused host tests during development, then the complete release
   suite through both boot paths and supported RAM configurations.
-- [ ] Document memory syscalls, enforced protections, quotas, runtime behavior
+- [x] Document memory syscalls, enforced protections, quotas, runtime behavior
   and the SDK installation/build workflow.
-- [ ] Validate Windows and Linux SDK/release packages and boot the exact
+- [x] Validate Windows and Linux SDK/release packages and boot the exact
   packaged ISO. Keep mutable user disks separate from the standalone ISO.
 
 0.7.0 is ready when an application built outside the OS repository can load,
