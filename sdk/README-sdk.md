@@ -1,0 +1,105 @@
+# rum application SDK
+
+Build static i386 applications without the rum source tree. This development
+SDK targets the 0.7 kernel interfaces; it is not compatible with the older
+0.6 release. `sdk.json` records the target, interface version, source commit,
+required kernel features and SHA-256 hashes of the packaged files. SDK format
+version 1 is separate from the OS release number and syscall ABI version 1.
+
+## Requirements
+
+Use Linux or Ubuntu in WSL on Windows, Python 3.9 or newer, a host C compiler
+(`cc`), and the separate `i686-elf` GCC/binutils toolchain. The SDK does not
+bundle a compiler. If using rum's toolchain, the prefix is the absolute path
+ending in `.tools/cross/bin/i686-elf-`. Host GCC cannot replace the cross compiler.
+
+## Build an application
+
+Unpack the archive, copy `template/` into your own project directory, then:
+
+```sh
+export RUM_SDK='/path/to/rum-sdk'
+make CROSS_PREFIX=/path/to/i686-elf-
+```
+
+Or use the build tool directly from your project:
+
+```sh
+python3 "$RUM_SDK/tools/build.py" --cross-prefix /path/to/i686-elf- --output build/example.elf main.c
+```
+
+On Windows, extract the ZIP with `Expand-Archive`, copy `template` to a new
+project, and run its launcher:
+
+```powershell
+.\build.ps1 -Sdk 'F:\SDKs\rum-sdk' -CrossPrefix '/mnt/f/Projects/osdev/rum/.tools/cross/bin/i686-elf-'
+```
+
+The launcher builds inside Ubuntu/WSL. Supply `-Distro` for another distribution.
+`-Sdk` is a Windows path; `-CrossPrefix` is the prefix visible inside WSL.
+Paths containing spaces are supported. The tool emits a stripped `example.elf`,
+a symbol-rich `example.debug.elf`, a linker map and intermediate objects. It
+builds the host ELF validator from the supplied source with public headers only.
+No kernel sources, private include paths or OS rebuild are required.
+
+Use `--print-config` to obtain compiler/linker arguments as JSON. Additional C
+flags can be supplied as `--cflag=-DNAME=value`. The supported runtime is linked
+from `lib/librum.a` with `lib/crt0.o` and target `libgcc`.
+
+## Install and run
+
+Stop the VM and back up its disk. Copy the stripped ELF to `/RUM/EXAMPLE.ELF`
+or an application directory using host FAT tools, then boot rum and run:
+
+```text
+run /RUM/EXAMPLE.ELF
+run /RUM/EXAMPLE.ELF /SDKTEST.BIN
+```
+
+The first command checks heap growth, recoverable failure and timing. The
+second creates or replaces the named file and verifies its exact bytes.
+The example also accepts `--fault` and `--spin` for recovery checks; Ctrl+C
+cancels the latter. Existing disks are never updated implicitly by an SDK build.
+
+## Application contract
+
+Use `int main(int argc, char **argv)`. Arguments are decoded by the shell;
+`argv[argc]` is null, with at most 32 arguments and 4096 string bytes including
+terminators. The environment is empty. Returning from `main` flushes C output
+streams and exits; faults and cancellation skip C cleanup but kernel resource
+cleanup still runs. Launch and wait operations use public versioned packets.
+
+Files are on the FAT16 root `/`; `/RUM` holds system programs. Paths are
+case-insensitive 8.3 names, with a 256-byte path capacity including NUL. Standard
+descriptors 0–2 may refer to console, files or pipes. There are 32 descriptors
+per process, including standard streams. C `FILE` streams are unbuffered,
+preserve binary bytes and expose separate EOF/error indicators. Check `fflush`
+and `fclose` results for write errors. Flush has the kernel filesystem's
+ordering guarantees; it does not add journaling.
+
+Executables are static little-endian i386 ELF32 ET_EXEC, at most 16 MiB on disk
+with 16 program headers. LOADs must occupy distinct ordered pages in the user
+program window. The entry must be in file-backed executable bytes. The image,
+64 KiB stack and dynamic memory share a 16 MiB committed-page budget; physical
+RAM can run out earlier. Stack guards and private address spaces are enforced.
+Non-PAE paging has no NX bit. x87/MMX/SSE instructions are unsupported: keep the
+supplied integer-only compiler flags. Dynamic linking, TLS and constructors
+are not supported.
+
+`malloc`, `calloc`, `realloc` and `free` use private regions and 16-byte
+alignment. Zero-size allocation returns null; `realloc(pointer, 0)` frees it.
+Failed growth preserves the original allocation. Empty arenas return to the
+kernel; fragmented arenas may retain backing pages. `errno` is process-local,
+uses rum values and is set by C wrappers; direct `rum_*` calls return negative
+errors instead. The runtime currently assumes one userspace thread per process.
+
+The C subset includes byte/string operations, file streams and integer
+`printf`/`snprintf` formatting. Floating-point formatting, scanning, locale,
+environment variables, signals and `atexit` are not implemented. Public headers
+declare the complete supported surface. Use `rum_monotonic_ms` and `rum_sleep`
+for elapsed time and relative waits; there is no wall clock or process CPU clock.
+
+ABI version 1 and individual packet versions describe the public wire formats;
+they are not a promise that every earlier kernel implements every operation.
+Match the required feature set in `sdk.json` to the kernel being used. Unknown
+syscalls fail with `ENOSYS`; unknown packet versions/flags are rejected.

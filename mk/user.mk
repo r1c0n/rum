@@ -13,6 +13,14 @@ USER_CFLAGS := -std=gnu11 -ffreestanding -O2 -g -Wall -Wextra -Werror \
                -msoft-float -mno-mmx -mno-sse -mno-sse2
 USER_RUNTIME := build/sdk/lib/start.o build/sdk/lib/syscall-entry.o build/sdk/lib/syscall.o build/sdk/lib/tools.o \
                 build/sdk/lib/heap.o build/sdk/lib/string.o build/sdk/lib/stdio.o build/sdk/lib/format.o build/sdk/lib/runtime.o
+build/sdk/lib/librum.a: $(filter-out build/sdk/lib/start.o,$(USER_RUNTIME))
+	rm -f -- $@.tmp
+	$(CROSS_PREFIX)ar rcsD $@.tmp $^
+	mv -- $@.tmp $@
+.PHONY: sdk sdk-runtime
+sdk-runtime: build/sdk/lib/start.o build/sdk/lib/librum.a build/sdk/linker/user.ld
+sdk: sdk-runtime
+	python3 scripts/package-sdk.py
 USER_DEBUG := $(addprefix build/user/debug/,$(addsuffix .elf,$(USER_PROGRAMS)))
 USER_ASSETS := $(addprefix build/user/system/,$(addsuffix .elf,$(USER_PROGRAMS)))
 USER_DEPENDENCIES := $(USER_RUNTIME:.o=.d) $(addprefix build/user/objects/,$(addsuffix .d,$(USER_PROGRAMS)))
@@ -116,6 +124,6 @@ build/user/programs.txt: $(USER_ASSETS) $(USER_RULES)
 	printf '%s\n' $(notdir $(USER_ASSETS)) > $@.tmp
 	mv -- $@.tmp $@
 
-test-user: user
+test-user: user test-sdk-host
 	python3 tests/user-elf-test.py --cross-prefix $(CROSS_PREFIX)
 
