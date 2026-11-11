@@ -81,7 +81,8 @@ static rum_result_t start_process(const char *program, const struct rum_argument
     *child = 0;
     if (!process_filesystem_context()) return -RUM_EBUSY;
     struct object_handles inherited = {0};
-    rum_result_t result = object_handles_inherit(&inherited, task_current_objects(), RUM_RIGHT_MASK);
+    const struct object_handles *source = task_current_objects();
+    rum_result_t result = source ? object_handles_inherit(&inherited, source, RUM_RIGHT_MASK) : 0;
     if (!result) result = start_prepared_process(program, arguments, foreground, shell, handles, &inherited, child);
     rum_result_t closed = object_handles_destroy(&inherited);
     return result ? result : closed;

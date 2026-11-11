@@ -21,8 +21,36 @@ static struct block_result read_disk(struct block_device *d, uint64_t lba, uint6
     (void)d; (void)lba; (void)p; ++driver_calls; return (struct block_result){ .completed = count };
 }
 static const struct block_operations disk_ops = { .read = read_disk };
+static unsigned scan_mode, scan_calls;
+static enum fs_error scan_lookup(void *context, uint64_t parent, const char *name, struct fs_node *node)
+{
+    (void)context; (void)name;
+    *node = (struct fs_node){ .id = parent == 1 ? 2 : scan_mode == 1 ? parent + 1 : 3,
+        .kind = parent == 1 || scan_mode == 1 ? FS_DIRECTORY : FS_FILE };
+    return FS_OK;
+}
+static enum fs_error scan_directory(void *context, uint64_t id, uint64_t cursor, struct fs_entry *entry, uint64_t *next)
+{
+    (void)context; (void)id; ++scan_calls;
+    if (scan_mode == 1 && cursor) return FS_END;
+    *entry = (struct fs_entry){ .kind = scan_mode == 1 ? FS_DIRECTORY : FS_FILE, .name = "E" };
+    *next = scan_mode == 2 ? cursor : cursor + 1; return FS_OK;
+}
+static void index_limits(void)
+{
+    const struct fs_operations operations = { .lookup = scan_lookup, .readdir = scan_directory };
+    const struct fs_backend backend = { .operations = &operations, .root = 1, .naming = FS_NAMES_FAT83 };
+    struct fs_system_index index;
+    scan_mode = 0; scan_calls = 0;
+    assert(fs_system_index_build(&index, &backend) == FS_NO_SPACE && !index.valid && scan_calls <= FS_SYSTEM_OBJECT_LIMIT);
+    scan_mode = 1; scan_calls = 0;
+    assert(fs_system_index_build(&index, &backend) == FS_TOO_DEEP && !index.valid && scan_calls <= FS_PATH_DEPTH * 2);
+    scan_mode = 2; scan_calls = 0;
+    assert(fs_system_index_build(&index, &backend) == FS_IO_ERROR && !index.valid && scan_calls == 1);
+}
 int main(void)
 {
+    index_limits();
     test_page_budget(-1);
     assert(heap_initialize() && test_files_initialize() && test_files_mount());
     assert(fs_set_authority_policy(trusted, trusted) && block_set_authority_policy(block_allowed));
@@ -46,6 +74,8 @@ int main(void)
     }
     assert(fs_replace(&cwd, "../CORE.BIN", "bad", 3) == FS_ACCESS && fs_mkdir(NULL, "/SYS/NEW") == FS_ACCESS);
     assert(fs_rename(NULL, "/RUM/CORE.BIN", "/MOVED", false) == FS_ACCESS);
+    assert(fs_rename(NULL, "/CORE.ALS", "/MOVED", false) == FS_ACCESS &&
+           fs_rename(NULL, "/ROOT.TXT", "/CORE.ALS", true) == FS_ACCESS);
     assert(fs_rename(NULL, "/ROOT.TXT", "/RUM/NEW", false) == FS_ACCESS && fs_remove(NULL, "/RUM") == FS_ACCESS);
     assert(fs_write(handle->reference, 0, "bad", 3).error == FS_ACCESS && fs_truncate(handle->reference, 0) == FS_ACCESS);
     handle->pending_error = -RUM_EIO;

@@ -96,7 +96,8 @@ def boot(qemu, ram, label, disk=None, iso=False, options="", readonly=False, mar
                 text = serial.read_text(errors="replace") if serial.exists() else ""
                 if marker in text and (text.endswith("> ") or (options == "rum.recovery" and text.endswith("rum_boot_ok\n"))):
                     break
-                if "rum kernel panic" in text or process.poll() is not None or time.monotonic() > deadline:
+                unexpected_recovery = marker == "Type 'help' for commands." and "Kernel recovery shell." in text
+                if "rum kernel panic" in text or unexpected_recovery or process.poll() is not None or time.monotonic() > deadline:
                     raise AssertionError(f"{label}: boot failed: {text[-5000:]}")
                 time.sleep(0.02)
             with socket.socket(family, socket.SOCK_STREAM) as connection:
@@ -134,9 +135,9 @@ def commands(console):
     console.command("run /RUM/LARGE.ELF n", "Program exited with status 0.")
     console.command("run /RUM/LARGE.ELF l", "Program exited with status 0.")
     console.command("run /RUM/LARGE.ELF f", "Program stopped after a user fault.")
-    console.command("write /rum/TEST.TXT writable system directory")
-    console.command("cat /rum/TEST.TXT", "writable system directory")
-    console.command("rm /rum/TEST.TXT")
+    console.command("write /rum/TEST.TXT denied system write", "access denied")
+    console.command("cat /rum/TEST.TXT", "file or directory not found")
+    console.command("rm /rum/TEST.TXT", "access denied")
     console.command("cd /rum"); console.wait("/RUM> ")
     console.command("cd .."); console.wait("/> ")
     console.command("cd ../../.."); console.wait("/> ")

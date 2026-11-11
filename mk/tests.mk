@@ -1,4 +1,25 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
+.PHONY: test-authority
+test-authority: all test-authority-host build/tests/system-authority.elf build/tests/system-authority.iso
+	python3 tests/lifecycle-qemu-test.py --qemu $(QEMU) --authority-only
+	python3 tests/system-authority-qemu-test.py --qemu $(QEMU)
+test-build test-lifecycle: build/tests/system-authority.elf build/tests/system-authority.iso
+build/tests/user/system-authority.o: tests/system-authority-user.c $(USER_INCLUDE_STAMP) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/tests/user/system-authority.debug.elf: build/tests/user/system-authority.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+build/tests/user/system-authority.elf: build/tests/user/system-authority.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@
+	build/tools/check-user-elf $@ $<
+build/tests/system-authority-image.o: tests/system-authority-image.s build/tests/user/system-authority.elf
+	@mkdir -p $(@D)
+	$(AS) $< -o $@
+build/tests/system-authority.iso: build/tests/system-authority.elf $(TESTS_RULES)
+	@mkdir -p build/system-authority-isodir/boot/grub
+	cp $< build/system-authority-isodir/boot/rum.elf
+	printf 'set timeout=0\nmenuentry "rum system authority" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/system-authority-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/system-authority-isodir
 .PHONY: test-process-objects-host test-process-objects
 build/tests/process-reference-test: tests/process-reference-test.c kernel/process/reference.c kernel/object/object.c kernel/include/rum/process_reference.h kernel/include/rum/object.h kernel/include/rum/task.h tests/handles-include/rum/cpu.h $(ABI_HEADERS) $(TESTS_RULES)
 	@mkdir -p $(@D)
@@ -346,6 +367,9 @@ test-shared-handles: test-shared-handles-host build/tests/shared-handles.elf bui
 FAULT_KERNELS := build/tests/fault-de.elf build/tests/fault-ud.elf build/tests/fault-gp.elf build/tests/fault-pf.elf
 FAULT_OBJECTS := $(FAULT_KERNELS:.elf=.o)
 FAULT_COMMON := build/tests/fs-backend.o $(filter-out build/kernel/core/init.o,$(OBJECTS)) build/tests/fault-trigger.o
+build/tests/system-authority.elf: build/tests/system-authority-kernel.o build/tests/system-authority-image.o $(filter-out build/tests/fault-trigger.o build/kernel/process/syscall.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
 build/tests/process-objects.elf: build/tests/process-objects-kernel.o build/tests/process-objects-image.o $(filter-out build/tests/fault-trigger.o build/kernel/process/task.o build/kernel/process/syscall.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
@@ -372,6 +396,7 @@ PROCESS_FAULT_KERNELS := $(addprefix build/tests/process-fault-,$(addsuffix .elf
 PROCESS_FAULT_OBJECTS := $(PROCESS_FAULT_KERNELS:.elf=.o)
 TEST_DEPENDENCIES := $(FAULT_OBJECTS:.o=.d) $(PAGING_OBJECTS:.o=.d) $(CPU_OBJECTS:.o=.d) $(PROCESS_FAULT_OBJECTS:.o=.d) build/tests/cpu-probe.d build/tests/process-fault-probe.d build/tests/syscall-kernel.d build/tests/syscall-probe.d build/tests/elf-loader-kernel.d build/tests/elf-loader-image.d build/tests/paging-spaces.d build/tests/user-memory.d build/tests/irq-kernel.d build/tests/storage-kernel.d build/tests/storage-checks.d build/tests/task-kernel.d build/tests/task-fault-kernel.d build/tests/task-double-fault-kernel.d build/tests/task-stack-fault.d
 TEST_DEPENDENCIES += build/tests/user/vm-regions.d build/tests/vm-regions-kernel.d
+TEST_DEPENDENCIES += build/tests/system-authority-kernel.d build/tests/user/system-authority.d
 TEST_DEPENDENCIES += build/tests/process-objects-kernel.d build/tests/user/process-objects.d
 TEST_DEPENDENCIES += build/tests/user/runtime.d build/tests/runtime-kernel.d
 TEST_DEPENDENCIES += build/tests/user/large-loader.d build/tests/large-loader-kernel.d
@@ -967,6 +992,7 @@ test-host: build/tests/block-test build/tests/console-test build/tests/memory-te
 	./build/tests/elf-stream-test
 	./build/tests/object-test
 	./build/tests/process-reference-test
+	./build/tests/authority-test
 	./build/tests/runtime-test
 	./build/tests/object-handle-test
 	./build/tests/timer-test
