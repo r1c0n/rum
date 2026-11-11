@@ -18,7 +18,19 @@ void authority_syscall_dispatch(struct exception_frame *);
 void syscall_dispatch(struct exception_frame *frame)
 {
     if (frame && frame->eax == 0xffffffe0u && frame->vector == RUM_SYSCALL_VECTOR && !frame->error &&
-        exception_frame_from_user(frame) && task_current_is_process()) { frame->eax = fs_test_backend_mutation_calls(); return; }
+        exception_frame_from_user(frame) && task_current_is_process()) {
+        if (frame->ebx) {
+            static const struct block_operations no_driver = {0};
+            struct block_device device = { .sector_size = 512, .sector_count = 1, .online = true, .operations = &no_driver };
+            unsigned char bytes[512];
+            bool denied = block_read(&device, 0, 1, bytes, sizeof bytes).error == BLOCK_ACCESS &&
+                block_write(&device, 0, 1, bytes, sizeof bytes).error == BLOCK_ACCESS &&
+                block_flush(&device).error == BLOCK_ACCESS && !device.busy &&
+                fs_mount_disk(fs_test_backend()) == FS_ACCESS && fs_unmount_disk() == FS_ACCESS;
+            frame->eax = denied ? 0 : 1;
+        } else frame->eax = fs_test_backend_mutation_calls();
+        return;
+    }
     authority_syscall_dispatch(frame);
 }
 extern const char __kernel_start[], __kernel_end[];

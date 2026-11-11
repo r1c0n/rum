@@ -26,6 +26,7 @@ int main(int argc, char **argv)
         return 0;
     }
     rum_result_t before = rum_syscall3(TEST_WRITES, 0, 0, 0);
+    if (before >= 0) check(!rum_syscall3(TEST_WRITES, 1, 0, 0), 6);
     const char *paths[] = {"/rum/core.bin", "/RUM//./CORE.BIN", "/DOCS/../RUM/SUB/../CORE.BIN", "/SYS/CORE.BIN", "/CORE.ALS"};
     for (unsigned i = 0; i < (before < 0 ? 3u : 5u); ++i) {
         check(rum_open(paths[i], RUM_OPEN_WRITE, RUM_OPEN_CREATE | RUM_OPEN_TRUNCATE) == -RUM_EACCES &&
