@@ -1,4 +1,10 @@
 #include <rum/user.h>
+rum_result_t rum_resources(struct rum_resource_information *information)
+{
+    if (!information) return -RUM_EINVAL;
+    *information = (struct rum_resource_information){ .version = RUM_RESOURCE_VERSION, .size = sizeof *information };
+    return rum_syscall3(RUM_SYS_RESOURCES, (rum_address_t)(uintptr_t)information, 0, 0);
+}
 rum_result_t rum_process_object_control(struct rum_process_object_request *request)
 {
     return rum_syscall3(RUM_SYS_PROCESS_OBJECT, (rum_address_t)(uintptr_t)request, 0, 0);

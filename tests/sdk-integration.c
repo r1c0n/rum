@@ -9,6 +9,50 @@
 static const unsigned char image_data[131073] = { [0 ... 131072] = 0x5a };
 static volatile unsigned char private_bss[262145];
 static void check(bool ok, int code) { if (!ok) rum_exit(code); }
+static void resources_check(void)
+{
+    struct rum_resource_information baseline, info;
+    check(!rum_resources(&baseline) && baseline.descriptors == 3 && !baseline.typed_handles, 83);
+    struct rum_vm_allocate_request region = { .version = RUM_VM_ABI_VERSION, .size = sizeof region,
+        .bytes = 8192, .protection = RUM_VM_READ | RUM_VM_WRITE };
+    check(!rum_vm_allocate(&region), 84);
+    struct rum_resource_information *cross = (void *)(uintptr_t)(region.address + 4080);
+    check(!rum_resources(cross) && !memcmp(cross, &baseline, sizeof baseline), 85);
+    struct rum_resource_information empty = { .version = RUM_RESOURCE_VERSION, .size = sizeof empty };
+    for (unsigned field = 0; field < sizeof empty / sizeof(uint32_t); ++field) {
+        uint32_t words[sizeof empty / sizeof(uint32_t)]; memcpy(words, &empty, sizeof empty); ++words[field];
+        memcpy(cross, words, sizeof words);
+        check(rum_syscall3(RUM_SYS_RESOURCES, (rum_address_t)(uintptr_t)cross, 0, 0) == -RUM_EINVAL &&
+              !memcmp(cross, words, sizeof words), 98);
+    }
+    *cross = empty; cross->reserved_tail[3] = 1;
+    check(rum_syscall3(RUM_SYS_RESOURCES, (rum_address_t)(uintptr_t)cross, 0, 0) == -RUM_EINVAL && cross->reserved_tail[3] == 1, 86);
+    *cross = empty;
+    check(rum_syscall3(RUM_SYS_RESOURCES, (rum_address_t)(uintptr_t)cross, 1, 0) == -RUM_EINVAL, 87);
+    check(!rum_vm_protect(region.address, region.bytes, RUM_VM_READ), 88);
+    check(rum_syscall3(RUM_SYS_RESOURCES, (rum_address_t)(uintptr_t)cross, 0, 0) == -RUM_EFAULT, 89);
+    check(!rum_vm_protect(region.address, region.bytes, RUM_VM_READ | RUM_VM_WRITE) &&
+          !memcmp(cross, &empty, sizeof empty) && !rum_vm_release(region.address, region.bytes), 90);
+    check(rum_syscall3(RUM_SYS_RESOURCES, UINT32_MAX - 16, 0, 0) == -RUM_EFAULT, 91);
+    rum_result_t fd = rum_open("/README.TXT", RUM_OPEN_READ, 0); check(fd == 3, 92);
+    rum_object_handle_t tokens[RUM_OBJECT_HANDLE_LIMIT];
+    for (unsigned i = 0; i < RUM_OBJECT_HANDLE_LIMIT; ++i)
+        check(!rum_object_from_descriptor(3, RUM_OBJECT_FILE, RUM_RIGHT_READ, 0, &tokens[i]), 93);
+    rum_object_handle_t extra;
+    check(rum_object_from_descriptor(3, RUM_OBJECT_FILE, RUM_RIGHT_READ, 0, &extra) == -RUM_EMFILE &&
+          !rum_resources(&info) && info.typed_handles == 32 && info.objects == baseline.objects + 1 &&
+          info.table_references == baseline.table_references + 33 && info.types[RUM_OBJECT_FILE] == 1, 94);
+    check(rum_object_read(tokens[0], (void *)(uintptr_t)1, 1) == -RUM_EFAULT &&
+          rum_object_write(tokens[0], "x", 1) == -RUM_EACCES && rum_remove("/README.TXT") == -RUM_EBUSY, 95);
+    struct rum_object_information wrong;
+    check(rum_object_query(tokens[0], RUM_OBJECT_DIRECTORY, &wrong) == -RUM_EINVAL &&
+          rum_object_duplicate(tokens[0], RUM_OBJECT_FILE, RUM_RIGHT_WRITE, 0, &extra) == -RUM_EACCES, 99);
+    for (unsigned i = 0; i < RUM_OBJECT_HANDLE_LIMIT; ++i) check(!rum_object_close(tokens[i]), 96);
+    struct rum_object_information object;
+    check(rum_object_query(tokens[0], RUM_OBJECT_FILE, &object) == -RUM_EBADF && !rum_close((rum_handle_t)fd) &&
+          !rum_resources(&info) && !memcmp(&info, &baseline, sizeof info), 97);
+}
+
 static unsigned char pattern(unsigned index, unsigned seed, unsigned round)
 {
     return (unsigned char)((index * 37u) ^ (index >> 7) ^ (seed * 23u) ^ (round * 11u));
@@ -154,6 +198,7 @@ int main(int argc, char **argv)
         return 0;
     }
     check(argc == 1, 60);
+    resources_check();
     for (unsigned iteration = 0; iteration < 2; ++iteration) {
         rum_pid_t children[4];
         for (unsigned i = 0; i < 3; ++i) children[i] = launch(argv[0], 'w', i + 1, 0);
@@ -173,6 +218,7 @@ int main(int argc, char **argv)
         collect(child, RUM_PROCESS_CANCELLED, 0); check(!rum_object_close(process), 76);
         check(rum_read(pipe.read_handle, &ready, 1) == 0 && !rum_close(pipe.read_handle), 65);
         private_check(0, false);
+        resources_check();
     }
     return puts("SDK mixed memory and I/O passed.") == EOF;
 }

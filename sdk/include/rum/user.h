@@ -13,6 +13,8 @@
 #include <rum/abi/memory.h>
 #include <rum/abi/object.h>
 #include <rum/abi/process-object.h>
+#include <rum/abi/resources.h>
+rum_result_t rum_resources(struct rum_resource_information *);
 rum_result_t rum_process_object_control(struct rum_process_object_request *);
 rum_result_t rum_process_open(rum_pid_t, uint32_t rights, uint32_t flags, rum_object_handle_t *);
 rum_result_t rum_process_query(rum_object_handle_t, struct rum_process_object_information *);

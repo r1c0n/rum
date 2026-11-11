@@ -48,7 +48,8 @@
 #define RUM_SYS_OBJECT 36 /* ebx: in/out rum_object_request; other args zero */
 #define RUM_SYS_OBJECT_IO 37 /* ebx: rum_object_io_request; other args zero */
 #define RUM_SYS_PROCESS_OBJECT 38 /* ebx: rum_process_object_request; other args zero */
-#define RUM_SYS_COUNT  39
+#define RUM_SYS_RESOURCES 39 /* ebx: in/out rum_resource_information; other args zero */
+#define RUM_SYS_COUNT  40
 #define RUM_ABI_PID_MAX 0x7FFFFFFF /* Positive IDs fit the signed result type. */
 
 #define RUM_STDIN  0

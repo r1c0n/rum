@@ -292,12 +292,35 @@ static void open_modes(void)
     assert(!process_handles_destroy(&t) && fs_remove(NULL, "/MODES.TXT") == FS_OK);
     empty();
 }
+static void resource_counts(void)
+{
+    struct process_handles a = {0}, foreign = {0}; struct object_handles typed = {0};
+    struct rum_resource_information info;
+    assert(!process_handles_initialize(&a) && !process_handles_initialize(&foreign));
+    assert(process_handle_open(&foreign, NULL, "/DATA.BIN", FS_READ, 0) == 3);
+    assert(!process_resources_read(&a, &typed, &info));
+    assert(info.version == 1 && info.size == sizeof info && info.descriptors == 3 && !info.typed_handles &&
+           info.objects == 3 && info.table_references == 3 && info.types[RUM_OBJECT_CONSOLE_INPUT] == 1 &&
+           info.types[RUM_OBJECT_CONSOLE_OUTPUT] == 2 && !info.types[RUM_OBJECT_FILE]);
+    assert(process_handle_open(&a, NULL, "/DATA.BIN", FS_READ, 0) == 3 && process_handle_duplicate(&a, 3, 4, 0) == 4);
+    rum_object_handle_t tokens[RUM_OBJECT_HANDLE_LIMIT];
+    for (unsigned i = 0; i < RUM_OBJECT_HANDLE_LIMIT; ++i)
+        assert(!process_handle_export(&a, 3, &typed, RUM_OBJECT_FILE, RUM_RIGHT_READ, 0, &tokens[i]));
+    struct object_statistics before = object_stats(); unsigned calls = fs_test_backend_calls();
+    assert(!process_resources_read(&a, &typed, &info) && info.descriptors == 5 && info.typed_handles == 32 &&
+           info.objects == 4 && info.table_references == 37 && info.types[RUM_OBJECT_FILE] == 1);
+    struct object_statistics after = object_stats(); assert(!memcmp(&before, &after, sizeof before) && calls == fs_test_backend_calls());
+    in_irq = true; assert(process_resources_read(&a, &typed, &info) == -RUM_EBUSY); in_irq = false;
+    assert(process_resources_read(NULL, &typed, &info) == -RUM_EINVAL);
+    assert(!object_handles_destroy(&typed) && !process_handles_destroy(&a) && !process_handles_destroy(&foreign)); empty();
+}
+
 int main(void)
 {
     test_page_budget(-1);
     assert(heap_initialize() && test_files_initialize() && test_files_mount());
     assert(test_file_put("DATA.BIN", "abcdef", 6));
-    retained_operations(); typed_aliases(); aliases(); validation(); exhaustion(); pipes_test(); open_modes();
+    retained_operations(); typed_aliases(); aliases(); validation(); exhaustion(); pipes_test(); open_modes(); resource_counts();
     assert(!fs_stats().references && !fs_test_backend_pins() && fs_unmount_disk() == FS_OK);
     puts("PASS: shared offsets/errors, descriptor mapping, authority, pinning, limits and rollback");
     return 0;

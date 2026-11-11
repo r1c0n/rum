@@ -96,6 +96,9 @@ static void exercise(const char *mode)
           heap_stats().allocations == heap.allocations && heap_stats().used_bytes == heap.used_bytes &&
           pmm_stats().free_pages + (heap_stats().mapped_bytes - heap.mapped_bytes) / RUM_PAGE_SIZE == pages,
           "processes, waits, sessions, file objects, heap, stacks and pages return to baseline");
+    struct object_statistics objects = object_stats();
+    check(!objects.total.objects && !objects.total.references[OBJECT_OWNER] && !objects.total.references[OBJECT_TABLE] &&
+          !objects.total.references[OBJECT_OPERATION], "mixed workload releases all object reference classes");
     serial_writestring("rum_integration_round_ok: "); serial_writestring(mode); serial_writestring("\n");
 }
 void kernel_main(uint32_t magic, uint32_t information)

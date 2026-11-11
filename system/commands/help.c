@@ -22,6 +22,7 @@ static const struct entry entries[] = {
     {"processes", "run", "run <program> [arguments]", "Run a foreground program"},
     {"processes", "start", "start <program> [arguments]", "Start a program without waiting"},
     {"processes", "ps", "ps", "List processes"},
+    {"processes", "handles", "handles", "Show this command's resource counts"},
     {"processes", "kill", "kill <pid>", "Request process cancellation"},
     {"processes", "jobs", "jobs", "List shell jobs"},
     {"processes", "fg", "fg <job>", "Bring a job to the foreground"},
