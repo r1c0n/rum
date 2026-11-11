@@ -5,6 +5,7 @@ DRIVER_SOURCES := drivers/display/terminal.c drivers/serial/serial.c \
                   drivers/input/keyboard.c \
                   drivers/input/keyboard_decode.c drivers/storage/ata.c
 MM_SOURCES := kernel/mm/pmm.c kernel/mm/heap.c kernel/mm/vm.c
+OBJECT_SOURCES := kernel/object/object.c
 PROCESS_SOURCES := kernel/process/task.c kernel/process/session.c kernel/process/jobs.c kernel/process/syscall.c kernel/process/handles.c \
                    kernel/process/elf.c kernel/process/process.c
 FS_SOURCES := kernel/fs/path.c kernel/fs/fs-types.c \
@@ -16,7 +17,7 @@ DEBUG_SOURCES := kernel/debug/diagnostics.c kernel/debug/diagnostics-report.c
 ARCH_SOURCES := arch/i386/cpu.c arch/i386/gdt.c arch/i386/interrupt.c \
                 arch/i386/exceptions.c \
                 arch/i386/paging.c
-SOURCES := $(CORE_SOURCES) $(DRIVER_SOURCES) $(MM_SOURCES) \
+SOURCES := $(CORE_SOURCES) $(DRIVER_SOURCES) $(MM_SOURCES) $(OBJECT_SOURCES) \
            $(PROCESS_SOURCES) $(FS_SOURCES) $(IO_SOURCES) \
            $(HAL_SOURCES) $(RECOVERY_SOURCES) \
            $(DEBUG_SOURCES) $(ARCH_SOURCES)

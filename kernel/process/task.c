@@ -815,6 +815,15 @@ static bool switch_protected(void)
     return current->switch_holds || fs_operation_active() || block_request_active();
 }
 
+bool task_blocking_allowed(void)
+{
+    if (!ready || irq_in_handler()) return false;
+    uint32_t saved = cpu_interrupt_save();
+    bool allowed = (saved & IF) && current && current != &tasks[IDLE] &&
+        current->state == TASK_RUNNING && !switch_protected();
+    cpu_interrupt_restore(saved); return allowed;
+}
+
 /* Call with IF clear. All CR3s borrow supervisor kernel code/data/stacks, so
    the old and new stacks stay mapped during the atomic bookkeeping switch. */
 static void schedule(void)

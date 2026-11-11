@@ -1,4 +1,11 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
+.PHONY: test-objects-host
+build/tests/object-test: tests/object-test.c kernel/object/object.c kernel/include/rum/object.h kernel/include/rum/task.h tests/handles-include/rum/cpu.h $(ABI_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/handles-include -Ikernel/include -Isdk/include $(filter %.c,$^) -o $@
+test-objects-host: build/tests/object-test
+	./build/tests/object-test
+test-host test-build: build/tests/object-test
 .PHONY: test-sdk-host test-sdk
 test-sdk-host: sdk
 	python3 tests/sdk-package-test.py --cross-prefix $(CROSS_PREFIX)
@@ -874,6 +881,7 @@ test-host: build/tests/ata-test
 
 test-host: build/tests/block-test build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
 	./build/tests/elf-stream-test
+	./build/tests/object-test
 	./build/tests/runtime-test
 	./build/tests/timer-test
 	./build/tests/session-test
