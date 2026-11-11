@@ -6,10 +6,11 @@ private interface is `kernel/include/rum/object.h`. Applications never receive
 these headers, addresses, callback pointers or layouts.
 
 The core manages lifetime, not names or access rights. Resource implementations
-still own their payload and backend operations. Existing stream descriptors,
-open descriptions, pipes and process records currently use their established
-ownership paths; their counts remain in their subsystem diagnostics. Common
-object counts cover only resources registered with this core.
+still own their payload and backend operations. Open file/directory descriptions,
+pipe endpoints and console descriptions embed a common object header. Legacy
+descriptors and typed handles own TABLE references to those same descriptions;
+active syscalls own OPERATION references. Process records retain their existing
+lifecycle implementation.
 
 The [typed handle table](object-handles.md) uses this core for independent
 per-entry grants, generations and operation references. Its public namespace
@@ -49,6 +50,9 @@ an alias or operation does. These classes confer no access rights themselves.
    same short interrupt-protected update.
 
 The core rejects acquiring or transferring references to an unpublished object.
+`object_retype` can correct a private construction's category before publication,
+for example after opening a path reveals a directory; per-kind counters move
+with it. A published object's type cannot change.
 Repeated publication and reinitialization of an occupied header fail. The core
 cannot infer whether a type's payload is complete; checking it before publication
 is the constructor's responsibility.
@@ -134,8 +138,13 @@ Objects: 0 allocated | 0 published, 0 constructing, 0 destroying
 Object refs: 0 owners, 0 table entries, 0 operations
 ```
 
-These lines describe the common core. The existing `Handles`, `Filesystem`,
-`Pipes` and process lines continue to report resources on their current paths.
+These lines describe the common core, including open descriptions. `Handles`
+reports legacy descriptor entries, live descriptions and extra descriptor
+aliases; typed-only or operation-only descriptions can outnumber descriptors.
+`Filesystem` counts backend identities/references, and `Pipes` counts buffers,
+endpoints and internal operations. These are views of shared resources, not
+independent totals to add together. Exporting a typed alias adds a TABLE
+reference without another description, backend pin or pipe endpoint.
 
 ## Verification
 

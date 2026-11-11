@@ -62,7 +62,8 @@ static void exercise(const char *mode)
         for (unsigned i = 0; i < RUM_TASK_CAPACITY * 4u && !waiting; ++i) {
             check(task_yield(), "run blocking parent");
             struct pipe_statistics s = pipe_stats();
-            waiting = s.operations == 1 && s.read_waiters + s.write_waiters == 1;
+            waiting = s.operations == 1 && s.read_waiters + s.write_waiters == 1 &&
+                      object_stats().total.references[OBJECT_OPERATION] == 1;
         }
         check(waiting && task_cancel_foreground(), "cancel active pipe syscall");
     }
@@ -82,7 +83,8 @@ static void exercise(const char *mode)
     struct process_handle_statistics handles = process_handles_stats();
     check(!snapshot.processes && !snapshot.event_waiters && !snapshot.deadline_waiters &&
           !pipes.pipes && !pipes.operations && !pipes.read_waiters && !pipes.write_waiters && !pipes.buffered_bytes &&
-          !handles.descriptions && !handles.descriptors && !handles.aliases &&
+          !handles.descriptions && !handles.descriptors && !handles.aliases && !object_stats().total.objects &&
+          !object_stats().total.references[OBJECT_OPERATION] &&
           fs_stats().references == fs.references && fs_stats().objects == fs.objects &&
           heap_stats().allocations == heap.allocations && heap_stats().used_bytes == heap.used_bytes &&
           pmm_stats().free_pages + (heap_stats().mapped_bytes - heap.mapped_bytes) / RUM_PAGE_SIZE == pages,
@@ -98,7 +100,8 @@ void kernel_main(uint32_t magic, uint32_t information)
     check(test_file_put("PIPE.ELF", pipes_asset_start, pipes_asset_end - pipes_asset_start), "test-owned executable");
     cpu_interrupt_enable(); pic_unmask(0);
     for (unsigned i = 0; i < 4; ++i) {
-        exercise("parent"); exercise("cancelread"); exercise("cancelwrite"); exercise("orphan");
+        exercise("parent"); exercise("cancelread"); exercise("cancelwrite");
+        exercise("canceltypedread"); exercise("canceltypedwrite"); exercise("orphan");
     }
     serial_writestring("rum_pipes_ok\n"); cpu_halt();
 }

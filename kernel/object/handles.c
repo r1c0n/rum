@@ -89,14 +89,23 @@ static rum_result_t close_entry(struct object_handle_entry *entry)
     entry->closing = false;
     cpu_interrupt_restore(saved); return result;
 }
+rum_result_t object_request_validate(const struct rum_object_request *request)
+{
+    if (!request || request->version != RUM_OBJECT_ABI_VERSION || request->size != sizeof *request ||
+        request->result_handle || request->reserved[0] || request->reserved[1] || request->reserved[2] || request->reserved[3] ||
+        request->operation < RUM_OBJECT_QUERY || request->operation > RUM_OBJECT_FROM_DESCRIPTOR ||
+        (request->type != RUM_OBJECT_ANY && !object_rights_mask(request->type)) ||
+        (request->rights & ~RUM_RIGHT_MASK) ||
+        ((request->operation == RUM_OBJECT_QUERY || request->operation == RUM_OBJECT_CLOSE) && (request->rights || request->flags)) ||
+        (request->flags & ~RUM_OBJECT_INHERIT)) return -RUM_EINVAL;
+    return 0;
+}
 rum_result_t object_handle_request(struct object_handles *table, struct rum_object_request *request)
 {
-    if (!table || !request || request->version != RUM_OBJECT_ABI_VERSION || request->size != sizeof *request ||
-        request->result_handle || request->reserved[0] || request->reserved[1] || request->reserved[2] || request->reserved[3] ||
-        request->operation < RUM_OBJECT_QUERY || request->operation > RUM_OBJECT_CLOSE ||
-        (request->rights & ~RUM_RIGHT_MASK) ||
-        (request->operation != RUM_OBJECT_DUPLICATE && (request->rights || request->flags)) ||
-        (request->flags & ~RUM_OBJECT_INHERIT)) return -RUM_EINVAL;
+    rum_result_t error = object_request_validate(request);
+    if (error) return error;
+    if (!table) return -RUM_EINVAL;
+    if (request->operation == RUM_OBJECT_FROM_DESCRIPTOR) return -RUM_ENOSYS; /* Resource-service boundary. */
     if (irq_in_handler()) return -RUM_EBUSY;
     uint32_t saved = cpu_interrupt_save();
     struct object_handle_entry *entry = lookup(table, request->handle);

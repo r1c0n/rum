@@ -64,6 +64,23 @@ rum_result_t object_initialize(struct kernel_object *object, const struct object
     }
     cpu_interrupt_restore(saved); return error;
 }
+rum_result_t object_retype(struct kernel_object *object, const struct object_type *type)
+{
+    if (!object || !type || !type->destroy || type->kind <= OBJECT_INVALID || type->kind >= OBJECT_KIND_COUNT)
+        return -RUM_EINVAL;
+    if (irq_in_handler()) return -RUM_EBUSY;
+    uint32_t saved = cpu_interrupt_save();
+    rum_result_t error = object->state != OBJECT_CONSTRUCTING ? -RUM_EINVAL : 0;
+    if (!error) {
+        enum object_kind old = object->type->kind;
+        --statistics.kinds[old].objects; --statistics.kinds[old].constructing;
+        --statistics.kinds[old].references[OBJECT_OWNER];
+        ++statistics.kinds[type->kind].objects; ++statistics.kinds[type->kind].constructing;
+        ++statistics.kinds[type->kind].references[OBJECT_OWNER];
+        object->type = type;
+    }
+    cpu_interrupt_restore(saved); return error;
+}
 rum_result_t object_publish(struct kernel_object *object, enum object_reference reference)
 {
     if (!object || !reference_valid(reference)) return -RUM_EINVAL;

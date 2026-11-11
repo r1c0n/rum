@@ -46,7 +46,8 @@
 #define RUM_SYS_VM_PROTECT 34 /* ebx: rum_vm_protect_request; other args zero */
 #define RUM_SYS_CLOCK 35 /* ebx: in/out rum_clock_request; other arguments zero */
 #define RUM_SYS_OBJECT 36 /* ebx: in/out rum_object_request; other args zero */
-#define RUM_SYS_COUNT  37
+#define RUM_SYS_OBJECT_IO 37 /* ebx: rum_object_io_request; other args zero */
+#define RUM_SYS_COUNT  38
 #define RUM_ABI_PID_MAX 0x7FFFFFFF /* Positive IDs fit the signed result type. */
 
 #define RUM_STDIN  0

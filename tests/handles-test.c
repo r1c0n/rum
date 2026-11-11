@@ -10,6 +10,7 @@
 #include "fs-backend.h"
 #include "page-backend.h"
 #include "test-files.h"
+#include "pipe-task-backend.h"
 
 uint32_t handle_test_flags = 0x200u;
 static bool in_irq;
@@ -18,6 +19,43 @@ static void empty(void)
 {
     struct process_handle_statistics s = process_handles_stats();
     assert(!s.descriptors && !s.descriptions && !s.aliases);
+    assert(!object_stats().total.objects && !object_stats().total.references[OBJECT_TABLE] &&
+           !object_stats().total.references[OBJECT_OPERATION]);
+}
+static struct process_handles *pending_table;
+static void close_pending(void)
+{
+    assert(pipe_stats().operations == 1);
+    assert(!process_handle_close(pending_table, 3) && !process_handle_close(pending_table, 4));
+    assert(process_handles_stats().descriptors == 3 && process_handles_stats().descriptions == 4 &&
+           !process_handles_stats().aliases && object_stats().total.references[OBJECT_OPERATION] == 1);
+}
+static void retained_operations(void)
+{
+    struct process_handles table = {0};
+    assert(!process_handles_initialize(&table));
+    assert(process_handle_open(&table, NULL, "/DATA.BIN", FS_READ, 0) == 3);
+    struct process_handle *operation;
+    assert(!process_handle_acquire(&table, 3, &operation));
+    assert(!process_handle_close(&table, 3) && fs_remove(NULL, "/DATA.BIN") == FS_BUSY &&
+           fs_replace(NULL, "/DATA.BIN", "x", 1) == FS_BUSY);
+    char bytes[8]; assert(process_handle_read(operation, bytes, 2) == 2 && bytes[0] == 'a');
+    assert(!object_release(&operation->object, OBJECT_OPERATION));
+    for (unsigned write = 0; write < 2; ++write) {
+        rum_handle_t reader, writer;
+        assert(!process_handles_pipe(&table, &reader, &writer) && reader == 3 && writer == 4);
+        if (write) {
+            char data[RUM_PIPE_ATOMIC_WRITE] = {0};
+            for (unsigned i = 0; i < RUM_PIPE_CAPACITY / sizeof data; ++i)
+                assert(process_handle_write(process_handle_get(&table, writer), data, sizeof data) == sizeof data);
+        }
+        assert(!process_handle_acquire(&table, write ? writer : reader, &operation));
+        pending_table = &table; pipe_test_before_wait = close_pending;
+        rum_result_t result = write ? process_handle_write(operation, bytes, 1) : process_handle_read(operation, bytes, 1);
+        assert(result == (write ? -RUM_EPIPE : 0) && !pipe_test_before_wait);
+        assert(!object_release(&operation->object, OBJECT_OPERATION) && !pipe_stats().pipes);
+    }
+    assert(!process_handles_destroy(&table)); empty();
 }
 static void aliases(void)
 {
@@ -59,6 +97,40 @@ static void aliases(void)
     assert(!process_handles_destroy(&child) && fs_stats().references == 0);
     assert(fs_replace(NULL, "/DATA.BIN", "abcdef", 6) == FS_OK);
     empty();
+}
+static void typed_aliases(void)
+{
+    struct process_handles table = {0}; struct object_handles typed = {0}, child = {0};
+    rum_object_handle_t token = 19;
+    assert(!process_handles_initialize(&table));
+    assert(process_handle_open(&table, NULL, "/DATA.BIN", FS_READ | FS_WRITE, 0) == 3);
+    unsigned refs = fs_stats().references, pins = fs_test_backend_pins();
+    assert(process_handle_export(&table, 3, &typed, RUM_OBJECT_DIRECTORY, RUM_RIGHT_QUERY, 0, &token) == -RUM_EINVAL && token == 19);
+    assert(!process_handle_export(&table, 3, &typed, RUM_OBJECT_FILE, RUM_RIGHT_FILE, RUM_OBJECT_INHERIT, &token));
+    assert(fs_stats().references == refs && fs_test_backend_pins() == pins && process_handles_stats().descriptors == 4);
+    assert(!object_handles_inherit(&child, &typed, RUM_RIGHT_READ));
+    struct kernel_object *object;
+    assert(object_handle_acquire(&child, token, OBJECT_FILE, RUM_RIGHT_WRITE, &object) == -RUM_EACCES);
+    assert(!object_handle_acquire(&child, token, OBJECT_FILE, RUM_RIGHT_READ, &object));
+    struct process_handle *handle = process_handle_from_object(object);
+    char byte; uint64_t position;
+    assert(handle == process_handle_get(&table, 3));
+    assert(!process_handle_seek(handle, 0, RUM_SEEK_SET, &position));
+    assert(process_handle_read(handle, &byte, 1) == 1 && byte == 'a');
+    assert(process_handle_read(process_handle_get(&table, 3), &byte, 1) == 1 && byte == 'b');
+    fs_test_backend_short = 1; fs_test_backend_partial_error = FS_IO_ERROR;
+    assert(process_handle_read(handle, &byte, 2) == 1);
+    fs_test_backend_short = 0; fs_test_backend_partial_error = FS_OK;
+    assert(process_handle_read(process_handle_get(&table, 3), &byte, 1) == -RUM_EIO);
+    assert(!process_handle_close(&table, 3) && !object_handles_destroy(&typed) && !object_handles_destroy(&child));
+    assert(fs_remove(NULL, "/DATA.BIN") == FS_BUSY && fs_replace(NULL, "/DATA.BIN", "x", 1) == FS_BUSY);
+    assert(!object_release(object, OBJECT_OPERATION) && fs_stats().references == refs - 1);
+    assert(process_handle_open(&table, NULL, "/DATA.BIN", FS_READ, 0) == 3);
+    assert(process_handle_export(&table, 3, &typed, 0, RUM_RIGHT_WRITE, 0, &token) == -RUM_EACCES);
+    assert(process_handle_duplicate(&table, 3, 3, RUM_DUP_CLOSPAWN) == 3);
+    assert(process_handle_export(&table, 3, &typed, 0, RUM_RIGHT_READ, RUM_OBJECT_INHERIT, &token) == -RUM_EACCES);
+    assert(!process_handle_export(&table, 3, &typed, 0, RUM_RIGHT_READ, 0, &token));
+    assert(!object_handles_destroy(&typed) && !process_handles_destroy(&table)); empty();
 }
 static void validation(void)
 {
@@ -225,7 +297,7 @@ int main(void)
     test_page_budget(-1);
     assert(heap_initialize() && test_files_initialize() && test_files_mount());
     assert(test_file_put("DATA.BIN", "abcdef", 6));
-    aliases(); validation(); exhaustion(); pipes_test(); open_modes();
+    retained_operations(); typed_aliases(); aliases(); validation(); exhaustion(); pipes_test(); open_modes();
     assert(!fs_stats().references && !fs_test_backend_pins() && fs_unmount_disk() == FS_OK);
     puts("PASS: shared offsets/errors, descriptor mapping, authority, pinning, limits and rollback");
     return 0;

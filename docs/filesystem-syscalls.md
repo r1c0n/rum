@@ -5,6 +5,11 @@ open files on the root FAT16 volume, read or overwrite
 their contents, list directories, change their working directory, create
 directories, remove closed objects, and flush a backend.
 
+Open files and directories can be exported as [typed object handles](object-handles.md).
+Both interfaces retain the same backend identity, shared cursor and deferred
+error. A typed alias or blocked operation keeps the object busy after its last
+descriptor closes; the backend reference is released only once, at final close.
+
 The normal [userspace shell](shell.md) and recovery console use the persistent
 root filesystem, including programs in `/RUM`.
 

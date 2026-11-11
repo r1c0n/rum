@@ -17,6 +17,15 @@ rum_result_t rum_object_query(rum_object_handle_t, uint32_t expected_type, struc
 rum_result_t rum_object_duplicate(rum_object_handle_t, uint32_t expected_type, uint32_t rights,
                                    uint32_t flags, rum_object_handle_t *);
 rum_result_t rum_object_close(rum_object_handle_t);
+rum_result_t rum_object_from_descriptor(rum_handle_t, uint32_t expected_type, uint32_t rights,
+                                       uint32_t flags, rum_object_handle_t *);
+rum_result_t rum_object_io(struct rum_object_io_request *);
+rum_result_t rum_object_read(rum_object_handle_t, void *, rum_size_t);
+rum_result_t rum_object_write(rum_object_handle_t, const void *, rum_size_t);
+rum_result_t rum_object_seek(rum_object_handle_t, int64_t displacement, uint32_t whence, uint64_t *position);
+rum_result_t rum_object_readdir(rum_object_handle_t, struct rum_directory_entry *);
+rum_result_t rum_object_flush(rum_object_handle_t);
+rum_result_t rum_object_isatty(rum_object_handle_t);
 /* Packets carry version/size; allocate returns its chosen address/rounded size.
    Both calls return zero or a negative public error, never a signed address. */
 rum_result_t rum_vm_allocate(struct rum_vm_allocate_request *);

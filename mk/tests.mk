@@ -409,7 +409,7 @@ build/tests/shared-handles.iso: build/tests/shared-handles.elf $(TESTS_RULES)
 	printf 'set timeout=0\nmenuentry "rum shared handles" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/shared-handles-isodir/boot/grub/grub.cfg
 	grub-mkrescue -o $@ build/shared-handles-isodir
 
-build/tests/handles-test: tests/handles-test.c kernel/process/handles.c kernel/io/pipe.c tests/pipe-task-backend.c tests/pipe-task-backend.h kernel/include/rum/handles.h kernel/include/rum/pipe.h tests/handles-include/rum/cpu.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS) $(TESTS_RULES)
+build/tests/handles-test: tests/handles-test.c kernel/process/handles.c kernel/object/object.c kernel/object/handles.c kernel/io/pipe.c tests/pipe-task-backend.c tests/pipe-task-backend.h kernel/include/rum/handles.h kernel/include/rum/pipe.h tests/handles-include/rum/cpu.h $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS) $(TESTS_RULES)
 	@mkdir -p $(@D)
 	$(HOST_CC) -Itests/handles-include -Itests/include $(CPPFLAGS) -std=gnu11 -O2 -fno-builtin -Wall -Wextra -Werror $(sort $(filter %.c,$^)) -o $@
 

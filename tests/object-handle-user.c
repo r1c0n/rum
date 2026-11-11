@@ -28,6 +28,8 @@ static void invalid(void)
     check(rum_object_query(handles[0], RUM_OBJECT_PROCESS, &info) == -RUM_EINVAL &&
           rum_object_query(handles[0] ^ 0x20u, RUM_OBJECT_ANY, &info) == -RUM_EBADF, 11);
     char byte;
+    /* A type tag alone never turns an unrelated object's payload into I/O. */
+    check(rum_object_read(handles[0], &byte, 1) == -RUM_ENOSYS, 74);
     check(rum_read(handles[0], &byte, 1) == -RUM_EBADF && rum_close(handles[0]) == -RUM_EBADF &&
           rum_duplicate(handles[0], RUM_DUP_ANY, 0) == -RUM_EBADF, 12);
     struct rum_object_request request = packet(RUM_OBJECT_QUERY, handles[0]);

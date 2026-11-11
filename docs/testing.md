@@ -37,7 +37,12 @@ Use `--suite object-handles` / `-Suite object-handles` for typed token and right
 checks. They cover generation retirement, type/access denial, reduced inheritance,
 failed publication and cross-page packets through real ring-3 calls, plus exit,
 fault and CPU-bound cancellation cleanup on both boot paths. Legacy descriptor
-checks remain in the `handles` group. ABI tests pin the original syscall numbers.
+checks remain in the `handles` group, alongside mixed descriptor/typed file and
+directory I/O, close-during-operation checks and cancellation of retained console
+reads. The `pipes` group repeats EOF, EPIPE, short transfers, blocked cancellation
+and child-fault cleanup through typed endpoints. The `sdk` group exercises typed
+FAT reads/writes using an externally built program and host byte comparisons.
+ABI tests pin the original syscall numbers.
 
 `make -j4 test-shell-tools-host` runs the fast command-stream and pager checks.
 The `editing` group also exercises the real help/file viewers, prompt/listing

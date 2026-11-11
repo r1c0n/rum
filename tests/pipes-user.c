@@ -92,18 +92,26 @@ static void invalid(void)
     check(rum_spawn_with_handles("/ABSENT.ELF", &arguments, &map, 1, 0) == -RUM_ENOENT, 29);
     check(rum_close(write) == 0 && rum_read(read, buffer, 1) == 0 && rum_close(read) == 0 && query(0) == 0, 30);
 }
-static void binary(void)
+static rum_object_handle_t exported(rum_handle_t descriptor, bool write)
+{
+    rum_object_handle_t handle;
+    check(!rum_object_from_descriptor(descriptor, write ? RUM_OBJECT_PIPE_WRITER : RUM_OBJECT_PIPE_READER,
+          RUM_RIGHT_COMMON | (write ? RUM_RIGHT_WRITE : RUM_RIGHT_READ), 0, &handle) && !rum_close(descriptor), 71);
+    return handle;
+}
+static void binary(bool typed)
 {
     struct rum_pipe_request pipe = create();
     rum_result_t producer = spawn("producer", pipe.write_handle, 1);
     check(producer > 0 && rum_close(pipe.write_handle) == 0, 31);
+    rum_object_handle_t handle = typed ? exported(pipe.read_handle, false) : 0;
     unsigned total = 0; rum_result_t count;
-    while ((count = rum_read(pipe.read_handle, buffer, 333)) > 0) {
+    while ((count = typed ? rum_object_read(handle, buffer, 333) : rum_read(pipe.read_handle, buffer, 333)) > 0) {
         check(total + (unsigned)count <= PAYLOAD, 32);
         for (unsigned i = 0; i < (unsigned)count; ++i) check(buffer[i] == pattern(total + i), 33);
         total += (unsigned)count;
     }
-    check(count == 0 && total == PAYLOAD && rum_close(pipe.read_handle) == 0, 34); finished(producer);
+    check(count == 0 && total == PAYLOAD && (typed ? rum_object_close(handle) : rum_close(pipe.read_handle)) == 0, 34); finished(producer);
 }
 static void writers(void)
 {
@@ -140,11 +148,12 @@ static void readers(void)
     int32_t first = collect(a, RUM_PROCESS_EXITED), second = collect(b, RUM_PROCESS_EXITED);
     check(first > 0 && second > 0 && first + second == RUM_PIPE_CAPACITY * 3, 44);
 }
-static void closures(bool write)
+static void closures(bool write, bool typed)
 {
     struct rum_pipe_request pipe = create();
     if (write) fill(pipe.write_handle);
-    rum_result_t child = spawn(write ? "write-epipe" : "read-eof", write ? pipe.write_handle : pipe.read_handle, write ? 1 : 0);
+    rum_result_t child = spawn(typed ? (write ? "typedwrite" : "typedread") : (write ? "write-epipe" : "read-eof"),
+        write ? pipe.write_handle : pipe.read_handle, write ? 1 : 0);
     check(child > 0 && rum_close(write ? pipe.write_handle : pipe.read_handle) == 0, 45);
     waiters(write ? 2 : 1, 1);
     rum_handle_t remaining = write ? pipe.read_handle : pipe.write_handle;
@@ -153,11 +162,12 @@ static void closures(bool write)
     check(query(write ? 2 : 1) == 1 && rum_close((rum_handle_t)alias) == 0, 47);
     finished(child);
 }
-static void cancellation(bool write)
+static void cancellation(bool write, bool typed)
 {
     struct rum_pipe_request pipe = create();
     if (write) fill(pipe.write_handle);
-    rum_result_t child = spawn(write ? "write-epipe" : "read-eof", write ? pipe.write_handle : pipe.read_handle, write ? 1 : 0);
+    rum_result_t child = spawn(typed ? (write ? "typedwrite" : "typedread") : (write ? "write-epipe" : "read-eof"),
+        write ? pipe.write_handle : pipe.read_handle, write ? 1 : 0);
     check(child > 0 && rum_close(write ? pipe.write_handle : pipe.read_handle) == 0, 48);
     waiters(write ? 2 : 1, 1);
     check(rum_terminate((rum_pid_t)child, 0) == 0 && collect(child, RUM_PROCESS_CANCELLED) == 0, 49);
@@ -199,8 +209,11 @@ int main(int argc, char **argv)
     check(argc == 2, 58);
     const char *mode = argv[1];
     if (equal(mode, "parent")) {
-        invalid(); binary(); writers(); readers(); closures(false); closures(true);
-        cancellation(false); cancellation(true); fault();
+        invalid(); binary(false); binary(true); writers(); readers();
+        for (unsigned typed = 0; typed < 2; ++typed) {
+            closures(false, typed); closures(true, typed); cancellation(false, typed); cancellation(true, typed);
+        }
+        fault();
         check(query(0) == 0 && query(1) == 0 && query(2) == 0 && query(3) == 0, 59);
         exhaust(); return 0;
     }
@@ -233,18 +246,29 @@ int main(int argc, char **argv)
     }
     if (equal(mode, "read-eof")) { check(rum_read(0, buffer, 1) == 0, 65); return 0; }
     if (equal(mode, "write-epipe")) { check(rum_write(1, "x", 1) == -RUM_EPIPE, 66); return 0; }
+    if (equal(mode, "typedread") || equal(mode, "typedwrite")) {
+        bool write = equal(mode, "typedwrite");
+        rum_object_handle_t handle = exported(write ? 1 : 0, write);
+        check((write ? rum_object_write(handle, "x", 1) : rum_object_read(handle, buffer, 1)) == (write ? -RUM_EPIPE : 0), 72);
+        return 0; /* Exit closes the sole table reference after the operation. */
+    }
     if (equal(mode, "fault")) {
         for (unsigned i = 0; i < 17; ++i) buffer[i] = pattern(i);
-        check(rum_write(1, buffer, 17) == 17, 67); __asm__ volatile("ud2");
+        rum_object_handle_t handle = exported(1, true);
+        check(rum_object_write(handle, buffer, 17) == 17, 67); __asm__ volatile("ud2");
     }
     if (equal(mode, "orphan")) {
         struct rum_pipe_request pipe = create();
         check(spawn("read-eof", pipe.read_handle, 0) > 0 && rum_close(pipe.read_handle) == 0, 68);
         waiters(1, 1); return 0;
     }
-    if (equal(mode, "cancelread") || equal(mode, "cancelwrite")) {
+    if (equal(mode, "cancelread") || equal(mode, "cancelwrite") ||
+        equal(mode, "canceltypedread") || equal(mode, "canceltypedwrite")) {
         struct rum_pipe_request pipe = create();
-        if (equal(mode, "cancelwrite")) { fill(pipe.write_handle); (void)rum_write(pipe.write_handle, "x", 1); }
+        if (equal(mode, "canceltypedwrite")) {
+            fill(pipe.write_handle); (void)rum_object_write(exported(pipe.write_handle, true), "x", 1);
+        } else if (equal(mode, "canceltypedread")) (void)rum_object_read(exported(pipe.read_handle, false), buffer, 1);
+        else if (equal(mode, "cancelwrite")) { fill(pipe.write_handle); (void)rum_write(pipe.write_handle, "x", 1); }
         else (void)rum_read(pipe.read_handle, buffer, 1);
         return 69;
     }

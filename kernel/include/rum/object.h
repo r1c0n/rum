@@ -43,6 +43,9 @@ struct object_statistics {
    Publish transfers that one reference to its first owner without incrementing
    the count. Caller atomically installs the pointer with IF clear if needed. */
 rum_result_t object_initialize(struct kernel_object *, const struct object_type *);
+/* Correct a reserved constructor's type before publication (for example,
+   resolving a path to a file versus a directory). No reference may escape. */
+rum_result_t object_retype(struct kernel_object *, const struct object_type *);
 rum_result_t object_publish(struct kernel_object *, enum object_reference);
 /* Caller already owns/borrows a retained reference, never an arbitrary cached
    pointer. Published objects only. Transfer reclassifies an owned reference;

@@ -33,6 +33,12 @@ for packet layouts and [Process tools](../docs/process-tools.md) for shell examp
 and explicit child stream mappings. See [shared handles](../docs/shared-handles.md)
 for standard-stream replacement, close-on-spawn flags and cleanup rules.
 
+`rum_object_from_descriptor` exports a typed alias of an existing open stream.
+Use `rum_object_read`, `rum_object_write`, `rum_object_seek`,
+`rum_object_readdir`, `rum_object_flush` and `rum_object_isatty` with explicit
+grants. See [typed handles and I/O](../docs/object-handles.md) for packet layouts,
+shared lifetime, access checks and compatibility.
+
 `rum_pipe` creates bounded read/write endpoints for those mappings. See
 [pipes and stream I/O](../docs/pipes.md) for blocking, atomic writes, EOF,
 broken pipes and cancellation behavior.

@@ -4,6 +4,12 @@ Pipes connect programs through a bounded byte stream. Include `<rum/user.h>`
 and use `rum_pipe` to obtain separate read and write descriptors. They work
 with `rum_read`, `rum_write`, duplication and explicit child mappings.
 
+Endpoints can also be exported with `rum_object_from_descriptor` and used with
+`rum_object_read` / `rum_object_write`. A typed alias retains the same endpoint;
+closing the last descriptor does not signal EOF or EPIPE while that alias or an
+active operation still owns it. The final common reference closes the endpoint
+once. Buffer, atomic-write, cancellation and foreground rules are unchanged.
+
 ## Create and use a pipe
 
 ```c

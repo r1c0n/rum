@@ -3,24 +3,27 @@
 #include <rum/abi/filesystem.h>
 #include <rum/abi/process.h>
 #include <rum/fs.h>
+#include <rum/object_handle.h>
 
 enum process_handle_kind { HANDLE_UNUSED, HANDLE_INPUT, HANDLE_OUTPUT, HANDLE_FILE, HANDLE_DIRECTORY,
                            HANDLE_PIPE_READ, HANDLE_PIPE_WRITE };
 struct kernel_pipe;
-/* A bounded, shared open description. Callers retain ownership through a
-   descriptor; do not cache a pointer after closing that descriptor. */
+/* A bounded, shared open description. Descriptors and typed handles retain
+   TABLE references; code that blocks or drops an entry needs an OPERATION
+   reference. A borrowed pointer alone never extends lifetime. */
 struct process_handle {
+    struct kernel_object object;
     fs_reference reference;
     uint64_t offset;
     unsigned access;
     bool append;
     enum process_handle_kind kind;
     rum_result_t pending_error;
-    uint32_t references;
+    uint32_t descriptors;
     struct kernel_pipe *pipe;
 };
 /* Entries own references to open descriptions; flags belong to each entry. */
-struct process_descriptor { struct process_handle *object; uint32_t flags; };
+struct process_descriptor { struct process_handle *object; uint32_t flags; bool closing; };
 struct process_handles { struct process_descriptor slots[RUM_ABI_HANDLE_LIMIT]; };
 struct process_handle_statistics { uint32_t descriptions, descriptors, aliases; };
 
@@ -34,6 +37,13 @@ rum_result_t process_handles_prepare_spawn(struct process_handles *, const struc
 unsigned process_handles_count(const struct process_handles *);
 rum_result_t process_handles_destroy(struct process_handles *);
 struct process_handle *process_handle_get(struct process_handles *, rum_handle_t);
+/* A borrowed get is valid only while its descriptor remains owned. Acquisition
+   returns an independent OPERATION reference, including across blocked I/O. */
+rum_result_t process_handle_acquire(struct process_handles *, rum_handle_t, struct process_handle **);
+struct process_handle *process_handle_from_object(struct kernel_object *);
+uint32_t process_handle_rights(const struct process_handle *);
+rum_result_t process_handle_export(struct process_handles *, rum_handle_t, struct object_handles *,
+                                   uint32_t type, uint32_t rights, uint32_t flags, rum_object_handle_t *);
 rum_result_t process_handle_open(struct process_handles *, const struct fs_context *, const char *, unsigned, unsigned);
 rum_result_t process_handle_close(struct process_handles *, rum_handle_t);
 rum_result_t process_handles_pipe(struct process_handles *, rum_handle_t *reader, rum_handle_t *writer);
