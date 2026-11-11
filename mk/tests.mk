@@ -6,6 +6,13 @@ build/tests/object-test: tests/object-test.c kernel/object/object.c kernel/inclu
 test-objects-host: build/tests/object-test
 	./build/tests/object-test
 test-host test-build: build/tests/object-test
+.PHONY: test-object-handles-host
+build/tests/object-handle-test: tests/object-handle-test.c kernel/object/handles.c kernel/object/object.c kernel/include/rum/object_handle.h kernel/include/rum/object.h $(ABI_HEADERS)
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/handles-include -Ikernel/include -Isdk/include $(filter %.c,$^) -o $@
+test-object-handles-host: build/tests/object-handle-test
+	./build/tests/object-handle-test
+test-host test-build: build/tests/object-handle-test
 .PHONY: test-objects
 test-objects: test-objects-host build/tests/objects.elf build/tests/objects.iso
 	python3 tests/lifecycle-qemu-test.py --qemu $(QEMU) --objects-only
@@ -896,6 +903,7 @@ test-host: build/tests/block-test build/tests/console-test build/tests/memory-te
 	./build/tests/elf-stream-test
 	./build/tests/object-test
 	./build/tests/runtime-test
+	./build/tests/object-handle-test
 	./build/tests/timer-test
 	./build/tests/session-test
 	./build/tests/handles-test

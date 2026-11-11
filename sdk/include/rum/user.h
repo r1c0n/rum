@@ -11,6 +11,12 @@
 #include <rum/abi/job.h>
 #include <rum/abi/terminal.h>
 #include <rum/abi/memory.h>
+#include <rum/abi/object.h>
+rum_result_t rum_object_control(struct rum_object_request *);
+rum_result_t rum_object_query(rum_object_handle_t, uint32_t expected_type, struct rum_object_information *);
+rum_result_t rum_object_duplicate(rum_object_handle_t, uint32_t expected_type, uint32_t rights,
+                                   uint32_t flags, rum_object_handle_t *);
+rum_result_t rum_object_close(rum_object_handle_t);
 /* Packets carry version/size; allocate returns its chosen address/rounded size.
    Both calls return zero or a negative public error, never a signed address. */
 rum_result_t rum_vm_allocate(struct rum_vm_allocate_request *);

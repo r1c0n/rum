@@ -1,4 +1,34 @@
 #include <rum/user.h>
+rum_result_t rum_object_control(struct rum_object_request *request)
+{
+    return rum_syscall3(RUM_SYS_OBJECT, (rum_address_t)(uintptr_t)request, 0, 0);
+}
+rum_result_t rum_object_query(rum_object_handle_t handle, uint32_t type, struct rum_object_information *output)
+{
+    if (!output) return -RUM_EINVAL;
+    struct rum_object_request request = { .version = RUM_OBJECT_ABI_VERSION, .size = sizeof request,
+        .operation = RUM_OBJECT_QUERY, .handle = handle, .type = type };
+    rum_result_t result = rum_object_control(&request);
+    if (!result) *output = (struct rum_object_information){ .version = RUM_OBJECT_ABI_VERSION,
+        .size = sizeof *output, .type = request.type, .rights = request.rights, .flags = request.flags };
+    return result;
+}
+rum_result_t rum_object_duplicate(rum_object_handle_t handle, uint32_t type, uint32_t rights,
+                                   uint32_t flags, rum_object_handle_t *output)
+{
+    if (!output) return -RUM_EINVAL;
+    struct rum_object_request request = { .version = RUM_OBJECT_ABI_VERSION, .size = sizeof request,
+        .operation = RUM_OBJECT_DUPLICATE, .handle = handle, .type = type, .rights = rights, .flags = flags };
+    rum_result_t result = rum_object_control(&request);
+    if (!result) *output = request.result_handle;
+    return result;
+}
+rum_result_t rum_object_close(rum_object_handle_t handle)
+{
+    struct rum_object_request request = { .version = RUM_OBJECT_ABI_VERSION, .size = sizeof request,
+        .operation = RUM_OBJECT_CLOSE, .handle = handle };
+    return rum_object_control(&request);
+}
 rum_result_t rum_clock(struct rum_clock_request *request)
 {
     return rum_syscall3(RUM_SYS_CLOCK, (rum_address_t)(uintptr_t)request, 0, 0);

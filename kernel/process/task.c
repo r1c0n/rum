@@ -37,6 +37,7 @@ struct process_state {
     struct task_fault fault;
     struct fs_context filesystem;
     struct process_handles handles;
+    struct object_handles objects;
     bool cancellation_requested;
     bool orphaned;
     struct task_event children_event;
@@ -282,7 +283,14 @@ static task_id create_process(const struct task_process *process, bool make_fore
         (void)task_switch_release();
         return 0;
     }
+    if (!process->initial_objects && object_handles_inherit(&owner.objects, &current->process->objects, RUM_RIGHT_MASK)) {
+        (void)process_handles_destroy(&owner.handles);
+        (void)fs_context_destroy(&owner.filesystem);
+        (void)task_switch_release();
+        return 0;
+    }
     if (!new_stack(&constructed, stack_slot)) {
+        if (object_handles_destroy(&owner.objects)) cpu_halt();
         (void)process_handles_destroy(&owner.handles);
         (void)fs_context_destroy(&owner.filesystem);
         (void)task_switch_release();
@@ -298,6 +306,7 @@ static task_id create_process(const struct task_process *process, bool make_fore
     if (!console_can_launch(parent_console, make_foreground) || task_current_cancelled()) {
         cpu_interrupt_restore(saved);
         (void)paging_kernel_stack_release(stack_slot);
+        if (object_handles_destroy(&owner.objects)) cpu_halt();
         (void)process_handles_destroy(&owner.handles);
         (void)fs_context_destroy(&owner.filesystem);
         (void)task_switch_release();
@@ -306,6 +315,10 @@ static task_id create_process(const struct task_process *process, bool make_fore
     if (process->initial_handles) {
         owner.handles = *process->initial_handles;
         *process->initial_handles = (struct process_handles){0};
+    }
+    if (process->initial_objects) {
+        owner.objects = *process->initial_objects;
+        *process->initial_objects = (struct object_handles){0};
     }
     ++next_id;
     ++next_process_id;
@@ -520,6 +533,11 @@ struct process_handles *task_current_handles(void)
     return task_current_is_process() && !irq_in_handler() ? &current->process->handles : NULL;
 }
 
+struct object_handles *task_current_objects(void)
+{
+    return task_current_is_process() && !irq_in_handler() ? &current->process->objects : NULL;
+}
+
 unsigned task_handle_count(task_id id)
 {
     uint32_t saved = cpu_interrupt_save();
@@ -672,7 +690,7 @@ static bool reap_slot(struct task *task)
         (task->process->owns_space && task->process->space == paging_active_space())) return false;
     /* Exit must release file handles before this interrupt-protected reaper.
        Refuse to discard a record with outstanding ownership. */
-    if (process_handles_count(&task->process->handles)) return false;
+    if (process_handles_count(&task->process->handles) || object_handles_count(&task->process->objects)) return false;
     /* Pin release is allocation-free and performs no backend I/O. Keep the
        address space intact if a foreground filesystem operation is busy. */
     if (fs_context_destroy(&task->process->filesystem) != FS_OK) return false;
@@ -941,6 +959,7 @@ static _Noreturn void terminate_current(enum task_termination termination,
        a kernel continuation; no backend callback runs under the update lock. */
     cpu_interrupt_enable();
     terminal_session_exit(current->id);
+    if (object_handles_destroy(&current->process->objects)) cpu_halt();
     if (process_handles_destroy(&current->process->handles)) cpu_halt();
     /* Cancellation can abandon a blocked syscall's C continuation. Its
        thread-owned lease must end before publishing EXITED and reaping. */
