@@ -172,11 +172,13 @@ rum OS v0.7.0
 hello from rum
 ```
 
-Wait for the prompt after the write, power off the VM, and start it again with
+Run `shutdown` after the write, and start the VM again with
 the same ISO and system disk attached. `cat /NOTE.TXT` should recover the
-same text. rum has no guest shutdown command yet; a completed filesystem write
-flushes before returning success. FAT16 is not journaled, so avoid powering off
-while a file operation is active. See [FAT16 write guarantees](fat16.md).
+same text. `reboot` restarts without leaving the VM. Both commands flush the
+volume before acting; a flush error keeps rum running in recovery. If the
+firmware's ACPI power-off is unsupported, shutdown halts with a message that
+it is safe to turn off the VM. FAT16 is not journaled; see
+[FAT16 write guarantees](fat16.md).
 
 Do not install VMware Tools or VirtualBox Guest Additions: rum does not provide
 the interfaces needed by those guest packages. Its console, keyboard, and disk

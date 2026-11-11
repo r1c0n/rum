@@ -892,6 +892,20 @@ build/tests/console-test: tests/console-test.c drivers/display/terminal.c kernel
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/include -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
+.PHONY: test-power test-power-host
+test-host test-build: build/tests/power-test
+test-power: all test-power-host
+	python3 tests/power-qemu-test.py --qemu $(QEMU)
+
+test-power-host: build/tests/power-test build/tests/console-test build/tests/shell-test
+	./build/tests/power-test
+	./build/tests/console-test
+	./build/tests/shell-test
+
+build/tests/power-test: tests/power-test.c kernel/core/power.c hal/pc/power.c kernel/include/rum/power.h tests/power-include/rum/cpu.h tests/power-include/rum/io.h
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/power-include -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
+
 build/tests/memory-test: tests/memory-test.c kernel/core/memory.c kernel/include/rum/memory.h
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
@@ -989,6 +1003,7 @@ build/tests/ata-test: tests/ata-test.c drivers/storage/ata.c kernel/io/block.c k
 test-host: build/tests/ata-test
 
 test-host: build/tests/block-test build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
+	./build/tests/power-test
 	./build/tests/elf-stream-test
 	./build/tests/object-test
 	./build/tests/process-reference-test

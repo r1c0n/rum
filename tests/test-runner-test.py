@@ -13,7 +13,7 @@ spec = importlib.util.spec_from_file_location("runner", ROOT / "scripts/test.py"
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 
-for failed in (None, "host", "preemption", "sdk"):
+for failed in (None, "host", "preemption", "sdk", "power"):
     with tempfile.TemporaryDirectory() as directory:
         def fake_run(name, command):
             return {"name": name, "seconds": 0, "returncode": int(name == failed)}
@@ -23,7 +23,7 @@ for failed in (None, "host", "preemption", "sdk"):
         report = json.loads((Path(directory) / "result.json").read_text())
         assert bool(status) == (failed is not None)
         assert report["passed"] == (failed is None)
-        assert len(report["suites"]) == (1 if failed == "host" else 25)
+        assert len(report["suites"]) == (1 if failed == "host" else 26)
 print("PASS: runner success, host prerequisite failure and guest failure reports")
 
 # Check the optimized byte-range oracle against an independent sector oracle,

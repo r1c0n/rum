@@ -33,6 +33,7 @@ SUITES = {
     "object-handles": "test-object-handles",
     "process-objects": "test-process-objects",
     "authority": "test-authority",
+    "power": "test-power",
 }
 BOOT_ACTIONS = {"run", "run-kernel", "debug", "panic"}
 DISK_ACTIONS = BOOT_ACTIONS - {"panic"} | {"create-disk", "prepare-disk"}

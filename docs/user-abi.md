@@ -158,7 +158,7 @@ callee-saved registers.
 | 14 | `rum_replace(path, data, bytes)` | Versioned whole-file packet | Zero |
 | 15 | `rum_console(action)` | Clear selector; retired Snake selector returns ENOSYS | Zero |
 | 16 | `rum_command_text(buffer, capacity)` | Exact command argument tail | Bytes including NUL; command child only |
-| 17 | `rum_session(action, path)` | Session directory change, exit or recovery | Zero; command child only |
+| 17 | `rum_session(action, path)` | Session directory change, exit, recovery or power control | Zero; command child only |
 | 18 | `rum_spawn(path, args)` | Versioned nonforeground launch packet | Positive child PID |
 | 19 | `rum_wait(pid, flags, result)` | Specific child or any child, optional `RUM_WAIT_NOHANG` | 1 collected; 0 still pending |
 | 20 | `rum_terminate(pid, flags)` | Owned child or explicitly delegated shell command authority | Zero when accepted |

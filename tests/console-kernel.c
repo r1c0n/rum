@@ -1,10 +1,10 @@
 /* Inspect the construction switch hold only in this fixture. Production has
    no test syscalls, console ownership setters or backend injection hooks. */
-#include <rum/fs.h>
-static enum fs_error fixture_clone(const struct fs_context *, struct fs_context *);
-#define fs_context_clone fixture_clone
+#include <rum/paging.h>
+static bool fixture_stack_allocate(uint32_t);
+#define paging_kernel_stack_allocate fixture_stack_allocate
 #include "../kernel/process/task.c"
-#undef fs_context_clone
+#undef paging_kernel_stack_allocate
 #include <rum/abi/syscall.h>
 #include <rum/elf.h>
 #include <rum/heap.h>
@@ -44,13 +44,13 @@ static void cancel_during_io(const char *marker)
     check(id == task_current_id() && switches == before && !task_yield(),
           "pending cancellation does not preempt or yield inside a backend operation");
 }
-static enum fs_error fixture_clone(const struct fs_context *source, struct fs_context *destination)
+static bool fixture_stack_allocate(uint32_t slot)
 {
-    enum fs_error error = fs_context_clone(source, destination);
-    if (!error && arm_construct && current->switch_holds) {
+    bool allocated = paging_kernel_stack_allocate(slot);
+    if (allocated && arm_construct && current->switch_holds) {
         arm_construct = false; ++constructions; cancel_during_io("rum_console_constructor_ready");
     }
-    return error;
+    return allocated;
 }
 static struct fs_io_result read_node(void *context, uint64_t id, uint64_t offset, void *buffer, size_t bytes)
 {

@@ -51,7 +51,7 @@ Only the interactive shell can grant command authority through
 `rum_run_argv_command` (or the legacy `rum_run_command`). That grant belongs to
 its direct foreground child and the
 same referenced session. While the shell waits for that command, it may request
-a shell directory change, exit or recovery. Ordinary `RUN` children, spawned
+a shell directory change, exit, recovery, shutdown or reboot. Ordinary `RUN` children, spawned
 children and nested commands cannot change the shell's state. A process can
 still change its own directory with `rum_chdir`.
 
@@ -61,11 +61,19 @@ close on each child's own exit path; stacks, address spaces and directory pins
 are reclaimed after switching away. Children from a closing session cannot
 take input or control a newly started shell.
 
-The supervisor restarts a shell that exits or faults. Three short-lived shell
-exits enter kernel recovery; a session lasting at least 30 seconds resets that
-failure window. A missing or invalid initial executable enters recovery
+The supervisor restarts a shell that exits or faults. Three unexpected shell
+terminations within short sessions enter kernel recovery; a session lasting at
+least 30 seconds resets that failure window. Intentional `exit` requests restart
+the shell and reset the failure count. A missing or invalid initial executable enters recovery
 immediately. `recovery` requests recovery directly. The new shell starts at `/`;
 Flushed disk edits retain their normal persistence guarantees.
+
+`shutdown` and `reboot` are foreground command programs with the same direct
+session grant. They ask the supervisor to end the shell, cancel and reap its
+remaining children, and flush the mounted volume before calling the PC HAL.
+These requests carry no device addresses. Spawned programs, pipeline stages
+and nested `run` children have no such grant. A cleanup timeout or flush failure
+leaves the machine running in recovery with an error instead of resetting it.
 
 Foreground workflows use [session jobs](jobs.md). The first stage receives an
 input-only lease while the shell or controlling `fg` command retains control

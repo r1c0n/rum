@@ -241,7 +241,8 @@ or zero capacity returns `-RUM_ERANGE`; version-3 and other processes receive
 authority; possession of a raw tail is separate from that authority.
 
 `rum_session(action, path)` (17) accepts `RUM_SESSION_CHDIR` with a bounded path,
-or `RUM_SESSION_EXIT`/`RUM_SESSION_RECOVERY` with a null path. The unused third
+or `RUM_SESSION_EXIT`, `RUM_SESSION_RECOVERY`, `RUM_SESSION_SHUTDOWN` or
+`RUM_SESSION_REBOOT` with a null path. The unused third
 register must be zero. The caller must be the direct foreground command child
 of the blocked initial shell; nested and ordinary children are denied.
 `CHDIR` changes only the waiting shell's directory using normal path validation.
@@ -250,6 +251,12 @@ reaped the child and freed temporary buffers. Existing restart/recovery rules
 then apply. This interface exposes no parent pointer, arbitrary PID or kernel
 address. `run cd /DOCS` is denied because `run` launches an ordinary nested child;
 type `cd /DOCS` directly.
+
+Intentional `EXIT` requests use `RUM_SHELL_RESTART_STATUS` and reset the
+supervisor's failure count. Power requests use dedicated shell statuses; after
+reaping the shell, the kernel drains its cancelled children and flushes `/`
+before shutdown/reset. Failure leaves recovery available. These selectors do
+not grant raw device access or system-file write authority.
 
 ## Yielding and sleeping
 

@@ -19,6 +19,11 @@ Other groups include `user`, `package`, `shell`, `storage`, `block`, `fat16`,
 `fat16-write`, `filesystem`, `preemption`, `lifecycle`, `sleep`, `console` and
 `integration`, `handles`, `pipes`, `workflows`, `jobs`, `terminal`, `editing`
 and `file-tools`.
+Use `--suite power` / `-Suite power` for repeated intentional shell restarts,
+real shutdown/reboot through both boot paths, cleanup of CPU-bound children,
+persisted disk bytes, read-only/diskless shutdown and the recovery title bar.
+Host checks cover malformed ACPI tables, bounded polling and refusal to power
+off after a failed flush. All guest disks are disposable.
 Use `--suite vm` / `-Suite vm` for private-region host checks, paging transactions
 and the allocation/protection/release syscall lifecycle through both boot paths.
 Cases include cross-page buffers, read-only faults, retained blocking I/O,

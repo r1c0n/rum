@@ -117,6 +117,19 @@ int main(void)
     terminal_clear(); terminal_scroll(-1); /* Clear preserves previous text. */
     assert(terminal_scrolled() && character(0) == '2' && character(1) == '7' && character(2) == '8');
     terminal_scroll(0); assert(character(0) == ' ');
+    terminal_initialize(); terminal_status("uptime: recovery");
+    terminal_title(" rum | Recovery shell");
+    assert(terminal_state().y == 1);
+    uint16_t title[80];
+    for (unsigned i = 0; i < 80; ++i) { title[i] = screen[i]; assert(screen[i] >> 8 == 0x1F); }
+    for (unsigned i = 0; i < 300; ++i) terminal_writestring("recovery line\n");
+    terminal_scroll(-1);
+    for (unsigned i = 0; i < 80; ++i) assert(screen[i] == title[i]);
+    terminal_clear(); terminal_putchar('\b'); terminal_putchar('X');
+    assert(character(80) == 'X' && character(24 * 80) == 'u');
+    for (unsigned i = 0; i < 80; ++i) assert(screen[i] == title[i]);
+    terminal_title(NULL); terminal_clear(); terminal_putchar('Y');
+    assert(character(0) == 'Y');
     assert(munmap(mapping, 4096) == 0);
     puts("PASS: console newlines, wrapping, colors, tabs, backspace, scrolling");
     return 0;

@@ -64,6 +64,8 @@ static void denied(void)
           rum_session(RUM_SESSION_CHDIR, "/") == -RUM_EACCES &&
           rum_session(RUM_SESSION_EXIT, 0) == -RUM_EACCES &&
           rum_session(RUM_SESSION_RECOVERY, 0) == -RUM_EACCES, 96);
+    check(rum_session(RUM_SESSION_SHUTDOWN, 0) == -RUM_EACCES &&
+          rum_session(RUM_SESSION_REBOOT, 0) == -RUM_EACCES, 96);
     args("exit", ""); struct rum_process_result r = result();
     check(rum_run(program, &arguments, &r) == -RUM_EBUSY &&
           rum_run_command(program, &arguments, "", &r) == -RUM_EACCES, 97);

@@ -10,12 +10,19 @@
 #include <rum/shell.h>
 #include <rum/terminal.h>
 #include <rum/snake.h>
+#include <rum/power.h>
 #include "../apps/snake/model.h"
 #include "page-backend.h"
 
 static char output[16384];
 static size_t output_length;
 static uint32_t ticks;
+static enum power_action requested_power;
+static unsigned power_calls;
+enum fs_error system_power(enum power_action action)
+{
+    requested_power = action; ++power_calls; return FS_IO_ERROR;
+}
 uint32_t timer_ticks(void) { return ticks; }
 
 static enum process_launch_error launch(const char *program, const char *arguments,
@@ -109,6 +116,10 @@ int main(void)
     shell_set_launcher(launch); shell_initialize();
     reset(); receive("echo disk recovery\n");
     assert(strstr(output, "disk recovery\r\n> "));
+    assert((((volatile uint16_t *)0xB8000)[1] & 255) == 'r');
+    reset(); receive("shutdown bad\nreboot bad\n"); assert(!power_calls);
+    reset(); receive("shutdown\n"); assert(power_calls == 1 && requested_power == POWER_SHUTDOWN);
+    reset(); receive("reboot\n"); assert(power_calls == 2 && requested_power == POWER_REBOOT);
     reset(); receive("write NOTE.TXT persistent\ncat NOTE.TXT\n");
     assert(strstr(output, "persistent\r\n> "));
     reset(); receive("ls /\n"); assert(strstr(output, "NOTE.TXT"));

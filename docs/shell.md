@@ -182,8 +182,19 @@ to create a [background job](jobs.md), then use `jobs`, `fg` and `wait` to manag
 ## Recovery and diagnostics
 
 `recovery` leaves the normal session and enters the kernel recovery shell.
-`exit` asks the supervisor to restart the normal shell. Repeated early exits
-or a missing/invalid shell executable cause recovery automatically.
+`exit` restarts the normal shell as often as needed. Intentional restarts do
+not count toward the crash limit. Three unexpected short-lived shell
+terminations, or a missing/invalid shell executable, cause recovery automatically.
+
+`shutdown` flushes the disk and turns off the machine; `reboot` flushes it and
+restarts. Both commands are also available in recovery. They accept no arguments.
+In the normal shell, run them directly in the foreground. Active background
+programs are cancelled and cleaned up first. If cleanup or flushing fails, rum
+reports an error and stays in recovery. On firmware without supported ACPI
+power-off, `shutdown` halts and displays a message that it is safe to turn off.
+The launcher lets QEMU close on shutdown and reset on reboot. A debugger or
+custom QEMU invocation can override those actions; see
+[QEMU's power-event options](https://www.qemu.org/docs/master/system/invocation.html).
 
 Recovery provides `help`, `echo`, `clear`, `about`, `mem`, `diag`, file commands,
 program launch and Snake. File commands use the disk when available; without
@@ -191,6 +202,9 @@ a usable disk they report that the filesystem is unavailable. Diagnostics and
 Snake remain usable. No temporary files are substituted for missing storage.
 Recovery retains its basic command input; quoting, cursor editing, history and
 completion described above belong to the userspace shell.
+Its blue `rum | Recovery shell` title bar stays visible during scrolling and
+`clear`. Full-screen programs temporarily use the whole console; the bar
+returns at the recovery prompt.
 
 `make user` rebuilds programs in `build/user/system/`; it does not update an
 existing disk. Create a new image with `prepare-disk`, or back up an existing
