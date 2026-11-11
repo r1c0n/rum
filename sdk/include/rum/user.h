@@ -12,6 +12,12 @@
 #include <rum/abi/terminal.h>
 #include <rum/abi/memory.h>
 #include <rum/abi/object.h>
+#include <rum/abi/process-object.h>
+rum_result_t rum_process_object_control(struct rum_process_object_request *);
+rum_result_t rum_process_open(rum_pid_t, uint32_t rights, uint32_t flags, rum_object_handle_t *);
+rum_result_t rum_process_query(rum_object_handle_t, struct rum_process_object_information *);
+rum_result_t rum_process_wait(rum_object_handle_t, uint32_t flags, struct rum_process_object_information *);
+rum_result_t rum_process_terminate(rum_object_handle_t);
 rum_result_t rum_object_control(struct rum_object_request *);
 rum_result_t rum_object_query(rum_object_handle_t, uint32_t expected_type, struct rum_object_information *);
 rum_result_t rum_object_duplicate(rum_object_handle_t, uint32_t expected_type, uint32_t rights,

@@ -1,4 +1,12 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
+.PHONY: test-process-objects-host test-process-objects
+build/tests/process-reference-test: tests/process-reference-test.c kernel/process/reference.c kernel/object/object.c kernel/include/rum/process_reference.h kernel/include/rum/object.h $(ABI_HEADERS) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/handles-include -Ikernel/include -Isdk/include $(filter %.c,$^) -o $@
+test-process-objects-host: build/tests/process-reference-test build/tests/abi-test
+	./build/tests/process-reference-test
+	./build/tests/abi-test
+test-host test-build: build/tests/process-reference-test
 .PHONY: test-objects-host
 build/tests/object-test: tests/object-test.c kernel/object/object.c kernel/include/rum/object.h kernel/include/rum/task.h tests/handles-include/rum/cpu.h $(ABI_HEADERS)
 	@mkdir -p $(@D)

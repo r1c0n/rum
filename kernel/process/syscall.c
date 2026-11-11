@@ -18,6 +18,7 @@
 #include <rum/syscall.h>
 #include <rum/task.h>
 #include <rum/abi/job.h>
+#include <rum/abi/process-object.h>
 #include <rum/terminal.h>
 #include <rum/timer.h>
 
@@ -784,6 +785,37 @@ static rum_result_t object_io(struct paging_space *space, uint32_t address)
     return handle->kind == HANDLE_INPUT || handle->kind == HANDLE_OUTPUT;
 }
 
+static rum_result_t process_object_control(struct paging_space *space, uint32_t address)
+{
+    struct rum_process_object_request request;
+    struct rum_process_object_information output;
+    if (!accessible(space, address, sizeof request, true) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    if (request.version != RUM_PROCESS_OBJECT_VERSION || request.size != sizeof request ||
+        request.operation < RUM_PROCESS_OBJECT_OPEN || request.operation > RUM_PROCESS_OBJECT_TERMINATE ||
+        request.result_handle || request.reserved[0] || request.reserved[1] || request.reserved[2]) return -RUM_EINVAL;
+    bool open = request.operation == RUM_PROCESS_OBJECT_OPEN;
+    bool query = request.operation == RUM_PROCESS_OBJECT_QUERY;
+    bool wait = request.operation == RUM_PROCESS_OBJECT_WAIT;
+    if (open ? !request.process_id || request.process_id > RUM_ABI_PID_MAX || request.handle || request.data ||
+               (request.rights & ~RUM_RIGHT_PROCESS) || (request.flags & ~(RUM_PROCESS_OPEN_SESSION | RUM_PROCESS_OPEN_INHERIT)) :
+               request.process_id || request.rights || (request.flags & ~(wait ? RUM_PROCESS_OBJECT_NOHANG : 0u)) ||
+               (!query && !wait && request.data)) return -RUM_EINVAL;
+    if (query || wait) {
+        if ((uint64_t)request.data < (uint64_t)address + sizeof request &&
+            (uint64_t)address < (uint64_t)request.data + sizeof output) return -RUM_EINVAL;
+        if (!accessible(space, request.data, sizeof output, true) ||
+            !paging_copy_from_user(space, &output, request.data, sizeof output)) return -RUM_EFAULT;
+        if (output.version != RUM_PROCESS_OBJECT_VERSION || output.size != sizeof output ||
+            output.reserved[0] || output.reserved[1] || output.reserved[2]) return -RUM_EINVAL;
+    }
+    rum_result_t result = task_process_object_operation(&request, &output);
+    if (!result && open && !paging_copy_to_user(space, address, &request, sizeof request)) cpu_halt();
+    if (((query && !result) || (wait && result == 1)) &&
+        !paging_copy_to_user(space, request.data, &output, sizeof output)) cpu_halt();
+    return result;
+}
+
 void syscall_dispatch(struct exception_frame *frame)
 {
     if (!frame || frame->vector != RUM_SYSCALL_VECTOR || frame->error ||
@@ -804,6 +836,8 @@ void syscall_dispatch(struct exception_frame *frame)
     bool retained = needs_buffers && task_user_buffers_begin();
     if (needs_buffers && !retained) result = -RUM_EBUSY;
     else switch (frame->eax) {
+    case RUM_SYS_PROCESS_OBJECT:
+        result = frame->ecx || frame->edx ? -RUM_EINVAL : process_object_control(space, frame->ebx); break;
     case RUM_SYS_OBJECT_IO:
         result = frame->ecx || frame->edx ? -RUM_EINVAL : object_io(space, frame->ebx); break;
     case RUM_SYS_OBJECT:

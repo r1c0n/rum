@@ -1,4 +1,36 @@
 #include <rum/user.h>
+rum_result_t rum_process_object_control(struct rum_process_object_request *request)
+{
+    return rum_syscall3(RUM_SYS_PROCESS_OBJECT, (rum_address_t)(uintptr_t)request, 0, 0);
+}
+rum_result_t rum_process_open(rum_pid_t pid, uint32_t rights, uint32_t flags, rum_object_handle_t *output)
+{
+    if (!output) return -RUM_EINVAL;
+    struct rum_process_object_request request = { .version = RUM_PROCESS_OBJECT_VERSION, .size = sizeof request,
+        .operation = RUM_PROCESS_OBJECT_OPEN, .process_id = pid, .rights = rights, .flags = flags };
+    rum_result_t result = rum_process_object_control(&request);
+    if (!result) *output = request.result_handle;
+    return result;
+}
+static rum_result_t process_observe(rum_object_handle_t handle, unsigned action, unsigned flags,
+                                    struct rum_process_object_information *output)
+{
+    struct rum_process_object_request request = { .version = RUM_PROCESS_OBJECT_VERSION, .size = sizeof request,
+        .operation = action, .handle = handle, .flags = flags, .data = (rum_address_t)(uintptr_t)output };
+    return rum_process_object_control(&request);
+}
+rum_result_t rum_process_query(rum_object_handle_t handle, struct rum_process_object_information *output)
+{
+    return process_observe(handle, RUM_PROCESS_OBJECT_QUERY, 0, output);
+}
+rum_result_t rum_process_wait(rum_object_handle_t handle, uint32_t flags, struct rum_process_object_information *output)
+{
+    return process_observe(handle, RUM_PROCESS_OBJECT_WAIT, flags, output);
+}
+rum_result_t rum_process_terminate(rum_object_handle_t handle)
+{
+    return process_observe(handle, RUM_PROCESS_OBJECT_TERMINATE, 0, NULL);
+}
 rum_result_t rum_object_control(struct rum_object_request *request)
 {
     return rum_syscall3(RUM_SYS_OBJECT, (rum_address_t)(uintptr_t)request, 0, 0);
