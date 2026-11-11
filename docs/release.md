@@ -11,13 +11,19 @@ publish a disk that has been used for personal files or testing.
 In Ubuntu/WSL, from a clean committed checkout:
 
 ```sh
-python3 scripts/release-check.py --jobs 4 --workers 4
+python3 scripts/release-check.py --jobs 4 --workers 4 --compat-sdk /path/to/0.7.0/rum-sdk.zip
 ```
 
 The checker copies tracked sources to a new temporary directory, builds with
 bounded parallelism and runs the complete host/QEMU suite. Tests validate
 persistent root files across separate boots, read-only/malformed/full disks,
 process isolation, cancellation, cleanup and injected storage failures.
+The preserved 0.7.0 SDK is required for this release's compatibility check;
+its manifest must identify the clean released source commit. An unchanged
+external application is compiled with that SDK, run through both boot paths,
+and checked for exact file bytes, fault recovery, cancellation and cleanup.
+The input archive hash and resulting ELF/provenance are saved with the report.
+The default archive path is `build/releases/0.7.0-110836a/rum-sdk.zip`.
 The production-shell scenario pipes binary ELF bytes to a file, appends quoted
 text, copies and renames files, cancels a blocked pipeline, collects a child
 fault and restarts the shell with an active job. Every resource ledger returns
@@ -44,6 +50,8 @@ The release gate combines subsystem checks with the production workflow:
 | Console and recovery | Terminal restoration, userspace Snake, scrollback/editing, diskless/rejected volumes and recovery resource counts |
 | Packaging | Exact archive membership/bytes, no mutable disk in `rum.zip`, extracted-ISO boots at 16/64/256/1152 MiB, then native host checks |
 | Application platform | An exported SDK builds a larger ELF outside the repository; concurrent heap/file workers, exhaustion, protected buffers and fault/cancellation cleanup pass through both boot paths |
+| Object authority | Local count packets, typed aliases, stale tokens, wrong types, access denial, explicit child grants, retained process status and final-owner cleanup |
+| System maintenance | Real FAT protection and recovery installs survive a separate boot with exact guest/host bytes; both kernel and userspace power controls preserve cleanup |
 
 Timed ATA checks include slow flushes beyond the former poll-count budget,
 clock wraparound and a stopped clock. Every wait remains bounded; no storage

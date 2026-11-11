@@ -34,17 +34,24 @@ def main():
     parser.add_argument("--qemu", default="qemu-system-i386")
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--workers", type=int, choices=range(1, 5), default=4)
+    parser.add_argument("--compat-sdk", type=Path, default=ROOT / "build/releases/0.7.0-110836a/rum-sdk.zip",
+                        help="preserved clean 0.7.0 SDK archive for backwards-compatibility validation")
     args = parser.parse_args()
     if os.name == "nt":
         parser.error("Run this build check in Ubuntu/WSL; the package test also runs on Windows.")
     if not 1 <= args.jobs <= 64:
         parser.error("--jobs must be between 1 and 64")
+    if not args.compat_sdk.is_file():
+        parser.error("supply --compat-sdk with the released 0.7.0 rum-sdk.zip; compatibility cannot be skipped for release")
+    args.compat_sdk = args.compat_sdk.resolve()
+    os.environ["RUM_COMPAT_SDK"] = str(args.compat_sdk)
     if capture("git", "status", "--porcelain"):
         parser.error("Commit source changes before checking the exact release snapshot.")
     commit = capture("git", "rev-parse", "HEAD")
     output = ROOT / "build/release-check" / (commit[:12] + "-" + time.strftime("%Y%m%d-%H%M%S"))
     output.mkdir(parents=True, exist_ok=True)
-    report = {"commit": commit, "passed": False}
+    report = {"commit": commit, "passed": False,
+              "compat_sdk_sha256": hashlib.sha256(args.compat_sdk.read_bytes()).hexdigest()}
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="rum-release-build-") as temporary:
         work = Path(temporary)
@@ -70,6 +77,8 @@ def main():
             run(make + ["all"], work, output / "build.log")
             # The suite builds once and bounds independent QEMU workers itself.
             run(make + ["test"], work, output / "tests.log")
+            for suffix in (".elf", ".json", ".build.log"):
+                shutil.copy2(work / ("build/tests/sdk07-app" + suffix), output / ("sdk07-app" + suffix))
             run([sys.executable, "scripts/prepare-disk.py", "build/rum-system.raw"], work, output / "system-disk.log")
             # Use the same clean program assets and ISO for a separate, fresh
             # VM download; never package an image from the caller's build tree.

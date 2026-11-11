@@ -57,6 +57,7 @@ def main():
         assert "process-objects-v1" in metadata["required_features"]
         assert "spawn-object-grants-v1" in metadata["required_features"]
         assert "system-authority-v1" in metadata["required_features"]
+        assert "local-resource-counts-v1" in metadata["required_features"]
         project = directory / "external application"; shutil.copytree(sdk / "template", project)
         result = subprocess.run(["make", "RUM_SDK=" + str(sdk), "CROSS_PREFIX=" + args.cross_prefix], cwd=project,
                                 capture_output=True, text=True)
@@ -97,6 +98,15 @@ def main():
                 "--output", str(ROOT / "build/doom-probe"), "--cross-prefix", args.cross_prefix], check=True)
     if before is not None:
         assert (ROOT / "build/rum.elf").read_bytes() == before, "SDK app build must not rebuild the OS"
+    legacy_sdk = Path(os.environ.get("RUM_COMPAT_SDK", ROOT / "build/releases/0.7.0-110836a/rum-sdk.zip"))
+    if legacy_sdk.is_file():
+        subprocess.run(["python3", str(ROOT / "tests/sdk-compat-build.py"), "--sdk", str(legacy_sdk.resolve()),
+                        "--output", str(args.output.with_name("sdk07-app.elf")), "--cross-prefix", args.cross_prefix], check=True)
+    elif "RUM_COMPAT_SDK" in os.environ:
+        raise AssertionError("RUM_COMPAT_SDK does not name an existing released SDK archive")
+    else:
+        args.output.with_name("sdk07-app.elf").unlink(missing_ok=True)
+        print("NOTE: released SDK compatibility needs RUM_COMPAT_SDK; the clean release gate requires it.")
     print("PASS: SDK manifest, public-only headers and external build with spaces and no OS rebuild")
 
 

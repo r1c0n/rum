@@ -1,5 +1,8 @@
 # Building rum applications
 
+Use `rum_resources` for [caller-local object and handle counts](resource-diagnostics.md).
+It reports aliases and object types without pointers or global ownership data.
+
 The standalone SDK contains public headers, a startup object, `librum.a`, a
 processed linker script, the ELF validator source, an application builder and
 a project template. It does not contain kernel sources, a disk image or the

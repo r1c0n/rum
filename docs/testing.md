@@ -1,5 +1,12 @@
 # Testing rum
 
+The SDK workload also checks caller-local resource snapshots under exhaustion,
+stale handles, wrong types and denied rights. Set `RUM_COMPAT_SDK` to a preserved
+0.7.0 `rum-sdk.zip` to build an unchanged application with its released headers,
+startup and runtime. The SDK guest checks exercise it through both boot paths,
+compare exact disk bytes and verify cleanup after faults and cancellation.
+The clean release checker requires that archive and records its hash.
+
 Run `./rum test -j4 --workers 4` in Ubuntu/WSL, or
 `.\rum.ps1 test -Jobs 4 -Workers 4` on Windows. The suite
 builds its kernels and programs once, runs host checks and creates fixtures,

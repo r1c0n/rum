@@ -70,7 +70,8 @@ while preserving the draft, and Ctrl+U clears the draft. See the
 
 `recovery` enters the recovery console, where `mem`, `diag` and Snake remain
 available even without usable storage. `exit` restarts the normal shell.
-Wait for a command to finish before shutting down the VM. FAT16 has no journal;
+`handles` shows the command's own resource counts. Use `shutdown` or `reboot`
+to flush storage and stop or restart rum. FAT16 has no journal;
 an interrupted write may require host repair. See [filesystem behavior](docs/fat16.md).
 
 ## Screenshots

@@ -10,6 +10,13 @@ required kernel features and SHA-256 hashes of the packaged files. SDK format
 version 1 is separate from the OS release number and syscall ABI version 1.
 `rum_spawn_with_objects` uses version 2 of the mapped-spawn packet; kernels
 that only support its original version reject that packet with `EINVAL`.
+
+`rum_resources` returns caller-local descriptor, typed-handle, unique-object
+and table-reference counts. It initializes its 80-byte version-1 packet and
+returns zero or a negative error. Type counts use `RUM_OBJECT_*` indices.
+Aliases count as additional table references, not additional objects. No global
+reference counts, tokens, names or addresses are exposed. This requires
+`local-resource-counts-v1`; older kernels return `ENOSYS`.
 `system-authority-v1` protects `/RUM` from userspace changes. Keep writable
 application binaries/data in `/APPS`, `/HOME` or another ordinary directory;
 system updates use the kernel recovery installer. Names and inherited writable

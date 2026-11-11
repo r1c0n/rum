@@ -1,5 +1,9 @@
 # Kernel diagnostics
 
+For a sanitized application-local summary, use the userspace `handles` command
+or [resource-count syscall](resource-diagnostics.md). The kernel report below
+is available through trusted recovery and intentionally includes debug addresses.
+
 Enter `recovery`, then use `diag` when rum boots but something about memory or task
 state looks wrong. It takes a consistent, allocation-free snapshot and prints
 it to both VGA and COM1.

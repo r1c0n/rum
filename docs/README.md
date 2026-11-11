@@ -13,6 +13,7 @@ programs and persistent files. With no usable disk, rum opens recovery.
 - [VMware and VirtualBox](virtual-machines.md)
 - [Snake](snake.md)
 - [Diagnostics](diagnostics.md)
+- [Application resource counts](resource-diagnostics.md)
 
 ## Building and development
 

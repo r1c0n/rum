@@ -1,5 +1,9 @@
 # User ABI and ELF programs
 
+[Resource diagnostics](resource-diagnostics.md) documents the caller-local,
+fixed-width `rum_resources` interface (syscall 39). Existing calls and packets
+keep their numbers and layouts.
+
 rum builds freestanding i386 user executables with a separate startup, runtime,
 linker script, and public include tree. The kernel validates and maps stripped
 ELF files from the root FAT16 volume, constructs their initial stacks, enters the
