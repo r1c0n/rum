@@ -21,8 +21,9 @@ def launch(console, command, early_fault=False):
     deadline = time.monotonic() + 20
     while True:
         output = console.serial.read_bytes()[start:].decode()
-        match = re.search(r"\[(\d+)\] started [^\r\n]+\r\n/> ", output)
-        if match: break
+        match = re.search(r"\[(\d+)\] started [^\r\n]+\r\n", output)
+        # A fast job can finish between its start announcement and the prompt.
+        if match and output[match.end():].endswith("/> "): break
         if early_fault and output.endswith("/> ") and "Program stopped after a user fault." in output:
             return None
         assert "rum kernel panic" not in output and time.monotonic() < deadline, output

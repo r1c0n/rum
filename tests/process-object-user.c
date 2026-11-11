@@ -88,6 +88,7 @@ static void invalid(rum_pid_t foreign)
 }
 static void retained(void)
 {
+    uint32_t pages = query(5, 0);
     rum_pid_t pid = spawn("exit", 0);
     rum_object_handle_t handle = open_process(pid, RUM_RIGHT_PROCESS), alias;
     check(!rum_object_duplicate(handle, RUM_OBJECT_PROCESS, RUM_RIGHT_QUERY | RUM_RIGHT_WAIT, 0, &alias), 30);
@@ -95,10 +96,12 @@ static void retained(void)
     check(rum_process_terminate(alias) == -RUM_EACCES && rum_process_wait(handle, 0, &info) == 1 &&
           info.process_id == pid && info.termination == RUM_PROCESS_EXITED && info.status == 17, 31);
     collect(pid, RUM_PROCESS_EXITED, 17);
+    check(query(5, 0) == pages, 42);
     /* The test kernel deliberately reuses both PID and execution ID. */
     check(query(2, pid) == pid, 32);
     rum_pid_t replacement = spawn("spin", 0); check(replacement == pid, 33);
     check(!rum_process_terminate(handle) && rum_process_wait(alias, 0, &info) == 1 && info.status == 17, 34);
+    check(!rum_sleep(60), 43); /* A misdirected cancellation would run now. */
     struct rum_process_result pending = { .version = 1, .size = sizeof pending };
     check(rum_wait(replacement, RUM_WAIT_NOHANG, &pending) == 0, 35);
     rum_object_handle_t fresh = open_process(replacement, RUM_RIGHT_PROCESS);

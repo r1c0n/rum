@@ -25,6 +25,7 @@ void syscall_dispatch(struct exception_frame *frame)
         if (operation == 0) frame->eax = pipe_stats().read_waiters;
         else if (operation == 1) frame->eax = object_stats().total.references[OBJECT_OPERATION];
         else if (operation == 3) frame->eax = object_stats().kinds[OBJECT_PROCESS].objects;
+        else if (operation == 5) frame->eax = paging_stats().user_pages;
         else if (operation == 4) {
             cpu_interrupt_enable();
             struct task_process process = load("exit", 0);
