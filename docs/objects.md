@@ -94,6 +94,14 @@ There is no implicit cleanup queue or silent disposal of failed final closes.
 
 ## Allowed contexts
 
+An object type may supply a pure authorization callback for the current-context
+ceiling. Handle acquisition, installation, duplication and inheritance check it
+alongside entry rights. It may inspect retained in-memory metadata, but cannot
+allocate, block, acquire references, touch user memory or perform backend I/O.
+Filesystem descriptions use it to enforce [system-file protection](system-authority.md)
+even when a kernel-opened writable reference reaches a user process. Reference
+release and destruction do not require operation authority.
+
 Ownership mutation is refused in IRQ handlers. IRQ code may take the bounded
 count snapshot, signal an event or request task work; it must leave reference
 release and resource cleanup to task context.

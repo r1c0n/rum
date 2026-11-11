@@ -16,6 +16,11 @@ spawn packet with `EINVAL`. New object calls return `ENOSYS` on a
 
 ## Export the SDK
 
+All userspace programs, including shell tools, have the same system-write
+ceiling. Put application binaries/data in `/APPS` or `/HOME`; changes to `/RUM`
+use [trusted recovery installation](system-authority.md). Neither an executable
+name nor an inherited writable handle grants system-maintenance authority.
+
 From a rum source checkout:
 
 ```powershell
@@ -70,13 +75,14 @@ detail. [Filesystem syscalls](filesystem-syscalls.md) and
 
 ## Install and test
 
-With QEMU stopped, back up the disk and copy the stripped ELF into `/RUM` or
-another application directory using host FAT tools. Use an 8.3 filename such
+With QEMU stopped, back up the disk and copy the stripped ELF into `/APPS`
+using host FAT tools. Create the directory with `setup` in the guest first.
+Use an 8.3 filename such
 as `EXAMPLE.ELF`, then launch it by path. A build does not modify existing disks.
 
 ```text
-run /RUM/EXAMPLE.ELF
-run /RUM/EXAMPLE.ELF /SDKTEST.BIN
+run /APPS/EXAMPLE.ELF
+run /APPS/EXAMPLE.ELF /SDKTEST.BIN
 ```
 
 The example grows and frees its heap, handles allocation failure and checks

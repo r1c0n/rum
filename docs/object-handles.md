@@ -224,6 +224,12 @@ Rights are checked on acquisition/operation. There is no revocation or operation
 to silently change another alias's grant. An operation reference retains
 lifetime, not authority for unrelated operations.
 
+Entry rights also have a [current-context authority ceiling](system-authority.md).
+Declared WRITE on a kernel-opened system file does not authorize a user process
+to write it or create another writable grant. Read-only aliases and cleanup
+remain allowed. Query reports the entry's declared rights, not an elevation of
+the caller's system authority.
+
 ## Errors and compatibility
 
 | Error | Meaning |

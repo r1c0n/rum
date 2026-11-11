@@ -12,6 +12,10 @@ Typed aliases now share these same descriptions. Exporting with
 `rum_object_from_descriptor` retains the file identity, position, mode and
 pending error without reopening it. Either interface can outlive the other.
 
+System-file authority is checked separately from the description's access mode.
+Even a kernel-supplied writable descriptor cannot modify `/RUM` from userspace.
+See [system protection](system-authority.md) for aliases, inheritance and recovery.
+
 Include `<rum/user.h>` and link with the normal rum runtime. Each process has
 32 descriptor slots. A slot references an open description containing the
 backend reference, access mode, file/directory position and deferred I/O error.
