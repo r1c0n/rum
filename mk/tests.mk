@@ -13,6 +13,27 @@ build/tests/object-handle-test: tests/object-handle-test.c kernel/object/handles
 test-object-handles-host: build/tests/object-handle-test
 	./build/tests/object-handle-test
 test-host test-build: build/tests/object-handle-test
+.PHONY: test-object-handles
+test-object-handles: test-object-handles-host build/tests/object-handles.elf build/tests/object-handles.iso
+	python3 tests/lifecycle-qemu-test.py --qemu $(QEMU) --object-handles-only
+test-build test-lifecycle: build/tests/object-handles.elf build/tests/object-handles.iso
+TEST_DEPENDENCIES += build/tests/object-handles-kernel.d build/tests/user/object-handles.d
+build/tests/user/object-handles.o: tests/object-handle-user.c $(USER_INCLUDE_STAMP) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/tests/user/object-handles.debug.elf: build/tests/user/object-handles.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+build/tests/user/object-handles.elf: build/tests/user/object-handles.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@
+	build/tools/check-user-elf $@ $<
+build/tests/object-handles-image.o: tests/object-handles-image.s build/tests/user/object-handles.elf
+	@mkdir -p $(@D)
+	$(AS) $< -o $@
+build/tests/object-handles.iso: build/tests/object-handles.elf $(TESTS_RULES)
+	@mkdir -p build/object-handles-isodir/boot/grub
+	cp $< build/object-handles-isodir/boot/rum.elf
+	printf 'set timeout=0\nmenuentry "rum typed handles" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/object-handles-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/object-handles-isodir
 .PHONY: test-objects
 test-objects: test-objects-host build/tests/objects.elf build/tests/objects.iso
 	python3 tests/lifecycle-qemu-test.py --qemu $(QEMU) --objects-only
@@ -298,6 +319,9 @@ test-shared-handles: test-shared-handles-host build/tests/shared-handles.elf bui
 FAULT_KERNELS := build/tests/fault-de.elf build/tests/fault-ud.elf build/tests/fault-gp.elf build/tests/fault-pf.elf
 FAULT_OBJECTS := $(FAULT_KERNELS:.elf=.o)
 FAULT_COMMON := build/tests/fs-backend.o $(filter-out build/kernel/core/init.o,$(OBJECTS)) build/tests/fault-trigger.o
+build/tests/object-handles.elf: build/tests/object-handles-kernel.o build/tests/object-handles-image.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
 build/tests/objects.elf: build/tests/objects-kernel.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
