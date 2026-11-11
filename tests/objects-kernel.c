@@ -41,7 +41,7 @@ static rum_result_t destroy(struct kernel_object *object)
     else *object = (struct kernel_object){0};
     return 0;
 }
-static const struct object_type type = { OBJECT_FILE, destroy };
+static const struct object_type type = { OBJECT_FILE, destroy, NULL };
 static void refuse_final(void)
 {
     unsigned before = callbacks;

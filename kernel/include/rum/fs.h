@@ -56,6 +56,9 @@ enum fs_error fs_open(const struct fs_context *, const char *path, unsigned acce
 #define FS_OPEN_EXCLUSIVE 16u /* Requires CREATE; existing objects return EXISTS. */
 enum fs_error fs_open_flags(const struct fs_context *, const char *, unsigned access, unsigned flags, fs_reference *);
 enum fs_error fs_duplicate(fs_reference, fs_reference *);
+/* Pure, bounded effective-write check. No backend call, allocation or wait;
+   safe under a short object-table update while the reference is retained. */
+enum fs_error fs_reference_check_write(fs_reference);
 enum fs_error fs_close(fs_reference);
 enum fs_error fs_stat(fs_reference, struct fs_information *);
 enum fs_error fs_stat_path(const struct fs_context *, const char *, struct fs_information *);
@@ -73,6 +76,9 @@ enum fs_error fs_replace(const struct fs_context *, const char *, const void *, 
 enum fs_error fs_remove(const struct fs_context *, const char *);
 enum fs_error fs_mkdir(const struct fs_context *, const char *);
 enum fs_error fs_rename(const struct fs_context *, const char *source, const char *destination, bool replace);
+/* Trusted recovery only. Bounded streaming copy into /RUM, with explicit flush.
+   A failed write may leave a partial destination; no atomic replacement claim. */
+enum fs_error fs_install_system_file(const char *, const char *, uint64_t *copied);
 /* Initialize/clone into a zeroed context. Changes acquire a new directory
    reference before releasing the old one. Destroy once at owner teardown. */
 enum fs_error fs_context_initialize(struct fs_context *);

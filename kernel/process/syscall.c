@@ -112,6 +112,10 @@ static rum_result_t transfer_handle(struct paging_space *space, struct process_h
                                     uint32_t address, uint32_t bytes, bool write)
 {
     if (!handle || !(handle->access & (write ? FS_WRITE : FS_READ))) return -RUM_EBADF;
+    if (write && handle->object.type->authorize) {
+        rum_result_t error = handle->object.type->authorize(&handle->object, RUM_RIGHT_WRITE);
+        if (error) return error;
+    }
     if (handle->kind == HANDLE_DIRECTORY) return -RUM_EISDIR;
     if (!bytes) return 0;
     /* Validate the entire request, even though this call copies one chunk. */

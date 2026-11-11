@@ -59,11 +59,16 @@ static rum_result_t destroy_description(struct kernel_object *header)
     *handle = (struct process_handle){0};
     cpu_interrupt_restore(saved); return 0;
 }
+static rum_result_t authorize_description(struct kernel_object *header, uint32_t rights)
+{
+    struct process_handle *handle = (void *)header;
+    return (rights & RUM_RIGHT_WRITE) && handle->reference ? process_fs_error(fs_reference_check_write(handle->reference)) : 0;
+}
 static const struct object_type description_types[] = {
-    {OBJECT_INVALID, destroy_description}, {OBJECT_CONSOLE_INPUT, destroy_description},
-    {OBJECT_CONSOLE_OUTPUT, destroy_description}, {OBJECT_FILE, destroy_description},
-    {OBJECT_DIRECTORY, destroy_description}, {OBJECT_PIPE_READER, destroy_description},
-    {OBJECT_PIPE_WRITER, destroy_description}
+    {OBJECT_INVALID, destroy_description, NULL}, {OBJECT_CONSOLE_INPUT, destroy_description, NULL},
+    {OBJECT_CONSOLE_OUTPUT, destroy_description, NULL}, {OBJECT_FILE, destroy_description, authorize_description},
+    {OBJECT_DIRECTORY, destroy_description, NULL}, {OBJECT_PIPE_READER, destroy_description, NULL},
+    {OBJECT_PIPE_WRITER, destroy_description, NULL}
 };
 struct process_handle *process_handle_from_object(struct kernel_object *object)
 {
@@ -284,6 +289,8 @@ rum_result_t process_handle_duplicate(struct process_handles *table, rum_handle_
     rum_result_t error = mapping_valid(object, target);
     if (error) return error;
     if (source == target) { table->slots[target].flags = flags; return (rum_result_t)target; }
+    error = authorize_description(&object->object, object->access & FS_WRITE ? RUM_RIGHT_WRITE : 0);
+    if (error) return error;
     error = retain(object);
     if (error) return error;
     if (table->slots[target].object) error = process_handle_close(table, target);
@@ -308,6 +315,9 @@ rum_result_t process_handles_prepare_spawn(struct process_handles *destination, 
         targets |= 1u << map->target;
         if (map->source >= RUM_ABI_HANDLE_LIMIT || !source->slots[map->source].object) return -RUM_EBADF;
         if (source->slots[map->source].flags & RUM_DUP_CLOSPAWN) return -RUM_EACCES;
+        rum_result_t authority = authorize_description(&source->slots[map->source].object->object,
+            source->slots[map->source].object->access & FS_WRITE ? RUM_RIGHT_WRITE : 0);
+        if (authority) return authority;
         rum_result_t error = mapping_valid(source->slots[map->source].object, map->target);
         if (error) return error;
     }
@@ -368,6 +378,10 @@ rum_result_t process_handle_seek(struct process_handle *handle, uint64_t displac
 static rum_result_t transfer(struct process_handle *handle, void *buffer, size_t bytes, bool write)
 {
     if (!handle || !(handle->access & (write ? FS_WRITE : FS_READ))) return -RUM_EBADF;
+    if (write) {
+        rum_result_t error = authorize_description(&handle->object, RUM_RIGHT_WRITE);
+        if (error) return error;
+    }
     if (handle->kind == HANDLE_DIRECTORY) return -RUM_EISDIR;
     if (handle->pipe) return write ? pipe_write(handle->pipe, buffer, bytes) : pipe_read(handle->pipe, buffer, bytes);
     if (handle->kind != HANDLE_FILE || (bytes && !buffer)) return -RUM_EINVAL;

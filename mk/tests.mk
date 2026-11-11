@@ -375,9 +375,18 @@ TEST_DEPENDENCIES += build/tests/user/vm-regions.d build/tests/vm-regions-kernel
 TEST_DEPENDENCIES += build/tests/process-objects-kernel.d build/tests/user/process-objects.d
 TEST_DEPENDENCIES += build/tests/user/runtime.d build/tests/runtime-kernel.d
 TEST_DEPENDENCIES += build/tests/user/large-loader.d build/tests/large-loader-kernel.d
-STORAGE_HOST_SOURCES := kernel/mm/heap.c kernel/fs/path.c kernel/fs/fs-types.c kernel/core/memory.c tests/page-backend.c tests/fs-backend.c kernel/fs/fs.c
+STORAGE_HOST_SOURCES := kernel/mm/heap.c kernel/fs/path.c kernel/fs/fs-types.c kernel/fs/protection.c kernel/fs/install.c kernel/core/memory.c tests/page-backend.c tests/fs-backend.c kernel/fs/fs.c
 TEST_DEPENDENCIES += build/tests/fs-kernel.d build/tests/fs-checks.d build/tests/fs-backend.d
-STORAGE_HOST_HEADERS := kernel/include/rum/heap.h tests/test-files.h kernel/include/rum/fs.h kernel/include/rum/path.h kernel/include/rum/fs_types.h kernel/include/rum/fs_limits.h $(ABI_HEADERS) kernel/include/rum/paging.h kernel/include/rum/pmm.h kernel/include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
+STORAGE_HOST_HEADERS := kernel/include/rum/heap.h tests/test-files.h kernel/include/rum/fs.h kernel/include/rum/fs_policy.h kernel/include/rum/path.h kernel/include/rum/fs_types.h kernel/include/rum/fs_limits.h $(ABI_HEADERS) kernel/include/rum/paging.h kernel/include/rum/pmm.h kernel/include/rum/memory.h tests/page-backend.h tests/include/rum/cpu.h $(LAYOUT_HEADERS)
+.PHONY: test-authority-host
+build/tests/authority-test: tests/authority-test.c kernel/process/handles.c kernel/object/object.c kernel/object/handles.c kernel/io/pipe.c kernel/io/block.c tests/pipe-task-backend.c $(STORAGE_HOST_SOURCES) $(STORAGE_HOST_HEADERS) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(HOST_CC) -Itests/handles-include -Itests/include $(CPPFLAGS) -std=gnu11 -O2 -fno-builtin -Wall -Wextra -Werror $(sort $(filter %.c,$^)) -o $@
+test-authority-host: build/tests/authority-test build/tests/shell-test build/tests/block-test
+	./build/tests/authority-test
+	./build/tests/shell-test
+	./build/tests/block-test
+test-host test-build: build/tests/authority-test
 SNAKE_HOST_SOURCES := kernel/recovery/snake.c apps/snake/model.c
 SNAKE_HOST_HEADERS := kernel/include/rum/snake.h apps/snake/model.h kernel/include/rum/timer.h
 ABI_CASES := args limits hello

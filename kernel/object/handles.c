@@ -37,7 +37,8 @@ static rum_result_t validate(struct object_handle_entry *entry, uint32_t type, u
     if (entry->closing) return -RUM_EBUSY;
     uint32_t actual = entry->object->type->kind;
     if ((type && type != actual) || (required & ~object_rights_mask(actual))) return -RUM_EINVAL;
-    return required & ~entry->rights ? -RUM_EACCES : 0;
+    if (required & ~entry->rights) return -RUM_EACCES;
+    return entry->object->type->authorize ? entry->object->type->authorize(entry->object, required) : 0;
 }
 static int available(const struct object_handles *table)
 {
@@ -61,6 +62,10 @@ rum_result_t object_handle_install(struct object_handles *table, struct kernel_o
         (flags & ~RUM_OBJECT_INHERIT)) return -RUM_EINVAL;
     if (granted & ~authorized) return -RUM_EACCES;
     if (irq_in_handler()) return -RUM_EBUSY;
+    if (object->type->authorize) {
+        rum_result_t result = object->type->authorize(object, granted);
+        if (result) return result;
+    }
     uint32_t saved = cpu_interrupt_save();
     int slot = available(table);
     rum_result_t result = slot < 0 ? -RUM_EMFILE : object_transfer(object, OBJECT_OWNER, OBJECT_TABLE);
@@ -115,6 +120,7 @@ rum_result_t object_handle_request(struct object_handles *table, struct rum_obje
     if (!result && request->operation == RUM_OBJECT_DUPLICATE) {
         if (request->rights & ~object_rights_mask(entry->object->type->kind)) result = -RUM_EINVAL;
         else if (request->rights & ~entry->rights) result = -RUM_EACCES;
+        else if (entry->object->type->authorize) result = entry->object->type->authorize(entry->object, request->rights);
         int slot = available(table);
         if (!result && slot < 0) result = -RUM_EMFILE;
         if (!result) result = object_acquire(entry->object, OBJECT_TABLE);
@@ -145,6 +151,10 @@ rum_result_t object_handles_inherit(struct object_handles *destination, const st
         const struct object_handle_entry *entry = &source->entries[acquired];
         if (!entry->object || !(entry->flags & RUM_OBJECT_INHERIT)) continue;
         if (entry->closing) { result = -RUM_EBUSY; break; }
+        if (entry->object->type->authorize) {
+            result = entry->object->type->authorize(entry->object, entry->rights & ceiling);
+            if (result) break;
+        }
         result = object_acquire(entry->object, OBJECT_TABLE);
         if (result) break;
     }

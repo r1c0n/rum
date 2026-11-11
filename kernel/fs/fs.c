@@ -2,9 +2,10 @@
 #include <rum/fs.h>
 #include <rum/memory.h>
 #include <rum/path.h>
+#include <rum/fs_policy.h>
 
-struct mount { struct fs_backend backend; uint32_t generation; bool mounted; };
-struct object { uint64_t id; uint32_t references; enum fs_mount_id mount; enum fs_kind kind; };
+struct mount { struct fs_backend backend; struct fs_system_index system; uint32_t generation; bool mounted; };
+struct object { uint64_t id; uint32_t references; enum fs_mount_id mount; enum fs_kind kind; bool system; };
 struct reference { fs_reference token; unsigned object, access; };
 struct location { enum fs_mount_id mount; unsigned depth; struct fs_node nodes[FS_PATH_DEPTH + 1]; };
 static struct mount mounts[FS_MOUNT_COUNT];
@@ -102,6 +103,36 @@ static struct reference *find_reference(fs_reference token)
     return NULL;
 }
 
+static bool system_denied(enum fs_mount_id mount, uint64_t id)
+{
+    return !fs_system_write_allowed() && (!mounts[mount].system.valid || fs_system_identity(&mounts[mount].system, id));
+}
+static bool location_denied(const struct location *location)
+{
+    for (unsigned i = 0; i <= location->depth; ++i)
+        if (system_denied(location->mount, location->nodes[i].id)) return true;
+    return false;
+}
+static bool path_denied(const struct fs_path *path)
+{
+    return !fs_system_write_allowed() && path->canonical[0] == '/' && path->canonical[1] == 'R' &&
+        path->canonical[2] == 'U' && path->canonical[3] == 'M' &&
+        (!path->canonical[4] || path->canonical[4] == '/');
+}
+static void system_refresh(enum fs_mount_id id)
+{
+    (void)fs_system_index_build(&mounts[id].system, &mounts[id].backend);
+}
+enum fs_error fs_reference_check_write(fs_reference token)
+{
+    struct reference *ref = find_reference(token);
+    if (!ref) return FS_INVALID;
+    struct object *object = &objects[ref->object];
+    if (!(ref->access & FS_WRITE)) return FS_ACCESS;
+    if ((!fs_system_write_allowed() && object->system) || system_denied(object->mount, object->id)) return FS_ACCESS;
+    return FS_OK;
+}
+
 static enum fs_error preflight(const struct fs_context *context, const char *path, struct fs_path *plan)
 {
     if (context && !context->directory) return FS_INVALID;
@@ -155,6 +186,7 @@ static bool retained(enum fs_mount_id mount, uint64_t id)
 static enum fs_error new_reference(const struct location *location, unsigned access, fs_reference *result)
 {
     const struct fs_node *node = &location->nodes[location->depth];
+    if ((access & FS_WRITE) && location_denied(location)) return FS_ACCESS;
     if (node->kind == FS_DIRECTORY && (access & FS_WRITE)) return FS_IS_DIRECTORY;
     if (mounts[location->mount].backend.read_only && (access & FS_WRITE)) return FS_READ_ONLY;
     if (!next_token) return FS_NO_SPACE;
@@ -168,6 +200,7 @@ static enum fs_error new_reference(const struct location *location, unsigned acc
     if (reference_slot == FS_REFERENCE_LIMIT || (object_slot == FS_OBJECT_LIMIT && empty == FS_OBJECT_LIMIT))
         return FS_NO_SPACE;
     bool creating = object_slot == FS_OBJECT_LIMIT;
+    if (!creating && (access & FS_WRITE) && objects[object_slot].system && !fs_system_write_allowed()) return FS_ACCESS;
     if (creating) {
         struct fs_backend *backend = &mounts[location->mount].backend;
         enum fs_error error = backend->operations->retain(backend->context, node->id);
@@ -175,7 +208,8 @@ static enum fs_error new_reference(const struct location *location, unsigned acc
         object_slot = empty;
     } else if (objects[object_slot].kind != node->kind) return FS_IO_ERROR;
     uint32_t flags = cpu_interrupt_save();
-    if (creating) objects[object_slot] = (struct object){ .id = node->id, .mount = location->mount, .kind = node->kind };
+    if (creating) objects[object_slot] = (struct object){ .id = node->id, .mount = location->mount, .kind = node->kind,
+        .system = fs_system_identity(&mounts[location->mount].system, node->id) };
     ++objects[object_slot].references;
     references[reference_slot] = (struct reference){ .token = next_token++, .object = object_slot, .access = access };
     *result = references[reference_slot].token;
@@ -206,6 +240,7 @@ static enum fs_error mount_backend(const struct fs_backend *backend, enum fs_mou
     if (!backend || !backend->root || backend->naming != FS_NAMES_FAT83 || !backend->operations ||
         !backend->operations->lookup || !backend->operations->stat || !backend->operations->retain ||
         !backend->operations->release || !backend->operations->read || !backend->operations->readdir) return FS_INVALID;
+    if (!fs_device_control_allowed()) return FS_ACCESS;
     enum fs_error error = enter();
     if (error != FS_OK) return error;
     struct mount *mount = &mounts[id];
@@ -220,6 +255,7 @@ static enum fs_error mount_backend(const struct fs_backend *backend, enum fs_mou
                 uint32_t flags = cpu_interrupt_save();
                 mount->backend = *backend; ++mount->generation; mount->mounted = true;
                 cpu_interrupt_restore(flags);
+                system_refresh(id);
             }
         }
     }
@@ -230,6 +266,7 @@ enum fs_error fs_mount_disk(const struct fs_backend *backend) { return mount_bac
 
 enum fs_error fs_unmount_disk(void)
 {
+    if (!fs_device_control_allowed()) return FS_ACCESS;
     enum fs_error error = enter();
     if (error != FS_OK) return error;
     if (!mounts[FS_MOUNT_DISK].mounted) error = FS_UNAVAILABLE;
@@ -262,9 +299,11 @@ enum fs_error fs_open_flags(const struct fs_context *context, const char *path, 
     *result = 0;
     struct fs_path plan;
     enum fs_error error = preflight(context, path, &plan);
+    if (error == FS_OK && (access & FS_WRITE) && path_denied(&plan)) return FS_ACCESS;
     if (error != FS_OK || (error = enter()) != FS_OK) return error;
     struct location location;
     error = resolve(context, &plan, plan.input.count, &location);
+    if (error == FS_OK && (access & FS_WRITE) && location_denied(&location)) { leave(); return FS_ACCESS; }
     if (error == FS_OK && (flags & FS_OPEN_EXCLUSIVE)) { leave(); return FS_EXISTS; }
     if (error == FS_NOT_FOUND && (flags & FS_OPEN_CREATE) && plan.input.count && !plan.input.directory) {
         error = resolve(context, &plan, plan.input.count - 1, &location);
@@ -276,12 +315,16 @@ enum fs_error fs_open_flags(const struct fs_context *context, const char *path, 
             unsigned free_refs = 0, free_objects = 0;
             for (unsigned i = 0; i < FS_REFERENCE_LIMIT; ++i) free_refs += !references[i].token;
             for (unsigned i = 0; i < FS_OBJECT_LIMIT; ++i) free_objects += !objects[i].references;
-            if (location.nodes[location.depth].kind != FS_DIRECTORY) error = FS_NOT_DIRECTORY;
+            if (location_denied(&location)) error = FS_ACCESS;
+            else if (location.nodes[location.depth].kind != FS_DIRECTORY) error = FS_NOT_DIRECTORY;
             else if (backend->read_only) error = FS_READ_ONLY;
             else if (!free_refs || !free_objects || !next_token) error = FS_NO_SPACE;
             else if (!backend->operations->write || !backend->operations->replace ||
                      ((flags & FS_OPEN_TRUNCATE) && !backend->operations->truncate)) error = FS_UNSUPPORTED;
-            else error = backend->operations->replace(backend->context, location.nodes[location.depth].id, name, NULL, 0);
+            else {
+                error = backend->operations->replace(backend->context, location.nodes[location.depth].id, name, NULL, 0);
+                if (fs_system_write_allowed()) system_refresh(location.mount);
+            }
             if (error == FS_OK) error = step(&location, name);
         }
     }
@@ -373,6 +416,7 @@ static struct fs_io_result io(fs_reference token, uint64_t offset, void *buffer,
         struct object *object = &objects[ref->object];
         struct fs_backend *backend = &mounts[object->mount].backend;
         if (!(ref->access & (write ? FS_WRITE : FS_READ))) result.error = FS_ACCESS;
+        else if (write && fs_reference_check_write(token) != FS_OK) result.error = FS_ACCESS;
         else if (object->kind != FS_FILE) result.error = FS_IS_DIRECTORY;
         else if (write && backend->read_only) result.error = FS_READ_ONLY;
         else if (bytes) {
@@ -453,6 +497,7 @@ enum fs_error fs_truncate(fs_reference token, uint64_t size)
         struct object *object = &objects[ref->object];
         struct fs_backend *backend = &mounts[object->mount].backend;
         if (!(ref->access & FS_WRITE)) error = FS_ACCESS;
+        else if (fs_reference_check_write(token) != FS_OK) error = FS_ACCESS;
         else if (object->kind != FS_FILE) error = FS_IS_DIRECTORY;
         else if (backend->read_only) error = FS_READ_ONLY;
         else error = backend->operations->truncate ?
@@ -482,6 +527,7 @@ static enum fs_error mutate(const struct fs_context *context, const char *path,
     if (bytes && !data) return FS_INVALID;
     struct fs_path plan;
     enum fs_error error = preflight(context, path, &plan);
+    if (error == FS_OK && path_denied(&plan)) return FS_ACCESS;
     if (error != FS_OK || (error = enter()) != FS_OK) return error;
     struct location parent;
     if (!plan.input.count) error = action == REMOVE ? FS_BUSY : FS_IS_DIRECTORY;
@@ -490,6 +536,7 @@ static enum fs_error mutate(const struct fs_context *context, const char *path,
         bool special = equal(name, ".") || equal(name, "..");
         error = resolve(context, &plan, plan.input.count - (special ? 0 : 1), &parent);
         if (error == FS_OK && special) error = action == REMOVE ? FS_BUSY : FS_IS_DIRECTORY;
+        if (error == FS_OK && location_denied(&parent)) error = FS_ACCESS;
         if (error == FS_OK && parent.nodes[parent.depth].kind != FS_DIRECTORY) error = FS_NOT_DIRECTORY;
         if (error == FS_OK) {
             struct fs_backend *backend = &mounts[parent.mount].backend;
@@ -499,6 +546,7 @@ static enum fs_error mutate(const struct fs_context *context, const char *path,
                 error = backend->operations->lookup(backend->context, parent.nodes[parent.depth].id, name, &node);
                 bool exists = error == FS_OK;
                 if (exists && !valid_node(&node)) error = FS_IO_ERROR;
+                else if (exists && system_denied(parent.mount, node.id)) error = FS_ACCESS;
                 else if (exists && action == MKDIR) error = FS_EXISTS;
                 else if (exists && plan.input.directory && node.kind != FS_DIRECTORY) error = FS_NOT_DIRECTORY;
                 else if (exists && action == REPLACE && node.kind == FS_DIRECTORY) error = FS_IS_DIRECTORY;
@@ -515,6 +563,7 @@ static enum fs_error mutate(const struct fs_context *context, const char *path,
                         backend->operations->remove(backend->context, id, name) : FS_UNSUPPORTED;
                     else error = backend->operations->mkdir ?
                         backend->operations->mkdir(backend->context, id, name) : FS_UNSUPPORTED;
+                    if (fs_system_write_allowed()) system_refresh(parent.mount);
                 }
             }
         }
@@ -537,6 +586,7 @@ enum fs_error fs_rename(const struct fs_context *context, const char *source, co
     enum fs_error error = preflight(context, source, &from);
     if (error == FS_OK) error = preflight(context, destination, &to);
     if (error != FS_OK) return error;
+    if (path_denied(&from) || path_denied(&to)) return FS_ACCESS;
     if (!from.input.count || !to.input.count || from.input.directory || to.input.directory) return FS_INVALID;
     const char *old = from.input.text + from.input.offsets[from.input.count - 1];
     const char *name = to.input.text + to.input.offsets[to.input.count - 1];
@@ -546,6 +596,7 @@ enum fs_error fs_rename(const struct fs_context *context, const char *source, co
     struct location parent, target;
     error = resolve(context, &from, from.input.count - 1, &parent);
     if (error == FS_OK) error = resolve(context, &to, to.input.count - 1, &target);
+    if (error == FS_OK && (location_denied(&parent) || location_denied(&target))) error = FS_ACCESS;
     if (error == FS_OK && parent.mount != target.mount) error = FS_CROSS_DEVICE;
     if (error == FS_OK && (parent.nodes[parent.depth].kind != FS_DIRECTORY || target.nodes[target.depth].kind != FS_DIRECTORY))
         error = FS_NOT_DIRECTORY;
@@ -555,20 +606,25 @@ enum fs_error fs_rename(const struct fs_context *context, const char *source, co
         if (backend->read_only) error = FS_READ_ONLY;
         else error = backend->operations->lookup(backend->context, parent.nodes[parent.depth].id, old, &node);
         if (error == FS_OK && !valid_node(&node)) error = FS_IO_ERROR;
+        if (error == FS_OK && system_denied(parent.mount, node.id)) error = FS_ACCESS;
         if (error == FS_OK && node.kind != FS_FILE) error = FS_IS_DIRECTORY;
         if (error == FS_OK && retained(parent.mount, node.id)) error = FS_BUSY;
         if (error == FS_OK) {
             error = backend->operations->lookup(backend->context, target.nodes[target.depth].id, name, &existing);
             if (error == FS_OK) {
                 if (!valid_node(&existing)) error = FS_IO_ERROR;
+                else if (system_denied(target.mount, existing.id)) error = FS_ACCESS;
                 else if (existing.id == node.id) error = FS_INVALID;
                 else if (!replace) error = FS_EXISTS;
                 else if (existing.kind != FS_FILE) error = FS_IS_DIRECTORY;
                 else if (retained(parent.mount, existing.id)) error = FS_BUSY;
             } else if (error == FS_NOT_FOUND) error = FS_OK;
         }
-        if (error == FS_OK) error = backend->operations->rename ? backend->operations->rename(backend->context,
-            parent.nodes[parent.depth].id, old, target.nodes[target.depth].id, name, replace) : FS_UNSUPPORTED;
+        if (error == FS_OK) {
+            error = backend->operations->rename ? backend->operations->rename(backend->context,
+                parent.nodes[parent.depth].id, old, target.nodes[target.depth].id, name, replace) : FS_UNSUPPORTED;
+            if (fs_system_write_allowed()) system_refresh(parent.mount);
+        }
     }
     leave(); return error;
 }

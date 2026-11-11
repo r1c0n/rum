@@ -18,6 +18,8 @@ struct node {
 static struct node nodes[NODES];
 static uint64_t next_id;
 static unsigned calls, data_calls;
+static unsigned mutations, alias_count;
+static struct { char name[FS_NAME_CAPACITY]; uint64_t id; } aliases[4];
 static bool initialized;
 size_t fs_test_backend_short;
 enum fs_error fs_test_backend_partial_error;
@@ -37,6 +39,8 @@ static struct node *by_id(uint64_t id)
 }
 static struct node *by_name(uint64_t parent, const char *name)
 {
+    for (unsigned i = 0; parent == 1 && i < alias_count; ++i)
+        if (equal(name, aliases[i].name)) return by_id(aliases[i].id);
     /* Two names for one identity prove that retention is not pathname-based. */
     if (parent == 2 && equal(name, "ALIAS.TXT")) return by_id(4);
     for (unsigned i = 0; i < NODES; ++i)
@@ -108,10 +112,12 @@ static struct fs_io_result read_node(void *context, uint64_t id, uint64_t offset
 }
 static struct fs_io_result write_node(void *context, uint64_t id, uint64_t offset, const void *data, size_t bytes)
 {
+    ++mutations;
     (void)context; return transfer(id, offset, (void *)data, bytes, true);
 }
 static enum fs_error put(uint64_t parent, const char *name, const void *data, size_t bytes, enum fs_kind kind)
 {
+    ++mutations;
     struct node *directory = by_id(parent);
     if (!directory) return FS_NOT_FOUND;
     if (directory->kind != FS_DIRECTORY) return FS_NOT_DIRECTORY;
@@ -144,6 +150,7 @@ static enum fs_error mkdir_node(void *context, uint64_t parent, const char *name
 }
 static enum fs_error remove_node(void *context, uint64_t parent, const char *name)
 {
+    ++mutations;
     ++data_calls;
     (void)context; ++calls;
     struct node *node = by_name(parent, name);
@@ -174,6 +181,7 @@ static enum fs_error readdir_node(void *context, uint64_t id, uint64_t cursor,
 static enum fs_error flush(void *context) { (void)context; ++calls; ++data_calls; return fs_test_backend_failure; }
 static enum fs_error truncate_node(void *context, uint64_t id, uint64_t size)
 {
+    ++mutations;
     (void)context; ++calls; ++data_calls;
     if (fs_test_backend_failure != FS_OK) return fs_test_backend_failure;
     struct node *node = by_id(id);
@@ -186,6 +194,7 @@ static enum fs_error truncate_node(void *context, uint64_t id, uint64_t size)
 static enum fs_error rename_node(void *context, uint64_t old_parent, const char *old,
                                  uint64_t parent, const char *name, bool replace_existing)
 {
+    ++mutations;
     (void)context; ++calls; ++data_calls;
     if (fs_test_backend_failure != FS_OK) return fs_test_backend_failure;
     struct node *source = by_name(old_parent, old), *target = by_name(parent, name);
@@ -219,6 +228,15 @@ void fs_test_backend_initialize(void)
 const struct fs_backend *fs_test_backend(void) { return &backend; }
 unsigned fs_test_backend_calls(void) { return calls; }
 unsigned fs_test_backend_data_calls(void) { return data_calls; }
+unsigned fs_test_backend_mutation_calls(void) { return mutations; }
+bool fs_test_backend_alias(const char *name, const char *target)
+{
+    struct fs_information info;
+    if (alias_count == 4 || fs_name_check(FS_NAMES_FAT83, name) != FS_OK || fs_stat_path(NULL, target, &info) != FS_OK) return false;
+    size_t bytes = 0; while (name[bytes]) ++bytes;
+    memcpy(aliases[alias_count].name, name, bytes + 1);
+    aliases[alias_count++].id = info.identity.object; return true;
+}
 unsigned fs_test_backend_pins(void)
 {
     unsigned pins = 0;

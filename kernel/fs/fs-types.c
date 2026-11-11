@@ -25,6 +25,7 @@ enum fs_error fs_error_from_block(enum block_error error)
     case BLOCK_DEVICE_FAULT: return FS_DEVICE_FAULT;
     case BLOCK_UNSUPPORTED: return FS_UNSUPPORTED;
     case BLOCK_IO_ERROR: return FS_IO_ERROR;
+    case BLOCK_ACCESS: return FS_ACCESS;
     }
     return FS_IO_ERROR;
 }

@@ -2,6 +2,13 @@
 #include <rum/cpu.h>
 
 static uint32_t active_requests;
+static bool (*authority)(void);
+bool block_set_authority_policy(bool (*allowed)(void))
+{
+    if (!allowed) return false;
+    if (authority) return authority == allowed;
+    authority = allowed; return true;
+}
 
 bool block_request_active(void)
 {
@@ -13,6 +20,7 @@ bool block_request_active(void)
 
 static enum block_error acquire(struct block_device *device)
 {
+    if (authority && !authority()) return BLOCK_ACCESS;
     if (!device || !device->operations || !device->sector_size)
         return BLOCK_INVALID;
     uint32_t flags = cpu_interrupt_save();
@@ -87,7 +95,7 @@ const char *block_error_name(enum block_error error)
 {
     static const char *const names[] = {
         "ok", "invalid request", "sector range", "no device", "read only",
-        "busy", "timeout", "device fault", "I/O error", "unsupported device"
+        "busy", "timeout", "device fault", "I/O error", "unsupported device", "access denied"
     };
     return (unsigned)error < sizeof(names) / sizeof(names[0]) ? names[error] : "unknown error";
 }

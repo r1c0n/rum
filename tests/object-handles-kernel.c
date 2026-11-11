@@ -29,9 +29,9 @@ static rum_result_t destroy(struct kernel_object *object)
     check(task_blocking_allowed(), "destructor context");
     ++destroyed; check(kfree(object), "free typed object"); return 0;
 }
-static const struct object_type file = { OBJECT_FILE, destroy };
-static const struct object_type console = { OBJECT_CONSOLE_OUTPUT, destroy };
-static const struct object_type process_type = { OBJECT_PROCESS, destroy };
+static const struct object_type file = { OBJECT_FILE, destroy, NULL };
+static const struct object_type console = { OBJECT_CONSOLE_OUTPUT, destroy, NULL };
+static const struct object_type process_type = { OBJECT_PROCESS, destroy, NULL };
 static rum_object_handle_t give(struct object_handles *table, const struct object_type *type, uint32_t rights, unsigned flags)
 {
     struct kernel_object *object = kcalloc(1, sizeof *object);

@@ -2,6 +2,7 @@
 #include <rum/block.h>
 #include <rum/cpu.h>
 #include <rum/fs.h>
+#include <rum/fs_policy.h>
 #include <rum/gdt.h>
 #include <rum/handles.h>
 #include <rum/interrupts.h>
@@ -81,6 +82,17 @@ volatile uint32_t task_idle_stack_base, task_emergency_stack_base, task_current_
 extern const char __boot_stack_bottom[], __boot_stack_top[];
 static _Noreturn void start_task(void);
 static _Noreturn void idle_loop(void *argument);
+/* Trust comes from the kernel's execution container, not an ELF name, path,
+   inherited handle or public request flag. All user processes have the same
+   system-write ceiling, including the explicitly marked initial shell. */
+static bool system_authority(void)
+{
+    return !irq_in_handler() && (!ready || (current && current->process->kind == TASK_KERNEL));
+}
+static bool block_authority(void)
+{
+    return system_authority() || (!irq_in_handler() && fs_operation_active());
+}
 
 static void clear_wait(struct task *task)
 {
@@ -172,6 +184,7 @@ bool task_initialize(void)
     task_idle_stack_base = idle.stack_base;
     task_emergency_stack_base = emergency_base;
     task_current_stack_top = current->stack_top;
+    if (!fs_set_authority_policy(system_authority, system_authority) || !block_set_authority_policy(block_authority)) cpu_halt();
     ready = true;
     current->slice_ticks = TASK_TIME_SLICE_TICKS;
     cpu_interrupt_restore(saved);

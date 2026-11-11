@@ -7,7 +7,7 @@
 
 enum block_error {
     BLOCK_OK, BLOCK_INVALID, BLOCK_RANGE, BLOCK_NO_DEVICE, BLOCK_READ_ONLY,
-    BLOCK_BUSY, BLOCK_TIMEOUT, BLOCK_DEVICE_FAULT, BLOCK_IO_ERROR, BLOCK_UNSUPPORTED
+    BLOCK_BUSY, BLOCK_TIMEOUT, BLOCK_DEVICE_FAULT, BLOCK_IO_ERROR, BLOCK_UNSUPPORTED, BLOCK_ACCESS
 };
 
 /* completed counts fully transferred sectors; a failed write may also have
@@ -49,5 +49,9 @@ struct block_result block_flush(struct block_device *device);
 const char *block_error_name(enum block_error error);
 /* IRQ-safe observation across every device, including nested requests. */
 bool block_request_active(void);
+/* One-time boot registration. The callback is pure and bounded; it permits
+   trusted raw I/O or a checked filesystem operation, never arbitrary ring-3
+   requests. Wrappers check it before acquiring a device or calling a driver. */
+bool block_set_authority_policy(bool (*allowed)(void));
 
 #endif

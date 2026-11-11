@@ -32,8 +32,8 @@ static rum_result_t destroy(struct kernel_object *object)
     else *object = (struct kernel_object){0};
     return 0;
 }
-static const struct object_type file = { OBJECT_FILE, destroy };
-static const struct object_type pipe = { OBJECT_PIPE_READER, destroy };
+static const struct object_type file = { OBJECT_FILE, destroy, NULL };
+static const struct object_type pipe = { OBJECT_PIPE_READER, destroy, NULL };
 static void empty(void)
 {
     struct object_statistics actual = object_stats(), zero = {0};
@@ -43,7 +43,7 @@ static void empty(void)
 static void construction(void)
 {
     struct sample sample = { .payload = 0x726d };
-    const struct object_type invalid = { OBJECT_INVALID, destroy }, missing = { OBJECT_FILE, NULL };
+    const struct object_type invalid = { OBJECT_INVALID, destroy, NULL }, missing = { OBJECT_FILE, NULL, NULL };
     assert(object_initialize(NULL, &file) == -RUM_EINVAL);
     assert(object_initialize(&sample.header, NULL) == -RUM_EINVAL);
     assert(object_initialize(&sample.header, &invalid) == -RUM_EINVAL);
