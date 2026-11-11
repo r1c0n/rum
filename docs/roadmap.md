@@ -1,9 +1,10 @@
 # rum roadmap
 
-rum 0.7.0 provides private user memory, a growing application heap, larger ELF
-loading and a standalone SDK alongside persistent FAT16 storage, a userspace
-shell, pipelines, background jobs and Snake. The next release builds common
-object ownership and access-rights contracts for kernel resources.
+rum 0.8.0 adds common object ownership, typed handles, explicit access rights,
+process references and protected system files. It retains private user memory,
+a growing application heap, larger ELF loading and a standalone SDK alongside
+persistent FAT16 storage, a userspace shell, pipelines, background jobs and
+Snake. Synchronization and multiple userspace threads are the next foundation.
 
 The architecture separates low-level kernel mechanisms, executive services
 such as memory and object management, and userspace policy. The 32-bit x86 BIOS

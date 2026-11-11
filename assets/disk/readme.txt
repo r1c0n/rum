@@ -1,4 +1,4 @@
-rum OS v0.7.0
+rum OS v0.8.0
 
 help                  Show available commands.
 ls [path]             List files and directories.

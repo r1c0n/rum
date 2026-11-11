@@ -100,12 +100,13 @@ COM1 receives two machine-readable lines:
 - `rum_diag_cpu` contains the task kind, PID, parent, status, hardware and record
   CR3 values, current kernel ESP, TSS.ESP0, and stack bounds.
 - `rum_diag_resources` contains task/process lifecycle and memory ownership
-  counts, including emergency-stack, paging, heap, and RAM-file resources.
+  counts, including emergency-stack, paging, heap, object and file resources.
 
 These reports intentionally contain kernel addresses for local debugging. They
 are available only through the kernel shell and serial console. The public user
-ABI exposes process IDs and syscall results, never kernel pointers, page-table
-addresses, stack bounds, or ownership records.
+ABI exposes process IDs, syscall results and bounded caller-local resource
+counts, never kernel pointers, page-table addresses, stack bounds or another
+process's private ownership records.
 
 The exception's `esp` value is the interrupted stack pointer. `diag_kesp` is the
 stack pointer used while producing diagnostics. They describe different moments

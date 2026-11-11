@@ -1,7 +1,7 @@
 # rum application SDK
 
 Build static i386 applications without the rum source tree. This SDK targets
-the 0.8 development interfaces. Typed I/O, process handles and explicit child
+the 0.8 application interfaces. Typed I/O, process handles and explicit child
 grants require the corresponding kernel features listed in `sdk.json`;
 the documented 0.7 application interfaces remain supported. The older 0.6
 release lacks required memory/runtime calls. `sdk.json` records the target,
@@ -103,7 +103,7 @@ handles granted by trusted resource services; ordinary `rum_open` still returns
 a descriptor. Query needs QUERY rights and duplication needs DUPLICATE plus a
 subset of the source grant. Entries are non-inheritable unless explicitly
 marked `RUM_OBJECT_INHERIT`. See [the public packet definitions](include/rum/abi/object.h).
-These calls require the 0.8 development kernel; the existing descriptor calls
+These calls require the 0.8 kernel; the existing descriptor calls
 and their standard-stream, shared-offset and close-on-spawn rules are preserved.
 
 Executables are static little-endian i386 ELF32 ET_EXEC, at most 16 MiB on disk
