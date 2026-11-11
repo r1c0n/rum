@@ -7,6 +7,7 @@
 #include <rum/abi/process.h>
 #include <rum/abi/syscall.h>
 #include <rum/abi/time.h>
+#include <rum/abi/object.h>
 #include <rum/process_limits.h>
 
 int main(void)
@@ -31,10 +32,11 @@ int main(void)
         RUM_SYS_RUN, RUM_SYS_REPLACE, RUM_SYS_CONSOLE, RUM_SYS_COMMAND_TEXT, RUM_SYS_SESSION,
         RUM_SYS_SPAWN, RUM_SYS_WAIT, RUM_SYS_TERMINATE, RUM_SYS_YIELD, RUM_SYS_SLEEP, RUM_SYS_PROCESS_LIST,
         RUM_SYS_DUPLICATE, RUM_SYS_SPAWN_MAPPED, RUM_SYS_PIPE, RUM_SYS_ISATTY, RUM_SYS_JOB, RUM_SYS_TERMINAL,
-        RUM_SYS_STAT, RUM_SYS_RENAME, RUM_SYS_VM_ALLOCATE, RUM_SYS_VM_RELEASE, RUM_SYS_VM_PROTECT, RUM_SYS_CLOCK};
+        RUM_SYS_STAT, RUM_SYS_RENAME, RUM_SYS_VM_ALLOCATE, RUM_SYS_VM_RELEASE, RUM_SYS_VM_PROTECT, RUM_SYS_CLOCK,
+        RUM_SYS_OBJECT};
     _Static_assert(sizeof numbers / sizeof numbers[0] == RUM_SYS_COUNT, "complete syscall list");
     for (unsigned i = 0; i < RUM_SYS_COUNT; ++i) {
-        assert(numbers[i] < RUM_SYS_COUNT);
+        assert(numbers[i] == i); /* Existing call numbers are append-only. */
         for (unsigned j = 0; j < i; ++j) assert(numbers[i] != numbers[j]);
     }
     rum_result_t error = -RUM_EFAULT;

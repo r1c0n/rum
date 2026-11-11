@@ -1,5 +1,9 @@
 # Shared handles and child streams
 
+This guide covers stream descriptors. The [typed object-handle interface](object-handles.md)
+has a separate generation-aware namespace; descriptors retain the reuse and
+inheritance rules below.
+
 Include `<rum/user.h>` and link with the normal rum runtime. Each process has
 32 descriptor slots. A slot references an open description containing the
 backend reference, access mode, file/directory position and deferred I/O error.

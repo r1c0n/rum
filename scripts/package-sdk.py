@@ -49,9 +49,9 @@ def package(output=None, root=ROOT):
                            ("sdk/README-sdk.md", "README.md")):
         entries[target] = (root / source).read_bytes()
     revision, dirty = source_identity(root)
-    metadata = {"format_version": 1, "sdk_interface_version": 1, "development_series": "0.7",
+    metadata = {"format_version": 1, "sdk_interface_version": 1, "development_series": "0.8",
                 "target": "i686-elf", "abi_version": 1, "source_commit": revision, "source_dirty": dirty,
-                "required_features": ["private-regions-v1", "monotonic-clock-v1", "filesystem-v1"],
+                "required_features": ["private-regions-v1", "monotonic-clock-v1", "filesystem-v1", "typed-object-handles-v1"],
                 "files": {name: hashlib.sha256(data).hexdigest() for name, data in sorted(entries.items())}}
     entries["sdk.json"] = (json.dumps(metadata, indent=2) + "\n").encode()
     with tempfile.NamedTemporaryFile(dir=output.parent, prefix=".rum-sdk-", suffix=".zip", delete=False) as stream:

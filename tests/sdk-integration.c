@@ -104,6 +104,8 @@ static void collect(rum_pid_t pid, unsigned termination, unsigned vector)
 }
 int main(int argc, char **argv)
 {
+    struct rum_object_information object;
+    check(rum_object_query(RUM_OBJECT_INVALID_HANDLE, RUM_OBJECT_ANY, &object) == -RUM_EBADF, 66);
     unsigned seed = argc == 3 ? (unsigned)(argv[2][0] - '0') : 0;
     private_check(seed, true);
     if (argc == 3) {

@@ -3,8 +3,10 @@
 The standalone SDK contains public headers, a startup object, `librum.a`, a
 processed linker script, the ELF validator source, an application builder and
 a project template. It does not contain kernel sources, a disk image or the
-cross compiler. Applications built with this SDK target the 0.7
-interfaces; the older 0.6 release does not implement all required syscalls.
+cross compiler. This SDK targets the 0.8 development interfaces, including
+[typed object handles](object-handles.md). Existing 0.7 applications retain their
+documented stream and memory behavior. New object calls return `ENOSYS` on a
+0.7 kernel; the older 0.6 release also lacks required memory/runtime calls.
 
 ## Export the SDK
 

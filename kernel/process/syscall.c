@@ -701,6 +701,18 @@ static rum_result_t clock_snapshot(struct paging_space *space, uint32_t address)
     return 0;
 }
 
+static rum_result_t object_control(struct paging_space *space, uint32_t address)
+{
+    struct rum_object_request request;
+    /* Every output byte is writable before a table or backend can change.
+       The dispatcher's mapping lease survives a yielding final destructor. */
+    if (!accessible(space, address, sizeof request, true) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    rum_result_t result = object_handle_request(task_current_objects(), &request);
+    if (!result && !paging_copy_to_user(space, address, &request, sizeof request)) cpu_halt();
+    return result;
+}
+
 void syscall_dispatch(struct exception_frame *frame)
 {
     if (!frame || frame->vector != RUM_SYSCALL_VECTOR || frame->error ||
@@ -721,6 +733,8 @@ void syscall_dispatch(struct exception_frame *frame)
     bool retained = needs_buffers && task_user_buffers_begin();
     if (needs_buffers && !retained) result = -RUM_EBUSY;
     else switch (frame->eax) {
+    case RUM_SYS_OBJECT:
+        result = frame->ecx || frame->edx ? -RUM_EINVAL : object_control(space, frame->ebx); break;
     case RUM_SYS_CLOCK:
         result = frame->ecx || frame->edx ? -RUM_EINVAL : clock_snapshot(space, frame->ebx); break;
     case RUM_SYS_VM_ALLOCATE: case RUM_SYS_VM_RELEASE: case RUM_SYS_VM_PROTECT:

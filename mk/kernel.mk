@@ -5,7 +5,7 @@ DRIVER_SOURCES := drivers/display/terminal.c drivers/serial/serial.c \
                   drivers/input/keyboard.c \
                   drivers/input/keyboard_decode.c drivers/storage/ata.c
 MM_SOURCES := kernel/mm/pmm.c kernel/mm/heap.c kernel/mm/vm.c
-OBJECT_SOURCES := kernel/object/object.c
+OBJECT_SOURCES := kernel/object/object.c kernel/object/handles.c
 PROCESS_SOURCES := kernel/process/task.c kernel/process/session.c kernel/process/jobs.c kernel/process/syscall.c kernel/process/handles.c \
                    kernel/process/elf.c kernel/process/process.c
 FS_SOURCES := kernel/fs/path.c kernel/fs/fs-types.c \

@@ -7,6 +7,7 @@
 #include <rum/paging.h>
 #include <rum/process_limits.h>
 #include <rum/session.h>
+#include <rum/object_handle.h>
 
 #define RUM_TASK_CAPACITY (RUM_PROCESS_LIMIT + 2u)
 /* Five 100 Hz PIT ticks: nominally 50 ms; synchronous kernel work may delay it. */
@@ -56,6 +57,9 @@ struct task_process {
     /* Optional private descriptor table, moved only after successful
        publication. Failure leaves it owned by the trusted producer. */
     struct process_handles *initial_handles;
+    /* Optional trusted object table, moved on publication. Otherwise inherit
+       only explicitly inheritable entries from the current process. */
+    struct object_handles *initial_objects;
 };
 
 struct task_snapshot {
@@ -104,6 +108,7 @@ struct paging_space *task_current_process_space(void);
    creation. Foreground only; idle has no working directory. */
 struct fs_context *task_current_filesystem(void);
 struct process_handles *task_current_handles(void);
+struct object_handles *task_current_objects(void);
 /* IRQ-safe count only; filesystem references are never followed here. */
 unsigned task_handle_count(task_id);
 /* Bounded, IRQ-safe copy. False for idle, unknown IDs or insufficient capacity. */
