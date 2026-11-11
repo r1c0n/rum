@@ -17,7 +17,8 @@ static rum_result_t executable_read(void *context, uint32_t offset, void *out, u
 }
 
 static rum_result_t start_process(const char *program, const struct rum_arguments *arguments,
-                                  bool foreground, bool shell, struct process_handles *handles, task_id *child)
+                                  bool foreground, bool shell, struct process_handles *handles,
+                                  struct object_handles *objects, task_id *child)
 {
     if (!child || !program || !elf_arguments_valid(arguments)) return -RUM_EINVAL;
     *child = 0;
@@ -60,6 +61,7 @@ static rum_result_t start_process(const char *program, const struct rum_argument
         return -RUM_EINTR;
     }
     process.initial_handles = handles;
+    process.initial_objects = objects;
     const char *name = path;
     for (unsigned i = 0; path[i]; ++i) if (path[i] == '/') name = path + i + 1;
     for (unsigned i = 0; i < sizeof process.name - 1 && name[i]; ++i)
@@ -72,22 +74,23 @@ static rum_result_t start_process(const char *program, const struct rum_argument
 
 rum_result_t process_start_foreground(const char *path, const struct rum_arguments *arguments, task_id *child)
 {
-    return start_process(path, arguments, true, false, NULL, child);
+    return start_process(path, arguments, true, false, NULL, NULL, child);
 }
 
 rum_result_t process_start_shell(const char *path, const struct rum_arguments *arguments, task_id *child)
 {
-    return start_process(path, arguments, true, true, NULL, child);
+    return start_process(path, arguments, true, true, NULL, NULL, child);
 }
 
 rum_result_t process_spawn(const char *path, const struct rum_arguments *arguments, task_id *child)
 {
-    return start_process(path, arguments, false, false, NULL, child);
+    return start_process(path, arguments, false, false, NULL, NULL, child);
 }
 
-rum_result_t process_spawn_with_handles(const char *path, const struct rum_arguments *arguments,
+static rum_result_t spawn_resources(const char *path, const struct rum_arguments *arguments,
                                        const struct rum_handle_mapping *mappings, unsigned count,
-                                       unsigned flags, task_id *child)
+                                       unsigned flags, const struct rum_object_inheritance *grants,
+                                       unsigned grant_count, bool explicit_objects, task_id *child)
 {
     if (!child || !path || !elf_arguments_valid(arguments)) return -RUM_EINVAL;
     *child = 0;
@@ -102,15 +105,33 @@ rum_result_t process_spawn_with_handles(const char *path, const struct rum_argum
         if (status) return status;
     }
     struct process_handles prepared = {0};
-    rum_result_t error = process_handles_prepare_spawn(&prepared, task_current_handles(), mappings, count,
+    struct object_handles objects = {0};
+    rum_result_t error = explicit_objects ?
+        object_handles_prepare_spawn(&objects, task_current_objects(), grants, grant_count) : 0;
+    if (!error) error = process_handles_prepare_spawn(&prepared, task_current_handles(), mappings, count,
         flags & RUM_SPAWN_NO_DEFAULT_STREAMS);
-    if (!error) error = start_process(path, arguments, false, false, &prepared, child);
+    if (!error) error = start_process(path, arguments, false, false, &prepared, explicit_objects ? &objects : NULL, child);
     if (!error && (flags & RUM_SPAWN_PIPELINE) && !task_join_pipeline(*child)) cpu_halt();
     if (!error && (flags & RUM_SPAWN_JOB) && !task_join_job(*child)) cpu_halt();
     /* Successful publication moves the complete table, leaving this empty.
        Failure at any loader/constructor stage still belongs to the caller. */
     rum_result_t closed = process_handles_destroy(&prepared);
+    rum_result_t object_error = object_handles_destroy(&objects);
+    if (!closed) closed = object_error;
     return error ? error : closed;
+}
+
+rum_result_t process_spawn_with_handles(const char *path, const struct rum_arguments *arguments,
+                                       const struct rum_handle_mapping *mappings, unsigned count,
+                                       unsigned flags, task_id *child)
+{
+    return spawn_resources(path, arguments, mappings, count, flags, NULL, 0, false, child);
+}
+rum_result_t process_spawn_with_objects(const char *path, const struct rum_arguments *arguments,
+                                       const struct rum_handle_mapping *mappings, unsigned count, unsigned flags,
+                                       const struct rum_object_inheritance *grants, unsigned grant_count, task_id *child)
+{
+    return spawn_resources(path, arguments, mappings, count, flags, grants, grant_count, true, child);
 }
 
 static rum_result_t run_foreground(const char *path, const struct rum_arguments *arguments,

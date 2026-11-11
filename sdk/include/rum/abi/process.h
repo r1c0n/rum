@@ -11,6 +11,7 @@
 #define RUM_COMMAND_ARGV_VERSION 3 /* Same packet, text/reserved both zero. */
 #define RUM_LIFECYCLE_ABI_VERSION 1
 #define RUM_SPAWN_MAPPED_VERSION 1
+#define RUM_SPAWN_OBJECTS_VERSION 2
 #define RUM_SPAWN_MAPPING_LIMIT RUM_ABI_HANDLE_LIMIT
 #define RUM_SPAWN_NO_DEFAULT_STREAMS 1u
 #define RUM_SPAWN_PIPELINE 2u /* Shell only, inside a foreground pipeline scope. */
@@ -126,6 +127,17 @@ struct rum_spawn_mapped_request {
     rum_address_t path, arguments, mappings;
     uint32_t mapping_count, flags, reserved;
 };
+/* Version 2 of syscall 25. streams.version is OBJECTS_VERSION and streams.size
+   is the whole 64-byte size. objects names 0..32 rum_object_inheritance entries;
+   zero count requires a zero address and inherits no typed entries. Legacy
+   descriptor mappings and flags retain their version-1 meaning. */
+struct rum_spawn_objects_request {
+    struct rum_spawn_mapped_request streams;
+    rum_address_t objects;
+    uint32_t object_count, reserved[6];
+};
+_Static_assert(sizeof(struct rum_spawn_objects_request) == 64 &&
+               offsetof(struct rum_spawn_objects_request, objects) == 32, "resource spawn layout");
 _Static_assert(sizeof(struct rum_handle_mapping) == 16 &&
                sizeof(struct rum_spawn_mapped_request) == 32 &&
                offsetof(struct rum_spawn_mapped_request, mapping_count) == 20, "mapped spawn layout");

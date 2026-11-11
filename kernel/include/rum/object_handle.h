@@ -30,6 +30,11 @@ rum_result_t object_request_validate(const struct rum_object_request *);
    source generation history. Rights can only shrink. Publication is all-or-
    nothing; a failure releases every acquired reference. No backend callouts. */
 rum_result_t object_handles_inherit(struct object_handles *, const struct object_handles *, uint32_t rights_ceiling);
+/* Explicit allowlist for a fresh child table. Preserve generation history,
+   validate the entire grant list before acquiring anything, then commit all
+   references together. Failure leaves both tables and caller entries intact. */
+rum_result_t object_handles_prepare_spawn(struct object_handles *, const struct object_handles *,
+                                         const struct rum_object_inheritance *, unsigned count);
 /* Close all entries; errors keep unclosed entries owned for retry. */
 rum_result_t object_handles_destroy(struct object_handles *);
 unsigned object_handles_count(const struct object_handles *);

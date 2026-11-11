@@ -384,13 +384,25 @@ static rum_result_t spawn_child(struct paging_space *space, uint32_t address)
 
 static rum_result_t spawn_mapped_child(struct paging_space *space, uint32_t address)
 {
-    struct rum_spawn_mapped_request request;
-    if (!accessible(space, address, sizeof request, false) ||
-        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
-    if (request.version != RUM_SPAWN_MAPPED_VERSION || request.size != sizeof request || request.reserved ||
+    uint32_t header[2];
+    if (!accessible(space, address, sizeof header, false) ||
+        !paging_copy_from_user(space, header, address, sizeof header)) return -RUM_EFAULT;
+    bool explicit_objects = header[0] == RUM_SPAWN_OBJECTS_VERSION;
+    uint32_t size = explicit_objects ? sizeof(struct rum_spawn_objects_request) : sizeof(struct rum_spawn_mapped_request);
+    if ((!explicit_objects && header[0] != RUM_SPAWN_MAPPED_VERSION) || header[1] != size) return -RUM_EINVAL;
+    struct rum_spawn_objects_request packet = {0};
+    if (!accessible(space, address, size, false) || !paging_copy_from_user(space, &packet, address, size)) return -RUM_EFAULT;
+    struct rum_spawn_mapped_request request = packet.streams;
+    if (request.version != header[0] || request.size != size || request.reserved ||
         (request.flags & ~(RUM_SPAWN_NO_DEFAULT_STREAMS | RUM_SPAWN_PIPELINE | RUM_SPAWN_JOB)) ||
         ((request.flags & RUM_SPAWN_JOB) && (request.flags & RUM_SPAWN_PIPELINE)) || request.mapping_count > RUM_SPAWN_MAPPING_LIMIT ||
         (!request.mapping_count && request.mappings)) return -RUM_EINVAL;
+    if (packet.object_count > RUM_OBJECT_HANDLE_LIMIT || (!packet.object_count && packet.objects)) return -RUM_EINVAL;
+    for (unsigned i = 0; i < 6; ++i) if (packet.reserved[i]) return -RUM_EINVAL;
+    struct rum_object_inheritance grants[RUM_OBJECT_HANDLE_LIMIT];
+    uint32_t object_bytes = packet.object_count * sizeof grants[0];
+    if (object_bytes && (!accessible(space, packet.objects, object_bytes, false) ||
+        !paging_copy_from_user(space, grants, packet.objects, object_bytes))) return -RUM_EFAULT;
     struct rum_handle_mapping mappings[RUM_SPAWN_MAPPING_LIMIT];
     uint32_t bytes = request.mapping_count * sizeof mappings[0];
     if (bytes && (!accessible(space, request.mappings, bytes, false) ||
@@ -405,7 +417,9 @@ static rum_result_t spawn_mapped_child(struct paging_space *space, uint32_t addr
     if (!paging_copy_from_user(space, arguments, request.arguments, sizeof *arguments)) error = -RUM_EFAULT;
     else if (!elf_arguments_valid(arguments)) error = -RUM_EINVAL;
     task_id child = 0;
-    if (!error) error = process_spawn_with_handles(path, arguments, mappings, request.mapping_count, request.flags, &child);
+    if (!error) error = explicit_objects ?
+        process_spawn_with_objects(path, arguments, mappings, request.mapping_count, request.flags, grants, packet.object_count, &child) :
+        process_spawn_with_handles(path, arguments, mappings, request.mapping_count, request.flags, &child);
     (void)kfree(arguments);
     if (error) return error;
     struct task_information info;

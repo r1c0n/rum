@@ -49,6 +49,14 @@
 #ifndef __ASSEMBLER__
 #include <stddef.h>
 typedef uint32_t rum_object_handle_t;
+/* Explicit child grant. Source must opt into inheritance. The child keeps the
+   source token, receives a subset of its rights and the specified entry flags.
+   Zero flags stops automatic onward inheritance; no duplication right needed. */
+struct rum_object_inheritance {
+    rum_object_handle_t handle;
+    uint32_t type, rights, flags, reserved[2];
+};
+_Static_assert(sizeof(struct rum_object_inheritance) == 24, "object inheritance entry layout");
 /* QUERY: handle/type input; rights/flags/result_handle zero. Fills type,
    rights and flags. DUPLICATE: rights/flags input; fills result_handle.
    CLOSE: rights/flags/result_handle zero; consumes only this handle.

@@ -30,6 +30,9 @@ rum_result_t process_start_shell(const char *, const struct rum_arguments *, tas
 rum_result_t process_spawn(const char *, const struct rum_arguments *, task_id *);
 rum_result_t process_spawn_with_handles(const char *, const struct rum_arguments *,
                                       const struct rum_handle_mapping *, unsigned count, unsigned flags, task_id *);
+rum_result_t process_spawn_with_objects(const char *, const struct rum_arguments *,
+                                      const struct rum_handle_mapping *, unsigned count, unsigned flags,
+                                      const struct rum_object_inheritance *, unsigned object_count, task_id *);
 rum_result_t process_run_foreground(const char *, const struct rum_arguments *, struct process_result *);
 rum_result_t process_run_command(const char *, const struct rum_arguments *, const char *, struct process_result *);
 rum_result_t process_run_argv_command(const char *, const struct rum_arguments *, struct process_result *);
