@@ -6,7 +6,9 @@ a project template. It does not contain kernel sources, a disk image or the
 cross compiler. This SDK targets the 0.8 development interfaces, including
 [typed object handles and I/O](object-handles.md). Export a descriptor with
 `rum_object_from_descriptor` to use the typed read/write, seek, directory and
-flush wrappers without opening another description. Existing 0.7 applications retain their
+flush wrappers without opening another description. [Process handles](process-objects.md)
+provide explicit query/wait/termination rights and retained status. Existing 0.7
+applications retain their
 documented stream and memory behavior. New object calls return `ENOSYS` on a
 0.7 kernel; the older 0.6 release also lacks required memory/runtime calls.
 

@@ -8,7 +8,8 @@ The table implementation is private to `kernel/object/handles.c`.
 Use `rum_object_from_descriptor` to obtain a typed reference to an open file,
 directory, pipe endpoint or console stream. Both interfaces share the same open
 description. `rum_open` and `rum_pipe` continue to return stream descriptors.
-Process-object acquisition and management are not available yet.
+Use [process handles](process-objects.md) for authorized process query, wait and
+termination, including retained status after collection.
 
 ## Two namespaces
 
@@ -163,7 +164,8 @@ close-on-spawn is per entry, not irrevocable authority.
 Negative results use public `RUM_*` errors. Seek is for regular files; directory
 iteration uses the existing versioned `rum_directory_entry`. Reopen a directory
 to get a fresh cursor, or rewind through a retained legacy descriptor. These
-wrappers do not add file metadata, process management or terminal control APIs.
+wrappers do not add file metadata or terminal control APIs. Process management
+uses the separate [process-object packet](process-objects.md#public-packets).
 
 Syscall 37 (`RUM_SYS_OBJECT_IO`) takes a writable 48-byte
 `rum_object_io_request` in EBX, with ECX/EDX zero. Initialize version to
@@ -235,9 +237,10 @@ rollback of backend writes; resource implementations retain their own failure
 contracts.
 
 Existing syscall numbers and layouts are unchanged, with calls 36 and 37 added
-after CLOCK. The syscall ABI and object packet families are version 1. A released
-0.7 kernel returns `ENOSYS` for these calls. Existing 0.7 applications retain
-their descriptor, memory and runtime interfaces on the newer kernel.
+after CLOCK. The syscall ABI and object packet families are version 1.
+Process-object operations use call 38 and their own versioned packet family.
+A released 0.7 kernel returns `ENOSYS` for these calls. Existing 0.7 applications
+retain their descriptor, memory and runtime interfaces on the newer kernel.
 
 ## Focused checks
 

@@ -33,6 +33,12 @@ for packet layouts and [Process tools](../docs/process-tools.md) for shell examp
 and explicit child stream mappings. See [shared handles](../docs/shared-handles.md)
 for standard-stream replacement, close-on-spawn flags and cleanup rules.
 
+`rum_process_open`, `rum_process_query`, `rum_process_wait` and
+`rum_process_terminate` provide explicit process-handle rights. A retained handle
+keeps completion status after normal child collection without keeping its stack
+or address space. Typed waits observe; the parent still collects with `rum_wait`.
+See [process handles](../docs/process-objects.md) for authority and lifetime rules.
+
 `rum_object_from_descriptor` exports a typed alias of an existing open stream.
 Use `rum_object_read`, `rum_object_write`, `rum_object_seek`,
 `rum_object_readdir`, `rum_object_flush` and `rum_object_isatty` with explicit

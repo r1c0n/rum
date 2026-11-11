@@ -244,21 +244,24 @@ for lifetime and diagnostic-count rules.
 
 ### 4. Process objects and management rights
 
-- [ ] Represent process references as objects with separate rights for supported
+- [x] Represent process references as objects with separate rights for supported
   query, wait and termination operations. Define who may acquire those rights.
-- [ ] Keep process IDs used for display/discovery separate from authority.
+- [x] Keep process IDs used for display/discovery separate from authority.
   Prevent ID reuse from redirecting an existing reference to a new process.
-- [ ] Separate a running process's execution resources from its retained exit
+- [x] Separate a running process's execution resources from its retained exit
   status. Define when status is consumed and when final references disappear.
-- [ ] Preserve direct-child, job and shell-session behavior while expressing
+- [x] Preserve direct-child, job and shell-session behavior while expressing
   existing delegation through explicit rights.
-- [ ] Define process exit and cancellation with pending waits or I/O; leave
+- [x] Define process exit and cancellation with pending waits or I/O; leave
   thread and synchronization object implementations for 0.9.0.
 
 Test parent/child exit ordering, retained exit status, failed acquisition,
 foreign-session operations, reused IDs and termination during I/O. Closing a
 reference must not accidentally terminate its process or lose another owner's
 legitimate wait result.
+
+See [process handles](process-objects.md) for acquisition policy, non-consuming
+waits, retained status, cancellation, limits and fixed-width syscall packets.
 
 ### 5. Duplication, inheritance and construction failures
 

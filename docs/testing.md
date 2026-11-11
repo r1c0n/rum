@@ -44,6 +44,13 @@ and child-fault cleanup through typed endpoints. The `sdk` group exercises typed
 FAT reads/writes using an externally built program and host byte comparisons.
 ABI tests pin the original syscall numbers.
 
+Use `--suite process-objects` / `-Suite process-objects` for process-reference
+rights, non-consuming waits, retained status, simulated ID reuse, inherited
+observers, cross-page packets, pool exhaustion and cancellation during waits or
+pipe I/O. Host and ELF/16 MiB / ISO/64 MiB checks verify ownership baselines.
+`python3 tests/lifecycle-qemu-test.py --process-only` runs the legacy lifecycle
+and ID-limit cases, including foreground command delegation and session denials.
+
 `make -j4 test-shell-tools-host` runs the fast command-stream and pager checks.
 The `editing` group also exercises the real help/file viewers, prompt/listing
 colors, navigation, Ctrl+C recovery, cross-page styled-line validation and
