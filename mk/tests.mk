@@ -1,12 +1,31 @@
 TESTS_RULES := Makefile mk/config.mk mk/tests.mk
 .PHONY: test-process-objects-host test-process-objects
-build/tests/process-reference-test: tests/process-reference-test.c kernel/process/reference.c kernel/object/object.c kernel/include/rum/process_reference.h kernel/include/rum/object.h $(ABI_HEADERS) $(TESTS_RULES)
+build/tests/process-reference-test: tests/process-reference-test.c kernel/process/reference.c kernel/object/object.c kernel/include/rum/process_reference.h kernel/include/rum/object.h kernel/include/rum/task.h tests/handles-include/rum/cpu.h $(ABI_HEADERS) $(TESTS_RULES)
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Itests/handles-include -Ikernel/include -Isdk/include $(filter %.c,$^) -o $@
 test-process-objects-host: build/tests/process-reference-test build/tests/abi-test
 	./build/tests/process-reference-test
 	./build/tests/abi-test
 test-host test-build: build/tests/process-reference-test
+test-process-objects: test-process-objects-host build/tests/process-objects.elf build/tests/process-objects.iso
+	python3 tests/lifecycle-qemu-test.py --qemu $(QEMU) --process-objects-only
+test-build test-lifecycle: build/tests/process-objects.elf build/tests/process-objects.iso
+build/tests/user/process-objects.o: tests/process-object-user.c $(USER_INCLUDE_STAMP) $(TESTS_RULES)
+	@mkdir -p $(@D)
+	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
+build/tests/user/process-objects.debug.elf: build/tests/user/process-objects.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 $(filter %.o,$^) -lgcc -o $@
+build/tests/user/process-objects.elf: build/tests/user/process-objects.debug.elf build/tools/check-user-elf
+	$(OBJCOPY) --strip-all $< $@
+	build/tools/check-user-elf $@ $<
+build/tests/process-objects-image.o: tests/process-objects-image.s build/tests/user/process-objects.elf
+	@mkdir -p $(@D)
+	$(AS) $< -o $@
+build/tests/process-objects.iso: build/tests/process-objects.elf $(TESTS_RULES)
+	@mkdir -p build/process-objects-isodir/boot/grub
+	cp $< build/process-objects-isodir/boot/rum.elf
+	printf 'set timeout=0\nmenuentry "rum process objects" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/process-objects-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/process-objects-isodir
 .PHONY: test-objects-host
 build/tests/object-test: tests/object-test.c kernel/object/object.c kernel/include/rum/object.h kernel/include/rum/task.h tests/handles-include/rum/cpu.h $(ABI_HEADERS)
 	@mkdir -p $(@D)
@@ -327,6 +346,9 @@ test-shared-handles: test-shared-handles-host build/tests/shared-handles.elf bui
 FAULT_KERNELS := build/tests/fault-de.elf build/tests/fault-ud.elf build/tests/fault-gp.elf build/tests/fault-pf.elf
 FAULT_OBJECTS := $(FAULT_KERNELS:.elf=.o)
 FAULT_COMMON := build/tests/fs-backend.o $(filter-out build/kernel/core/init.o,$(OBJECTS)) build/tests/fault-trigger.o
+build/tests/process-objects.elf: build/tests/process-objects-kernel.o build/tests/process-objects-image.o $(filter-out build/tests/fault-trigger.o build/kernel/process/task.o build/kernel/process/syscall.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
 build/tests/object-handles.elf: build/tests/object-handles-kernel.o build/tests/object-handles-image.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
@@ -350,6 +372,7 @@ PROCESS_FAULT_KERNELS := $(addprefix build/tests/process-fault-,$(addsuffix .elf
 PROCESS_FAULT_OBJECTS := $(PROCESS_FAULT_KERNELS:.elf=.o)
 TEST_DEPENDENCIES := $(FAULT_OBJECTS:.o=.d) $(PAGING_OBJECTS:.o=.d) $(CPU_OBJECTS:.o=.d) $(PROCESS_FAULT_OBJECTS:.o=.d) build/tests/cpu-probe.d build/tests/process-fault-probe.d build/tests/syscall-kernel.d build/tests/syscall-probe.d build/tests/elf-loader-kernel.d build/tests/elf-loader-image.d build/tests/paging-spaces.d build/tests/user-memory.d build/tests/irq-kernel.d build/tests/storage-kernel.d build/tests/storage-checks.d build/tests/task-kernel.d build/tests/task-fault-kernel.d build/tests/task-double-fault-kernel.d build/tests/task-stack-fault.d
 TEST_DEPENDENCIES += build/tests/user/vm-regions.d build/tests/vm-regions-kernel.d
+TEST_DEPENDENCIES += build/tests/process-objects-kernel.d build/tests/user/process-objects.d
 TEST_DEPENDENCIES += build/tests/user/runtime.d build/tests/runtime-kernel.d
 TEST_DEPENDENCIES += build/tests/user/large-loader.d build/tests/large-loader-kernel.d
 STORAGE_HOST_SOURCES := kernel/mm/heap.c kernel/fs/path.c kernel/fs/fs-types.c kernel/core/memory.c tests/page-backend.c tests/fs-backend.c kernel/fs/fs.c
@@ -934,6 +957,7 @@ test-host: build/tests/ata-test
 test-host: build/tests/block-test build/tests/console-test build/tests/memory-test build/tests/keyboard-test build/tests/shell-test build/tests/pmm-test build/tests/storage-test build/tests/snake-test build/tests/layout-test build/tests/frame-test build/tests/abi-test
 	./build/tests/elf-stream-test
 	./build/tests/object-test
+	./build/tests/process-reference-test
 	./build/tests/runtime-test
 	./build/tests/object-handle-test
 	./build/tests/timer-test

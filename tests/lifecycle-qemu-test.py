@@ -13,6 +13,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--qemu", default="qemu-system-i386")
     focus = parser.add_mutually_exclusive_group()
+    focus.add_argument("--process-only", action="store_true", help="Run legacy parent/session lifecycle and ID-limit checks")
+    focus.add_argument("--process-objects-only", action="store_true", help="Run only process object rights/lifetime checks")
     focus.add_argument("--objects-only", action="store_true", help="Run only common object ownership checks")
     focus.add_argument("--object-handles-only", action="store_true", help="Run only typed-handle ABI checks")
     focus.add_argument("--vm-only", action="store_true", help="Run only private memory-region lifecycle checks")
@@ -21,7 +23,11 @@ def main():
     args = parser.parse_args()
     artifacts = ROOT / "build/test-artifacts/lifecycle"
     artifacts.mkdir(parents=True, exist_ok=True)
-    if args.object_handles_only:
+    if args.process_only:
+        cases = ("lifecycle", "lifecycle-ids")
+    elif args.process_objects_only:
+        cases = ("process-objects",)
+    elif args.object_handles_only:
         cases = ("object-handles",)
     elif args.objects_only:
         cases = ("objects",)
@@ -32,7 +38,7 @@ def main():
     elif args.vm_only:
         cases = ("vm-regions",)
     else:
-        cases = ("lifecycle", "lifecycle-ids", "vm-regions", "runtime", "large-loader", "objects", "object-handles")
+        cases = ("lifecycle", "lifecycle-ids", "vm-regions", "runtime", "large-loader", "objects", "object-handles", "process-objects")
     for case in cases:
         for boot, ram in (("elf", 16), ("iso", 64)):
             with tempfile.TemporaryDirectory(prefix="rum-lifecycle-") as temporary:
@@ -62,6 +68,7 @@ def main():
                     if serial.exists():
                         (artifacts / f"{label}.serial.log").write_bytes(serial.read_bytes())
             coverage = {
+                "process-objects": "retained status, reduced rights/inheritance, ID reuse, pending waits/I/O, cancellation and cleanup",
                 "object-handles": "typed rights, stale generations, cross-page packets, inheritance, fault/cancel and construction rollback",
                 "objects": "retained operations, retryable final close, IRQ/FS/block guards, yielding destruction and cleanup",
                 "large-loader": "large streamed segments, BSS, parent descriptors, injected I/O/OOM and cleanup",

@@ -31,6 +31,7 @@ SUITES = {
     "sdk": "test-sdk",
     "objects": "test-objects",
     "object-handles": "test-object-handles",
+    "process-objects": "test-process-objects",
 }
 BOOT_ACTIONS = {"run", "run-kernel", "debug", "panic"}
 DISK_ACTIONS = BOOT_ACTIONS - {"panic"} | {"create-disk", "prepare-disk"}
