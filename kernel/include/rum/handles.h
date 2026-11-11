@@ -4,6 +4,7 @@
 #include <rum/abi/process.h>
 #include <rum/fs.h>
 #include <rum/object_handle.h>
+#include <rum/abi/resources.h>
 
 enum process_handle_kind { HANDLE_UNUSED, HANDLE_INPUT, HANDLE_OUTPUT, HANDLE_FILE, HANDLE_DIRECTORY,
                            HANDLE_PIPE_READ, HANDLE_PIPE_WRITE };
@@ -35,6 +36,10 @@ rum_result_t process_handle_duplicate(struct process_handles *, rum_handle_t sou
 rum_result_t process_handles_prepare_spawn(struct process_handles *, const struct process_handles *,
                                          const struct rum_handle_mapping *, unsigned count, unsigned flags);
 unsigned process_handles_count(const struct process_handles *);
+/* Caller owns both tables. Pure bounded snapshot under one short IRQ guard;
+   no references acquired and no backend or authorization callbacks. */
+rum_result_t process_resources_read(const struct process_handles *, const struct object_handles *,
+                                    struct rum_resource_information *);
 rum_result_t process_handles_destroy(struct process_handles *);
 struct process_handle *process_handle_get(struct process_handles *, rum_handle_t);
 /* A borrowed get is valid only while its descriptor remains owned. Acquisition

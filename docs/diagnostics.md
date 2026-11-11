@@ -1,5 +1,9 @@
 # Kernel diagnostics
 
+For a sanitized application-local summary, use the userspace `handles` command
+or [resource-count syscall](resource-diagnostics.md). The kernel report below
+is available through trusted recovery and intentionally includes debug addresses.
+
 Enter `recovery`, then use `diag` when rum boots but something about memory or task
 state looks wrong. It takes a consistent, allocation-free snapshot and prints
 it to both VGA and COM1.
@@ -96,12 +100,13 @@ COM1 receives two machine-readable lines:
 - `rum_diag_cpu` contains the task kind, PID, parent, status, hardware and record
   CR3 values, current kernel ESP, TSS.ESP0, and stack bounds.
 - `rum_diag_resources` contains task/process lifecycle and memory ownership
-  counts, including emergency-stack, paging, heap, and RAM-file resources.
+  counts, including emergency-stack, paging, heap, object and file resources.
 
 These reports intentionally contain kernel addresses for local debugging. They
 are available only through the kernel shell and serial console. The public user
-ABI exposes process IDs and syscall results, never kernel pointers, page-table
-addresses, stack bounds, or ownership records.
+ABI exposes process IDs, syscall results and bounded caller-local resource
+counts, never kernel pointers, page-table addresses, stack bounds or another
+process's private ownership records.
 
 The exception's `esp` value is the interrupted stack pointer. `diag_kesp` is the
 stack pointer used while producing diagnostics. They describe different moments

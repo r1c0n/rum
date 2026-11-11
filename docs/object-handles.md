@@ -1,5 +1,8 @@
 # Typed object handles
 
+Use [resource counts](resource-diagnostics.md) to measure local handles and
+aliases without exposing object identities or another process's tables.
+
 The object-handle interface adds generation-aware identities and access masks
 on top of [common object ownership](objects.md). Public definitions live in
 `sdk/include/rum/abi/object.h`; applications include `<rum/user.h>` for wrappers.

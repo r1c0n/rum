@@ -119,7 +119,7 @@ def boot(qemu, ram, label, disk=None, iso=False, options="", readonly=False, mar
 
 def commands(console):
     console.command("help --all", "cat [-b] [path]")
-    console.command("about", "rum OS v0.7.0")
+    console.command("about", "rum OS v0.8.0")
     console.command("pwd", "\r\n/\r\n> ")
     console.command("echo island life", "island life\r\n")
     console.command("write local.txt disk file bytes")

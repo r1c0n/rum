@@ -8,6 +8,8 @@ a userspace shell with pipes, redirection and background jobs, persistent FAT16
 storage, preemptive multitasking and ASCII Snake. Applications have private
 memory, a growing heap and a small C runtime, with a standalone SDK for external
 projects. QEMU, VMware Workstation and VirtualBox are supported.
+Typed handles provide explicit access rights and shared resource ownership;
+system programs are protected from ordinary application writes.
 
 ## Getting started
 
@@ -70,8 +72,11 @@ while preserving the draft, and Ctrl+U clears the draft. See the
 
 `recovery` enters the recovery console, where `mem`, `diag` and Snake remain
 available even without usable storage. `exit` restarts the normal shell.
-Wait for a command to finish before shutting down the VM. FAT16 has no journal;
+`handles` shows the command's own resource counts. Use `shutdown` or `reboot`
+to flush storage and stop or restart rum. FAT16 has no journal;
 an interrupted write may require host repair. See [filesystem behavior](docs/fat16.md).
+Keep applications and data in `/APPS` and `/HOME`. Updating `/RUM` uses
+[recovery installation](docs/system-authority.md).
 
 ## Screenshots
 

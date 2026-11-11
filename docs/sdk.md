@@ -1,9 +1,12 @@
 # Building rum applications
 
+Use `rum_resources` for [caller-local object and handle counts](resource-diagnostics.md).
+It reports aliases and object types without pointers or global ownership data.
+
 The standalone SDK contains public headers, a startup object, `librum.a`, a
 processed linker script, the ELF validator source, an application builder and
 a project template. It does not contain kernel sources, a disk image or the
-cross compiler. This SDK targets the 0.8 development interfaces, including
+cross compiler. This SDK targets the 0.8 application interfaces, including
 [typed object handles and I/O](object-handles.md). Export a descriptor with
 `rum_object_from_descriptor` to use the typed read/write, seek, directory and
 flush wrappers without opening another description. [Process handles](process-objects.md)

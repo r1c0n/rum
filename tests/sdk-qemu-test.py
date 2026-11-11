@@ -28,6 +28,9 @@ def main():
         images.build(disk); images.seed_system(disk)
         images.command("mcopy", "-i", str(disk), str(ROOT / "build/tests/sdk-app.elf"), "::/RUM/SDKAPP.ELF")
         images.command("mcopy", "-i", str(disk), str(ROOT / "build/tests/sdk-stress.elf"), "::/RUM/SDKMIX.ELF")
+        legacy = ROOT / "build/tests/sdk07-app.elf"
+        if legacy.is_file():
+            images.command("mcopy", "-i", str(disk), str(legacy), "::/RUM/SDK07.ELF")
         if args.doom:
             images.command("mcopy", "-i", str(disk), str(ROOT / "build/doom-probe/DOOMIO.elf"), "::/RUM/DOOMIO.ELF")
             source.write_bytes(wad_bytes()); images.command("mcopy", "-i", str(disk), str(source), "::/TEST.WAD")
@@ -39,6 +42,11 @@ def main():
                     console.command("run /RUM/SDKAPP.ELF /SDKTEST.BIN", "External SDK application passed.")
                     console.command("run /RUM/SDKAPP.ELF --fault", "Program stopped after a user fault.")
                     console.type("run /RUM/SDKAPP.ELF --spin\n"); console.wait("sdk cancellation ready\r\n")
+                    console.send("ctrl", "c"); console.wait("Program cancelled.\r\n/> ")
+                if legacy.is_file():
+                    console.command("run /RUM/SDK07.ELF /COMPAT.BIN", "External SDK application passed.")
+                    console.command("run /RUM/SDK07.ELF --fault", "Program stopped after a user fault.")
+                    console.type("run /RUM/SDK07.ELF --spin\n"); console.wait("sdk cancellation ready\r\n")
                     console.send("ctrl", "c"); console.wait("Program cancelled.\r\n/> ")
                 if args.doom:
                     console.command("run /RUM/DOOMIO.ELF /TEST.WAD", "Doom zone and WAD I/O probe passed.")
@@ -56,6 +64,9 @@ def main():
                                  "Object refs: 0 owners, 0 table entries, 0 operations"):
                     assert expected in diag, diag
             assert images.file_bytes(disk, "/SDKTEST.BIN") == bytes((i * 17) & 255 for i in range(8193))
+            if legacy.is_file():
+                assert images.file_bytes(disk, "/COMPAT.BIN") == bytes((i * 17) & 255 for i in range(8193))
+                print(f"PASS: {ram} MiB released 0.7 SDK application, exact bytes, faults and cancellation", flush=True)
             for seed in range(1, 6):
                 round = 3 if seed <= 3 else 0
                 expected = bytes(((i * 37) ^ (i >> 7) ^ (seed * 23) ^ (round * 11)) & 255 for i in range(8193))

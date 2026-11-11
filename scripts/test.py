@@ -57,6 +57,7 @@ def suite():
             ("block", "tests/block-qemu-test.py", ["--ram", "16"]),
             ("console", "tests/console-qemu-test.py", []),
             ("power", "tests/power-qemu-test.py", []),
+            ("system-authority", "tests/system-authority-qemu-test.py", []),
             ("integration", "tests/integration-stress-test.py", []),
             ("system-disk", "tests/system-disk-test.py", []),
             ("lifecycle", "tests/lifecycle-qemu-test.py", []),
@@ -81,7 +82,7 @@ def suite():
         results.append(run("disk-launcher", [sys.executable, "tests/disk-tools-test.py", "--boot-output-checks"]))
         return int(any(result["returncode"] for result in results))
     finally:
-        report = {"passed": len(results) == 26 and all(r["returncode"] == 0 for r in results),
+        report = {"passed": len(results) == 27 and all(r["returncode"] == 0 for r in results),
                   "jobs": args.jobs, "seconds": round(time.monotonic() - started, 2),
                   "suites": sorted(results, key=lambda result: result["seconds"], reverse=True)}
         (OUTPUT / "result.json").write_text(json.dumps(report, indent=2) + "\n")

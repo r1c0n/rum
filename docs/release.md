@@ -11,13 +11,19 @@ publish a disk that has been used for personal files or testing.
 In Ubuntu/WSL, from a clean committed checkout:
 
 ```sh
-python3 scripts/release-check.py --jobs 4 --workers 4
+python3 scripts/release-check.py --jobs 4 --workers 4 --compat-sdk /path/to/0.7.0/rum-sdk.zip
 ```
 
 The checker copies tracked sources to a new temporary directory, builds with
 bounded parallelism and runs the complete host/QEMU suite. Tests validate
 persistent root files across separate boots, read-only/malformed/full disks,
 process isolation, cancellation, cleanup and injected storage failures.
+The preserved 0.7.0 SDK is required for this release's compatibility check;
+its manifest must identify the clean released source commit. An unchanged
+external application is compiled with that SDK, run through both boot paths,
+and checked for exact file bytes, fault recovery, cancellation and cleanup.
+The input archive hash and resulting ELF/provenance are saved with the report.
+The default archive path is `build/releases/0.7.0-110836a/rum-sdk.zip`.
 The production-shell scenario pipes binary ELF bytes to a file, appends quoted
 text, copies and renames files, cancels a blocked pipeline, collects a child
 fault and restarts the shell with an active job. Every resource ledger returns
@@ -44,6 +50,8 @@ The release gate combines subsystem checks with the production workflow:
 | Console and recovery | Terminal restoration, userspace Snake, scrollback/editing, diskless/rejected volumes and recovery resource counts |
 | Packaging | Exact archive membership/bytes, no mutable disk in `rum.zip`, extracted-ISO boots at 16/64/256/1152 MiB, then native host checks |
 | Application platform | An exported SDK builds a larger ELF outside the repository; concurrent heap/file workers, exhaustion, protected buffers and fault/cancellation cleanup pass through both boot paths |
+| Object authority | Local count packets, typed aliases, stale tokens, wrong types, access denial, explicit child grants, retained process status and final-owner cleanup |
+| System maintenance | Real FAT protection and recovery installs survive a separate boot with exact guest/host bytes; both kernel and userspace power controls preserve cleanup |
 
 Timed ATA checks include slow flushes beyond the former poll-count budget,
 clock wraparound and a stopped clock. Every wait remains bounded; no storage
@@ -101,6 +109,52 @@ disk. The normal shell's built-in `recovery` command also works after storage
 errors prevent loading programs. FAT16 is not journaled. Preserve a damaged
 image and inspect or repair a copy with host FAT tools; rum does not silently
 format or repair it. See [FAT16](fat16.md) for interrupted-write guarantees.
+
+## 0.8.0 validation record
+
+Validated November 11, 2026, from clean versioned source snapshot
+`a0579a720a98f5503f8faf9fa80c8edcaf07f0b0`. Subsequent checklist and evidence
+updates change README/docs only.
+
+- All 27 regression groups passed with four build jobs and four guest workers.
+  The suite took 142.12 seconds; the complete clean check took 201.0 seconds,
+  including a fresh system disk and VM downloads. Timings depend on the host.
+- Caller-local resource packets passed cross-page, read-only, malformed-input,
+  table-exhaustion, alias, stale-token, type and access-right checks. Mixed
+  file/process/pipe workloads, blocked I/O, faults, cancellation and failed
+  construction restored every object/reference, handle, buffer and page ledger.
+- The SDK archived with 0.7.0 built an unchanged external application using its
+  released headers, startup and runtime. ELF/16 MiB and ISO/64 MiB runs recovered
+  identical file bytes and passed fault/cancellation cleanup. Its original SDK
+  source is `110836a41e60823015f2de6caf594afc03f06471`; the input archive hash
+  and compiled application's provenance are preserved in the clean report.
+- Protected `/RUM` mutations were denied, while trusted recovery installed a
+  65,537-byte system file and recovered exact bytes after a separate boot.
+  Userspace and recovery power controls, repeated intentional shell restarts,
+  crash fallback, the recovery banner and diskless/read-only shutdown passed.
+- Both boot paths and the supported 16/64/256/1152 MiB boot configurations passed.
+  The exact packaged ISO passed native Windows and Linux packaging, SDK payload
+  comparisons, pipelines/jobs, Snake, memory/file I/O and separate-boot
+  persistence with zero remaining objects and references in recovery.
+- Pristine raw/VMDK and raw/VDI conversions were identical. No personal or test
+  disk was packaged. This does not claim a native VMware or VirtualBox run.
+
+Validated ISO SHA256:
+
+```text
+5ac65e59eb070cd30698ea703c7c7a58ef631c0193ed1334eac90bf8dfd5ea56
+```
+
+Evidence is in `build/release-check/a0579a720a98-20261111-122728/`, including
+`result.json`, suite logs/timings, `sdk07-app.json`, `host-linux/result.json`,
+`host-windows/result.json` and VM conversion logs. The earlier pre-version gate
+also passed from `83858593a1f374cfe6e4a0c627c7276841e3bef9` before the version
+changed. Ready-to-upload downloads are collected in
+`build/releases/0.8.0-a0579a7/` with checksums and validation provenance.
+
+Publish `rum.zip`, `rum-sdk.zip` and `rum-vm-images.zip` separately. The standalone
+ISO and `rum.zip` contain no mutable user disk; the VM download contains only a
+fresh installed system disk.
 
 ## 0.7.0 validation record
 

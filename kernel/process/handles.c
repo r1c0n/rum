@@ -9,6 +9,40 @@
 #define OPEN_DESCRIPTIONS (RUM_PROCESS_LIMIT * RUM_ABI_HANDLE_LIMIT)
 static struct process_handle descriptions[OPEN_DESCRIPTIONS];
 
+rum_result_t process_resources_read(const struct process_handles *descriptors, const struct object_handles *handles,
+                                    struct rum_resource_information *output)
+{
+    if (!descriptors || !handles || !output) return -RUM_EINVAL;
+    if (irq_in_handler()) return -RUM_EBUSY;
+    _Static_assert(OBJECT_KIND_COUNT == RUM_RESOURCE_TYPE_COUNT, "resource type count");
+    const struct kernel_object *seen[RUM_ABI_HANDLE_LIMIT + RUM_OBJECT_HANDLE_LIMIT];
+    struct rum_resource_information result = { .version = RUM_RESOURCE_VERSION, .size = sizeof result };
+    uint32_t saved = cpu_interrupt_save();
+    for (unsigned i = 0; i < RUM_ABI_HANDLE_LIMIT + RUM_OBJECT_HANDLE_LIMIT; ++i) {
+        const struct kernel_object *object;
+        if (i < RUM_ABI_HANDLE_LIMIT) {
+            const struct process_handle *description = descriptors->slots[i].object;
+            object = description ? &description->object : NULL;
+            if (object) ++result.descriptors;
+        } else {
+            object = handles->entries[i - RUM_ABI_HANDLE_LIMIT].object;
+            if (object) ++result.typed_handles;
+        }
+        if (!object) continue;
+        ++result.table_references;
+        unsigned at = 0;
+        while (at < result.objects && seen[at] != object) ++at;
+        if (at != result.objects) continue;
+        uint32_t type = object->type->kind;
+        if (!type || type >= RUM_RESOURCE_TYPE_COUNT) { cpu_interrupt_restore(saved); return -RUM_EIO; }
+        seen[result.objects++] = object;
+        ++result.types[type];
+    }
+    cpu_interrupt_restore(saved);
+    *output = result;
+    return 0;
+}
+
 _Static_assert(RUM_OPEN_READ == FS_READ && RUM_OPEN_WRITE == FS_WRITE, "access bits");
 _Static_assert(RUM_OPEN_CREATE == FS_OPEN_CREATE && RUM_OPEN_TRUNCATE == FS_OPEN_TRUNCATE &&
                RUM_OPEN_APPEND == FS_OPEN_APPEND && RUM_OPEN_EXCLUSIVE == FS_OPEN_EXCLUSIVE, "open option bits");

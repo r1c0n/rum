@@ -129,7 +129,7 @@ static void execute(void)
             print("Usage: about\n");
             return;
         }
-        print("rum OS v0.7.0\n"
+        print("rum OS v0.8.0\n"
               "An island of our own.\n"
               "A small operating system for 32-bit x86.\n");
     } else if (equal(command, "echo")) {

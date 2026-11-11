@@ -36,6 +36,8 @@ def background(console, command, early_fault=False):
 def workflows(console):
     """One production scenario shared by release and native-host ISO checks."""
     console.command("setup", "Workspace ready: /HOME and /APPS.")
+    summary = console.command("handles", "This process: 3 descriptors, 0 typed handles")
+    assert "0x" not in summary and "CR3" not in summary and "pid=" not in summary
     console.command("echo 'island  bytes' | cat > /HOME/NOTES.TXT")
     console.command("echo 'literal | > &' >> /HOME/NOTES.TXT")
     console.command("cp /HOME/NOTES.TXT /HOME/COPY.TXT")
@@ -62,6 +64,8 @@ def resource_baseline(console):
     for expected in ("Processes: 0 | 0 user tables, 0 user pages",
                      "Sessions: 0 live, 0 closing, 0 members | 0 session refs, 0 process refs",
                      "Handles: 0 descriptors, 0 open descriptions, 0 aliases",
+                     "Objects: 0 allocated | 0 published, 0 constructing, 0 destroying",
+                     "Object refs: 0 owners, 0 table entries, 0 operations",
                      "Jobs: 0 live, 0 running, 0 completed, 0 active waits",
                      "Pipes: 0 live, 0 buffered bytes | 0 read ends, 0 write ends, 0 active operations, 0 waiters",
                      "Terminal: normal"):

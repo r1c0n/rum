@@ -747,6 +747,20 @@ static rum_result_t clock_snapshot(struct paging_space *space, uint32_t address)
     return 0;
 }
 
+static rum_result_t resources(struct paging_space *space, uint32_t address)
+{
+    struct rum_resource_information request;
+    if (!accessible(space, address, sizeof request, true) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    if (request.version != RUM_RESOURCE_VERSION || request.size != sizeof request || request.flags || request.reserved ||
+        request.descriptors || request.typed_handles || request.objects || request.table_references) return -RUM_EINVAL;
+    for (unsigned i = 0; i < RUM_RESOURCE_TYPE_COUNT; ++i) if (request.types[i]) return -RUM_EINVAL;
+    for (unsigned i = 0; i < 4; ++i) if (request.reserved_tail[i]) return -RUM_EINVAL;
+    rum_result_t result = process_resources_read(task_current_handles(), task_current_objects(), &request);
+    if (!result && !paging_copy_to_user(space, address, &request, sizeof request)) cpu_halt();
+    return result;
+}
+
 static rum_result_t object_control(struct paging_space *space, uint32_t address)
 {
     struct rum_object_request request;
@@ -859,6 +873,8 @@ void syscall_dispatch(struct exception_frame *frame)
     else switch (frame->eax) {
     case RUM_SYS_PROCESS_OBJECT:
         result = frame->ecx || frame->edx ? -RUM_EINVAL : process_object_control(space, frame->ebx); break;
+    case RUM_SYS_RESOURCES:
+        result = frame->ecx || frame->edx ? -RUM_EINVAL : resources(space, frame->ebx); break;
     case RUM_SYS_OBJECT_IO:
         result = frame->ecx || frame->edx ? -RUM_EINVAL : object_io(space, frame->ebx); break;
     case RUM_SYS_OBJECT:
