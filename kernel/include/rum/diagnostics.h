@@ -8,6 +8,7 @@
 #include <rum/handles.h>
 #include <rum/pipe.h>
 #include <rum/jobs.h>
+#include <rum/object.h>
 
 struct kernel_diagnostics {
     uint32_t cr0, cr3, kernel_esp, esp0, flags;
@@ -18,6 +19,7 @@ struct kernel_diagnostics {
     struct heap_statistics heap;
     struct fs_statistics filesystem;
     struct process_handle_statistics handles;
+    struct object_statistics objects;
     struct pipe_statistics pipes;
     struct job_statistics jobs;
     uint32_t terminal_owner;

@@ -115,6 +115,8 @@ int main(void)
     reset(); receive("rm NOTE.TXT\ncat NOTE.TXT\n");
     assert(strstr(output, "cat: not found"));
     reset(); receive("mem\ndiag\n"); assert(strstr(output, "Heap:") && strstr(output, "Filesystem:"));
+    assert(strstr(output, "Objects: 0 allocated | 0 published, 0 constructing, 0 destroying") &&
+           strstr(output, "Object refs: 0 owners, 0 table entries, 0 operations"));
     reset(); receive("run hello one  two\nrun fault\nrun spin\n");
     assert(strstr(output, "exited with status -42") && strstr(output, "faulted") && strstr(output, "cancelled by Ctrl+C"));
     reset(); receive("snake\npq"); assert(!snake_active());

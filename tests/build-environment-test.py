@@ -60,7 +60,8 @@ with tempfile.TemporaryDirectory(prefix="rum-build-env-") as temporary:
                  "user/include/.abi-stamp", "user/include/rum/abi/process.h", "sdk/linker/user.ld",
                  "isodir/boot/rum.elf", "isodir/boot/grub/grub.cfg", "user/programs.txt",
                  "runtime-isodir/boot/rum.elf", "runtime-isodir/boot/grub/grub.cfg",
-                 "elf-loader-isodir/boot/grub/grub.cfg", "large-loader-isodir/boot/rum.elf"]
+                 "elf-loader-isodir/boot/grub/grub.cfg", "large-loader-isodir/boot/rum.elf",
+                 "objects-isodir/boot/grub/grub.cfg", "objects-isodir/boot/rum.elf"]
     preserved = ["personal.raw", "tests/my-disk.img", "nested/vm.vmdk", "vm-images-custom/rum.iso",
                  "vm-images-custom/rum-data.vdi", "release-check/release/rum.elf",
                  "test-artifacts/guest.elf", "notes.txt", "disks/keep.elf"]

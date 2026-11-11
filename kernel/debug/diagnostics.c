@@ -19,6 +19,7 @@ bool diagnostics_capture(struct kernel_diagnostics *result)
     result->heap = heap_stats();
     result->filesystem = fs_stats();
     result->handles = process_handles_stats();
+    result->objects = object_stats();
     result->pipes = pipe_stats();
     result->jobs = jobs_stats();
     result->terminal_owner = terminal_session_owner();

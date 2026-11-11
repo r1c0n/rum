@@ -13,20 +13,23 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--qemu", default="qemu-system-i386")
     focus = parser.add_mutually_exclusive_group()
+    focus.add_argument("--objects-only", action="store_true", help="Run only common object ownership checks")
     focus.add_argument("--vm-only", action="store_true", help="Run only private memory-region lifecycle checks")
     focus.add_argument("--runtime-only", action="store_true", help="Run only userspace heap/runtime checks")
     focus.add_argument("--executable-only", action="store_true", help="Run only ELF loading and large-executable checks")
     args = parser.parse_args()
     artifacts = ROOT / "build/test-artifacts/lifecycle"
     artifacts.mkdir(parents=True, exist_ok=True)
-    if args.executable_only:
+    if args.objects_only:
+        cases = ("objects",)
+    elif args.executable_only:
         cases = ("elf-loader", "large-loader")
     elif args.runtime_only:
         cases = ("runtime",)
     elif args.vm_only:
         cases = ("vm-regions",)
     else:
-        cases = ("lifecycle", "lifecycle-ids", "vm-regions", "runtime", "large-loader")
+        cases = ("lifecycle", "lifecycle-ids", "vm-regions", "runtime", "large-loader", "objects")
     for case in cases:
         for boot, ram in (("elf", 16), ("iso", 64)):
             with tempfile.TemporaryDirectory(prefix="rum-lifecycle-") as temporary:
@@ -56,6 +59,7 @@ def main():
                     if serial.exists():
                         (artifacts / f"{label}.serial.log").write_bytes(serial.read_bytes())
             coverage = {
+                "objects": "retained operations, retryable final close, IRQ/FS/block guards, yielding destruction and cleanup",
                 "large-loader": "large streamed segments, BSS, parent descriptors, injected I/O/OOM and cleanup",
                 "elf-loader": "ELF validation, permissions, guarded stacks and allocation rollback",
                 "runtime": "userspace heap, file streams, clock, isolation, OOM and exit/fault/cancel cleanup",

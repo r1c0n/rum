@@ -123,6 +123,9 @@ bool task_shell_has_completion(void);
    Reject IRQ/idle/uninitialized callers; preserve the caller's interrupt flag. */
 bool task_switch_hold(void);
 bool task_switch_release(void);
+/* Task context with IF set, outside switch holds and synchronous FS/block
+   operations. Final object destruction may block and requires this context. */
+bool task_blocking_allowed(void);
 /* Also refuse held scopes and active synchronous filesystem/block operations. */
 bool task_yield(void); /* Refuses IRQ context and callers with IF clear. */
 rum_result_t task_sleep(uint32_t milliseconds); /* Cancellable; zero yields. */

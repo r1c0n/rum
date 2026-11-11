@@ -179,21 +179,24 @@ stay separate from object management and userspace policy.
 
 ### 1. Common object ownership
 
-- [ ] Define a private object header with type, reference ownership, destruction
+- [x] Define a private object header with type, reference ownership, destruction
   rules and bounded diagnostics. Keep object addresses and layouts private.
-- [ ] Distinguish a named filesystem entry, an open description, a handle-table
+- [x] Distinguish a named filesystem entry, an open description, a handle-table
   entry and an in-flight operation's reference. Specify which owns each
   resource and which state is shared between aliases.
-- [ ] Define acquisition, publication and final-release rules, including failed
+- [x] Define acquisition, publication and final-release rules, including failed
   construction and destruction that may perform filesystem work.
-- [ ] Require final destruction in an allowed context, outside short protected
+- [x] Require final destruction in an allowed context, outside short protected
   updates and incompatible locks. Keep IRQ paths bounded and allocation-free.
-- [ ] Establish accounting for live objects, table entries and retained
+- [x] Establish accounting for live objects, table entries and retained
   references before migrating existing resource types.
 
 Test reference underflow/overflow rejection, failed construction, ownership
 transfer and final close. No object may be published partially initialized or
 freed while an operation still retains it.
+
+See [Kernel object ownership](objects.md) for lifecycle contracts, reference
+classes, context restrictions, accounting and focused checks.
 
 ### 2. Typed handles and access masks
 
@@ -334,9 +337,9 @@ Broader libraries, additional drivers, audio and desktop work follow as needed.
 
 Complete each release's steps in numbered order, with one focused branch and
 pull request per step, created from `master` after its dependencies land.
-Examples: `0.7/virtual-memory-contracts`, `0.7/user-regions`,
-`0.8/object-ownership` and `0.8/typed-handles`. Keep Conventional Commits focused
-and commit verified changes periodically. Do not mark planned work complete
+Use work-focused names such as `feat/object-ownership`, `feat/typed-handles`
+or `test/object-lifecycle`; a release-number prefix is optional. Keep Conventional
+Commits focused and commit verified changes periodically. Do not mark planned work complete
 until its implementation and relevant checks pass.
 
 Use focused tests while developing each step and reserve the complete suite

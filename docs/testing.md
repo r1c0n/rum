@@ -26,6 +26,13 @@ permission restoration and cancellation cleanup. These
 cases also run in the normal smoke/lifecycle groups of the full suite.
 Run `help` for the full option list.
 
+Use `--suite objects` / `-Suite objects` for the
+[common object ownership](objects.md) host and guest checks. They cover reference
+limits and transfer, failed construction, retryable final close, retained file
+operations and cleanup across real IRQ, scheduling, filesystem and block guards.
+The guest runs through ELF/16 MiB and ISO/64 MiB boot; the same cases are included
+in the default host and lifecycle groups.
+
 `make -j4 test-shell-tools-host` runs the fast command-stream and pager checks.
 The `editing` group also exercises the real help/file viewers, prompt/listing
 colors, navigation, Ctrl+C recovery, cross-page styled-line validation and
