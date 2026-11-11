@@ -250,6 +250,17 @@ rum_result_t rum_spawn_with_handles(const char *path, const struct rum_arguments
     return rum_syscall3(RUM_SYS_SPAWN_MAPPED, (rum_address_t)(uintptr_t)&request, 0, 0);
 }
 
+rum_result_t rum_spawn_with_objects(const char *path, const struct rum_arguments *arguments,
+                                   const struct rum_handle_mapping *mappings, uint32_t count, uint32_t flags,
+                                   const struct rum_object_inheritance *objects, uint32_t object_count)
+{
+    struct rum_spawn_objects_request request = { .streams = { RUM_SPAWN_OBJECTS_VERSION, sizeof request,
+        (rum_address_t)(uintptr_t)path, (rum_address_t)(uintptr_t)arguments,
+        (rum_address_t)(uintptr_t)mappings, count, flags, 0 },
+        .objects = (rum_address_t)(uintptr_t)objects, .object_count = object_count };
+    return rum_syscall3(RUM_SYS_SPAWN_MAPPED, (rum_address_t)(uintptr_t)&request, 0, 0);
+}
+
 _Static_assert(sizeof(void *) == sizeof(rum_address_t), "i386 user pointers");
 
 rum_result_t rum_open(const char *path, uint32_t access, uint32_t flags)

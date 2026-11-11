@@ -163,6 +163,49 @@ rum_result_t object_handles_inherit(struct object_handles *destination, const st
     }
     cpu_interrupt_restore(saved); return result;
 }
+rum_result_t object_handles_prepare_spawn(struct object_handles *destination, const struct object_handles *source,
+                                         const struct rum_object_inheritance *grants, unsigned count)
+{
+    if (!destination || !source || destination == source || count > RUM_OBJECT_HANDLE_LIMIT ||
+        (count && !grants)) return -RUM_EINVAL;
+    if (irq_in_handler()) return -RUM_EBUSY;
+    uint32_t saved = cpu_interrupt_save(), selected = 0;
+    rum_result_t result = 0;
+    for (unsigned i = 0; i < RUM_OBJECT_HANDLE_LIMIT; ++i)
+        if (destination->entries[i].object || destination->entries[i].generation || destination->entries[i].rights ||
+            destination->entries[i].flags || destination->entries[i].closing) { result = -RUM_EINVAL; break; }
+    for (unsigned i = 0; !result && i < count; ++i) {
+        const struct rum_object_inheritance *grant = &grants[i];
+        if (grant->reserved[0] || grant->reserved[1] || (grant->flags & ~RUM_OBJECT_INHERIT)) { result = -RUM_EINVAL; break; }
+        struct object_handle_entry *entry = lookup((struct object_handles *)source, grant->handle);
+        result = validate(entry, grant->type, grant->rights);
+        if (result) break;
+        if (!(entry->flags & RUM_OBJECT_INHERIT)) { result = -RUM_EACCES; break; }
+        uint32_t bit = 1u << (grant->handle & 31u);
+        if (selected & bit) { result = -RUM_EINVAL; break; }
+        selected |= bit;
+    }
+    unsigned acquired = 0;
+    if (!result) for (; acquired < count; ++acquired) {
+        const struct object_handle_entry *entry = &source->entries[grants[acquired].handle & 31u];
+        result = object_acquire(entry->object, OBJECT_TABLE);
+        if (result) break;
+    }
+    if (result) {
+        for (unsigned i = 0; i < acquired; ++i)
+            (void)object_release(source->entries[grants[i].handle & 31u].object, OBJECT_TABLE);
+    } else {
+        for (unsigned i = 0; i < RUM_OBJECT_HANDLE_LIMIT; ++i) destination->entries[i].generation = source->entries[i].generation;
+        for (unsigned i = 0; i < count; ++i) {
+            unsigned slot = grants[i].handle & 31u;
+            destination->entries[slot] = source->entries[slot];
+            destination->entries[slot].rights = grants[i].rights;
+            destination->entries[slot].flags = grants[i].flags;
+        }
+    }
+    cpu_interrupt_restore(saved); return result;
+}
+
 rum_result_t object_handles_destroy(struct object_handles *table)
 {
     if (!table) return -RUM_EINVAL;

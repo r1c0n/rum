@@ -1,12 +1,15 @@
 # rum application SDK
 
 Build static i386 applications without the rum source tree. This SDK targets
-the 0.8 development interfaces. Typed I/O and process-handle calls require the new kernel;
+the 0.8 development interfaces. Typed I/O, process handles and explicit child
+grants require the corresponding kernel features listed in `sdk.json`;
 the documented 0.7 application interfaces remain supported. The older 0.6
 release lacks required memory/runtime calls. `sdk.json` records the target,
 interface version, source provenance,
 required kernel features and SHA-256 hashes of the packaged files. SDK format
 version 1 is separate from the OS release number and syscall ABI version 1.
+`rum_spawn_with_objects` uses version 2 of the mapped-spawn packet; kernels
+that only support its original version reject that packet with `EINVAL`.
 Git builds record the commit and whether sources were modified. A clean release
 snapshot preserves that identity without Git; other source archives may report
 unknown provenance. File hashes still describe the exact packaged contents.

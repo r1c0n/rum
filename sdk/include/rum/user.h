@@ -76,6 +76,9 @@ rum_result_t rum_run(const char *, const struct rum_arguments *, struct rum_proc
 rum_result_t rum_spawn(const char *, const struct rum_arguments *);
 rum_result_t rum_spawn_with_handles(const char *, const struct rum_arguments *,
                                    const struct rum_handle_mapping *, uint32_t count, uint32_t flags);
+rum_result_t rum_spawn_with_objects(const char *, const struct rum_arguments *,
+                                   const struct rum_handle_mapping *, uint32_t count, uint32_t flags,
+                                   const struct rum_object_inheritance *, uint32_t object_count);
 rum_result_t rum_wait(rum_pid_t, uint32_t flags, struct rum_process_result *);
 rum_result_t rum_terminate(rum_pid_t, uint32_t flags);
 rum_result_t rum_yield(void);

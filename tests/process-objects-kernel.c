@@ -8,7 +8,20 @@
 #include "test-files.h"
 /* Test-only ID reuse verifies references bind to objects, even if the current
    production policy of monotonic, non-wrapping IDs is changed later. */
+static bool cancel_after_stack;
+bool process_objects_stack_allocate(uint32_t slot);
+#define paging_kernel_stack_allocate process_objects_stack_allocate
 #include "../kernel/process/task.c"
+#undef paging_kernel_stack_allocate
+bool process_objects_stack_allocate(uint32_t slot)
+{
+    bool allocated = paging_kernel_stack_allocate(slot);
+    if (allocated && cancel_after_stack) {
+        cancel_after_stack = false;
+        current->process->cancellation_requested = true;
+    }
+    return allocated;
+}
 void process_objects_syscall_dispatch(struct exception_frame *);
 #define syscall_dispatch process_objects_syscall_dispatch
 #include "../kernel/process/syscall.c"
@@ -26,6 +39,25 @@ void syscall_dispatch(struct exception_frame *frame)
         else if (operation == 1) frame->eax = object_stats().total.references[OBJECT_OPERATION];
         else if (operation == 3) frame->eax = object_stats().kinds[OBJECT_PROCESS].objects;
         else if (operation == 5) frame->eax = paging_stats().user_pages;
+        else if (operation == 6) {
+            cpu_interrupt_enable();
+            struct task_process process = load("exit", 0);
+            struct process_handles streams = {0}; struct object_handles objects = {0};
+            struct rum_handle_mapping map = {0, 0, {0}};
+            struct rum_object_inheritance grant = { .handle = frame->ecx, .type = RUM_OBJECT_PROCESS, .rights = RUM_RIGHT_WAIT };
+            check(!process_handles_prepare_spawn(&streams, task_current_handles(), &map, 1, RUM_SPAWN_NO_DEFAULT_STREAMS) &&
+                  !object_handles_prepare_spawn(&objects, task_current_objects(), &grant, 1), "prepare cancellation tables");
+            process.initial_handles = &streams; process.initial_objects = &objects;
+            struct object_statistics before = object_stats();
+            cancel_after_stack = true;
+            check(!task_create_process(&process) && !cancel_after_stack && task_current_cancelled(), "cancel immediately before publication");
+            current->process->cancellation_requested = false;
+            struct object_statistics after = object_stats();
+            check(!memcmp(&before, &after, sizeof before) && process_handles_count(&streams) == 1 && object_handles_count(&objects) == 1,
+                  "cancelled publication preserves producer ownership of both tables");
+            check(!process_handles_destroy(&streams) && !object_handles_destroy(&objects) && paging_space_destroy(process.space), "release cancelled construction");
+            frame->eax = 1;
+        }
         else if (operation == 4) {
             cpu_interrupt_enable();
             struct task_process process = load("exit", 0);

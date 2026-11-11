@@ -42,7 +42,10 @@ def main():
                     console.send("ctrl", "c"); console.wait("Program cancelled.\r\n/> ")
                 if args.doom:
                     console.command("run /RUM/DOOMIO.ELF /TEST.WAD", "Doom zone and WAD I/O probe passed.")
-                console.command("run /RUM/SDKMIX.ELF", "SDK mixed memory and I/O passed.")
+                # Repeated FAT writes, memory pressure and fault/cancel rounds
+                # can exceed an interactive command's bound on a busy host.
+                # Polling still returns immediately when the workload finishes.
+                console.command("run /RUM/SDKMIX.ELF", "SDK mixed memory and I/O passed.", timeout=60)
                 console.command("echo recovered", "recovered")
                 console.command("recovery", "Kernel recovery shell.")
                 diag = console.command("diag")

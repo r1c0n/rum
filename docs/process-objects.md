@@ -56,6 +56,11 @@ distinct from SESSION and can be combined with it. Otherwise the handle is
 non-inheritable. Existing `rum_object_duplicate` can preserve or reduce rights
 and opt an alias into inheritance with `RUM_OBJECT_INHERIT`.
 
+Use [per-launch grants](handle-inheritance.md) to select an eligible process
+handle and reduce its rights for a specific child without making another alias.
+A WAIT-only child grant cannot query or terminate the target. Child flags may
+stop automatic onward inheritance without changing the parent's entry.
+
 Authority is checked at acquisition and each operation checks the entry's grant.
 An explicitly inherited handle delegates those rights without requiring the
 recipient to be the original parent or shell command. Closing the original

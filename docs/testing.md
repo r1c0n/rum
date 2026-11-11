@@ -44,6 +44,12 @@ and child-fault cleanup through typed endpoints. The `sdk` group exercises typed
 FAT reads/writes using an externally built program and host byte comparisons.
 ABI tests pin the original syscall numbers.
 
+The `handles` group also combines descriptor mappings with explicit typed grants:
+all resource types, empty/full allowlists, reduced rights, onward flags,
+cross-page version-2 packets and grant arrays, invalid mappings, loader failures
+and failed construction with both private tables prepared. The `object-handles`
+host checks include grant rejection and rollback after reference saturation.
+
 Use `--suite process-objects` / `-Suite process-objects` for process-reference
 rights, non-consuming waits, retained status, simulated ID reuse, inherited
 observers, cross-page packets, pool exhaustion and cancellation during waits or

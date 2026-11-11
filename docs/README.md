@@ -30,6 +30,7 @@ programs and persistent files. With no usable disk, rum opens recovery.
 - [Process tools](process-tools.md)
 - [Shared handles and child streams](shared-handles.md)
 - [Typed object handles](object-handles.md) and [process handles](process-objects.md)
+- [Choosing child handles](handle-inheritance.md)
 - [Pipes and stream I/O](pipes.md)
 - [Redirection and pipelines](shell-workflows.md)
 - [Background jobs](jobs.md)

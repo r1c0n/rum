@@ -60,24 +60,35 @@ static uint32_t consume(void)
 static void rollback(void)
 {
     struct process_handles source = {0}, prepared = {0};
+    struct object_handles originals = {0}, objects = {0};
     check(!process_handles_initialize(&source) && process_handle_open(&source, NULL, "/DATA.BIN", FS_READ, 0) == 3,
           "prepare trusted source");
     struct rum_handle_mapping map = {3, 0, {0}};
+    rum_object_handle_t token;
+    check(!process_handle_export(&source, 3, &originals, RUM_OBJECT_FILE, RUM_RIGHT_FILE & ~RUM_RIGHT_WRITE,
+          RUM_OBJECT_INHERIT, &token), "prepare typed file source");
+    struct rum_object_inheritance grant = { .handle = token, .type = RUM_OBJECT_FILE, .rights = RUM_RIGHT_READ };
+    check(!object_handles_prepare_spawn(&objects, &originals, &grant, 1), "prepare selected typed reference");
     check(!process_handles_prepare_spawn(&prepared, &source, &map, 1, RUM_SPAWN_NO_DEFAULT_STREAMS), "prepare inherited reference");
     struct task_process process;
     check(load(&process, "parent"), "load construction rollback fixture");
     process.initial_handles = &prepared;
+    process.initial_objects = &objects;
     struct process_handle_statistics handles = process_handles_stats();
     struct fs_statistics fs = fs_stats();
+    struct object_statistics before = object_stats();
     uint32_t held = consume();
     check(!task_create_foreground_process(&process) && process_handles_count(&prepared) == 1 &&
           process_handles_stats().descriptors == handles.descriptors && fs_stats().references == fs.references,
           "failed stack construction leaves inherited table private and cwd released");
+    struct object_statistics after = object_stats();
+    check(object_handles_count(&objects) == 1 && !memcmp(&before, &after, sizeof before), "failed publication preserves both prepared tables");
     while (held) {
         uint32_t next = *(uint32_t *)(uintptr_t)held;
         check(pmm_free_page(held), "release held page"); held = next;
     }
-    check(!process_handles_destroy(&prepared) && !process_handles_destroy(&source) && paging_space_destroy(process.space),
+    check(!process_handles_destroy(&prepared) && !process_handles_destroy(&source) &&
+          !object_handles_destroy(&objects) && !object_handles_destroy(&originals) && paging_space_destroy(process.space),
           "producer releases failed construction");
 }
 static void exercise(const char *mode)
