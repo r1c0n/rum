@@ -265,20 +265,23 @@ waits, retained status, cancellation, limits and fixed-width syscall packets.
 
 ### 5. Duplication, inheritance and construction failures
 
-- [ ] Specify explicit duplication and child-inheritance rules for each object
+- [x] Specify explicit duplication and child-inheritance rules for each object
   type, including rights reduction and non-inheritable entries.
-- [ ] Integrate new handles with existing spawn descriptor mappings without
+- [x] Integrate new handles with existing spawn descriptor mappings without
   changing standard-stream replacement or close-on-spawn semantics.
-- [ ] Validate complete requests before publishing child-visible entries and
+- [x] Validate complete requests before publishing child-visible entries and
   unwind every acquired reference if child construction fails.
-- [ ] Keep caller, child and in-flight operation references independent so exit
+- [x] Keep caller, child and in-flight operation references independent so exit
   or cancellation cannot revoke another owner's live reference accidentally.
-- [ ] Document whether authority is checked when a handle is acquired or on
+- [x] Document whether authority is checked when a handle is acquired or on
   each operation; define any supported revocation behavior explicitly.
 
 Combine invalid mappings, rights escalation attempts, full tables and injected
 construction failures. Repeated spawn/exit/fault cycles must restore handle,
 object, pipe, filesystem-reference and page counts to baseline.
+
+See [choosing child handles](handle-inheritance.md) for per-type rules, explicit
+grants, legacy compatibility, publication, rollback and the revocation contract.
 
 ### 6. Trusted operations and system-file protection
 

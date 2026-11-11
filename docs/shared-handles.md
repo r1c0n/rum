@@ -4,6 +4,10 @@ This guide covers stream descriptors. The [typed object-handle interface](object
 has a separate generation-aware namespace; descriptors retain the reuse and
 inheritance rules below.
 
+`rum_spawn_with_objects` combines these descriptor mappings with an explicit
+typed-handle allowlist. See [choosing child handles](handle-inheritance.md) for
+per-launch rights reduction, opt-in rules and atomic publication of both tables.
+
 Typed aliases now share these same descriptions. Exporting with
 `rum_object_from_descriptor` retains the file identity, position, mode and
 pending error without reopening it. Either interface can outlive the other.
@@ -104,6 +108,7 @@ foreground or background workflows. It cannot be combined with PIPELINE.
 | --- | --- | --- |
 | `rum_duplicate` | 24 | 24-byte `rum_duplicate_request`: version, size, source, target, flags, reserved |
 | `rum_spawn_with_handles` | 25 | 32-byte `rum_spawn_mapped_request`: version, size, path, arguments, mappings, mapping_count, flags, reserved |
+| `rum_spawn_with_objects` | 25, packet version 2 | 64-byte `rum_spawn_objects_request`: original prefix, object array/count and reserved words |
 
 Duplication uses `RUM_HANDLE_ABI_VERSION`; mapped spawn uses
 `RUM_SPAWN_MAPPED_VERSION`, both currently 1. Each mapping is 16 bytes. Addresses

@@ -33,6 +33,10 @@ for packet layouts and [Process tools](../docs/process-tools.md) for shell examp
 and explicit child stream mappings. See [shared handles](../docs/shared-handles.md)
 for standard-stream replacement, close-on-spawn flags and cleanup rules.
 
+`rum_spawn_with_objects` adds an explicit typed-handle list to those mappings.
+The child receives only selected inheritable entries with equal or reduced
+rights. An empty list inherits none. See [choosing child handles](../docs/handle-inheritance.md).
+
 `rum_process_open`, `rum_process_query`, `rum_process_wait` and
 `rum_process_terminate` provide explicit process-handle rights. A retained handle
 keeps completion status after normal child collection without keeping its stack

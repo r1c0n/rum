@@ -8,8 +8,10 @@ cross compiler. This SDK targets the 0.8 development interfaces, including
 `rum_object_from_descriptor` to use the typed read/write, seek, directory and
 flush wrappers without opening another description. [Process handles](process-objects.md)
 provide explicit query/wait/termination rights and retained status. Existing 0.7
-applications retain their
-documented stream and memory behavior. New object calls return `ENOSYS` on a
+applications retain their documented stream and memory behavior.
+`rum_spawn_with_objects` selects [child handles and reduced grants](handle-inheritance.md)
+alongside stream mappings. Older version-1-only kernels reject its version-2
+spawn packet with `EINVAL`. New object calls return `ENOSYS` on a
 0.7 kernel; the older 0.6 release also lacks required memory/runtime calls.
 
 ## Export the SDK

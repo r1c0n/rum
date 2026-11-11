@@ -193,10 +193,15 @@ session policy as descriptor writes. `isatty` only identifies a stream.
 ## Inheritance and cleanup
 
 Object entries are non-inheritable by default. Explicitly inheritable entries
-pass through RUN, SPAWN and mapped SPAWN with the same tokens and rights. A
+pass through RUN, SPAWN and version-1 mapped SPAWN with the same tokens and rights. A
 trusted inheritance ceiling can reduce grants. Other entries are omitted.
 Creating an inheritable alias through DUPLICATE still requires duplication
 rights. Stream mappings neither add object rights nor convert tokens to slots.
+
+Use [explicit child grants](handle-inheritance.md) with `rum_spawn_with_objects`
+to choose a subset and reduce each entry's rights for one launch. Its empty list
+inherits no typed entries. Sources must already opt into inheritance; child
+tokens stay the same, and child flags control onward inheritance independently.
 
 The child table stays private until its references and process resources are
 ready. Inheritance failure rolls back every reference acquired so far. A supplied
