@@ -200,23 +200,26 @@ classes, context restrictions, accounting and focused checks.
 
 ### 2. Typed handles and access masks
 
-- [ ] Define versioned public object-handle operations and type-specific rights.
+- [x] Define versioned public object-handle operations and type-specific rights.
   Reject unsupported bits, wrong object types and invalid handles before
   accessing the underlying resource.
-- [ ] Use generation-aware identities for the new object-handle interface so a
+- [x] Use generation-aware identities for the new object-handle interface so a
   stale value cannot refer to a replacement object. Specify invalid values,
   capacity limits and safe generation-wrap behavior.
-- [ ] Preserve existing stream descriptors, including slots 0–2, the bounded
+- [x] Preserve existing stream descriptors, including slots 0–2, the bounded
   descriptor table, shared offsets and close-on-spawn flags. Clearly separate
   descriptor reuse semantics from generation-aware object-handle semantics.
-- [ ] Grant only authorized rights at creation/open. Duplication and inheritance
+- [x] Grant only authorized rights at creation/open. Duplication and inheritance
   may preserve or reduce rights, never add authority the source does not hold.
-- [ ] Define compatible ABI evolution and provide public wrappers without
+- [x] Define compatible ABI evolution and provide public wrappers without
   exposing pointers or requiring applications to understand kernel objects.
 
 Test wrong-type use, forged/stale values, table exhaustion, reuse, generation
 wrap and unknown access bits. Confirm existing binaries retain their documented
 stream behavior, or provide an explicit versioned compatibility path.
+
+See [Typed object handles](object-handles.md) for packets, grants, generation
+retirement, inheritance, compatibility and focused checks.
 
 ### 3. File, pipe and console integration
 

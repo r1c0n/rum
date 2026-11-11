@@ -11,6 +11,10 @@ open descriptions, pipes and process records currently use their established
 ownership paths; their counts remain in their subsystem diagnostics. Common
 object counts cover only resources registered with this core.
 
+The [typed handle table](object-handles.md) uses this core for independent
+per-entry grants, generations and operation references. Its public namespace
+is separate from the current stream-descriptor interface.
+
 ## Entries, descriptions and references
 
 | Layer | Responsibility |

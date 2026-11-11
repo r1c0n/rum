@@ -33,6 +33,12 @@ operations and cleanup across real IRQ, scheduling, filesystem and block guards.
 The guest runs through ELF/16 MiB and ISO/64 MiB boot; the same cases are included
 in the default host and lifecycle groups.
 
+Use `--suite object-handles` / `-Suite object-handles` for typed token and rights
+checks. They cover generation retirement, type/access denial, reduced inheritance,
+failed publication and cross-page packets through real ring-3 calls, plus exit,
+fault and CPU-bound cancellation cleanup on both boot paths. Legacy descriptor
+checks remain in the `handles` group. ABI tests pin the original syscall numbers.
+
 `make -j4 test-shell-tools-host` runs the fast command-stream and pager checks.
 The `editing` group also exercises the real help/file viewers, prompt/listing
 colors, navigation, Ctrl+C recovery, cross-page styled-line validation and

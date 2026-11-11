@@ -1,14 +1,12 @@
 #ifndef RUM_ABI_OBJECT_H
 #define RUM_ABI_OBJECT_H
 #include <rum/abi/types.h>
-#include <stddef.h>
 
 #define RUM_OBJECT_ABI_VERSION 1u
 #define RUM_OBJECT_HANDLE_LIMIT 32u
 #define RUM_OBJECT_INVALID_HANDLE 0u
 /* Separate from stream descriptors. Tokens are process-local, not pointers;
    all 32 bits matter and callers must not interpret the encoded generation. */
-typedef uint32_t rum_object_handle_t;
 
 #define RUM_OBJECT_ANY 0u
 #define RUM_OBJECT_FILE 1u
@@ -40,6 +38,9 @@ typedef uint32_t rum_object_handle_t;
 #define RUM_OBJECT_QUERY 1u
 #define RUM_OBJECT_DUPLICATE 2u
 #define RUM_OBJECT_CLOSE 3u
+#ifndef __ASSEMBLER__
+#include <stddef.h>
+typedef uint32_t rum_object_handle_t;
 /* QUERY: handle/type input; rights/flags/result_handle zero. Fills type,
    rights and flags. DUPLICATE: rights/flags input; fills result_handle.
    CLOSE: rights/flags/result_handle zero; consumes only this handle.
@@ -58,4 +59,5 @@ struct rum_object_information {
 _Static_assert(sizeof(struct rum_object_request) == 48 && offsetof(struct rum_object_request, result_handle) == 28,
                "fixed object packet layout");
 _Static_assert(sizeof(struct rum_object_information) == 32, "fixed object query information");
+#endif
 #endif
