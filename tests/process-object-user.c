@@ -126,6 +126,7 @@ static void blocked(void)
     rum_object_handle_t handle = open_process(target, RUM_RIGHT_PROCESS), inherited;
     check(!rum_object_duplicate(handle, RUM_OBJECT_PROCESS, RUM_RIGHT_PROCESS, RUM_OBJECT_INHERIT, &inherited), 50);
     check(query(4, 0) == 1, 62);
+    check(query(6, inherited) == 1, 63);
     rum_pid_t observer = spawn("wait", inherited);
     check(!rum_object_close(inherited), 51); wait_operations(1);
     check(!rum_terminate(observer, 0), 52); collect(observer, RUM_PROCESS_CANCELLED, 0);

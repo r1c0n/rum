@@ -41,12 +41,12 @@ class Console:
                 raise AssertionError(f"Expected {suffix!r}: {text[-3000:]}")
             time.sleep(0.02)
 
-    def command(self, text, expected=None):
+    def command(self, text, expected=None, timeout=20):
         start = self.serial.stat().st_size
         self.type(text + "\n")
         # Only a prompt after this command's echo completes the request. Faster
         # key delivery can otherwise observe the previous prompt still on disk.
-        deadline = time.monotonic() + 20
+        deadline = time.monotonic() + timeout
         while True:
             output = self.serial.read_bytes()[start:].decode(errors="replace")
             if text + "\r\n" in output and output.endswith("> "):
