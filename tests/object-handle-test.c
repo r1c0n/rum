@@ -87,6 +87,7 @@ static void rights_and_packets(void)
     request.flags = 0; assert(!object_handle_request(&table, &request));
     rum_object_handle_t restricted = request.result_handle;
     request = packet(RUM_OBJECT_DUPLICATE, restricted); fails(&table, request, -RUM_EACCES);
+    request.rights = 0x80000000u; fails(&table, request, -RUM_EINVAL);
     struct kernel_object *object = NULL;
     assert(object_handle_acquire(&table, restricted, RUM_OBJECT_FILE, RUM_RIGHT_READ, &object) == -RUM_EACCES && !object);
     assert(object_handle_acquire(&table, handle, RUM_OBJECT_PIPE_READER, RUM_RIGHT_READ, &object) == -RUM_EINVAL && !object);

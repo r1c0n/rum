@@ -36,7 +36,7 @@ int main(void)
         RUM_SYS_OBJECT};
     _Static_assert(sizeof numbers / sizeof numbers[0] == RUM_SYS_COUNT, "complete syscall list");
     for (unsigned i = 0; i < RUM_SYS_COUNT; ++i) {
-        assert(numbers[i] < RUM_SYS_COUNT);
+        assert(numbers[i] == i); /* Existing call numbers are append-only. */
         for (unsigned j = 0; j < i; ++j) assert(numbers[i] != numbers[j]);
     }
     rum_result_t error = -RUM_EFAULT;

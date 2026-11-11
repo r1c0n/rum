@@ -1,8 +1,10 @@
 # rum application SDK
 
 Build static i386 applications without the rum source tree. This SDK targets
-the 0.7 kernel interfaces; it is not compatible with the older
-0.6 release. `sdk.json` records the target, interface version, source provenance,
+the 0.8 development interfaces. Object-handle calls require the new kernel;
+the documented 0.7 application interfaces remain supported. The older 0.6
+release lacks required memory/runtime calls. `sdk.json` records the target,
+interface version, source provenance,
 required kernel features and SHA-256 hashes of the packaged files. SDK format
 version 1 is separate from the OS release number and syscall ABI version 1.
 Git builds record the commit and whether sources were modified. A clean release
@@ -79,6 +81,15 @@ per process, including standard streams. C `FILE` streams are unbuffered,
 preserve binary bytes and expose separate EOF/error indicators. Check `fflush`
 and `fclose` results for write errors. Flush has the kernel filesystem's
 ordering guarantees; it does not add journaling.
+
+Typed object handles use a separate 32-entry table and opaque unsigned tokens.
+`rum_object_query`, `rum_object_duplicate` and `rum_object_close` operate on
+handles granted by trusted resource services; ordinary `rum_open` still returns
+a descriptor. Query needs QUERY rights and duplication needs DUPLICATE plus a
+subset of the source grant. Entries are non-inheritable unless explicitly
+marked `RUM_OBJECT_INHERIT`. See [the public packet definitions](include/rum/abi/object.h).
+These calls require the 0.8 development kernel; the existing descriptor calls
+and their standard-stream, shared-offset and close-on-spawn rules are preserved.
 
 Executables are static little-endian i386 ELF32 ET_EXEC, at most 16 MiB on disk
 with 16 program headers. LOADs must occupy distinct ordered pages in the user

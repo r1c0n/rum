@@ -94,6 +94,7 @@ rum_result_t object_handle_request(struct object_handles *table, struct rum_obje
     if (!table || !request || request->version != RUM_OBJECT_ABI_VERSION || request->size != sizeof *request ||
         request->result_handle || request->reserved[0] || request->reserved[1] || request->reserved[2] || request->reserved[3] ||
         request->operation < RUM_OBJECT_QUERY || request->operation > RUM_OBJECT_CLOSE ||
+        (request->rights & ~RUM_RIGHT_MASK) ||
         (request->operation != RUM_OBJECT_DUPLICATE && (request->rights || request->flags)) ||
         (request->flags & ~RUM_OBJECT_INHERIT)) return -RUM_EINVAL;
     if (irq_in_handler()) return -RUM_EBUSY;

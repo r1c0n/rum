@@ -45,7 +45,7 @@ def main():
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
                 label = f"{case}-{boot}-{ram}m"
                 try:
-                    deadline = time.monotonic() + 120
+                    deadline = time.monotonic() + (30 if case in ("objects", "object-handles") else 120)
                     marker = "elf_loader_test" if case == "elf-loader" else case.replace("-", "_")
                     while True:
                         text = serial.read_text(errors="replace") if serial.exists() else ""
