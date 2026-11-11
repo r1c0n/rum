@@ -28,13 +28,16 @@ static void protected_buffer(const char *path)
         .bytes = 8192, .protection = RUM_VM_READ | RUM_VM_WRITE };
     check(!rum_vm_allocate(&request), 12);
     rum_result_t file = rum_open(path, RUM_OPEN_READ, 0); check(file >= 3, 13);
+    rum_object_handle_t object;
+    check(!rum_object_from_descriptor((rum_handle_t)file, RUM_OBJECT_FILE, RUM_RIGHT_READ | RUM_RIGHT_SEEK, 0, &object), 67);
     char *cross = (char *)(uintptr_t)(request.address + 4094);
     check(!rum_vm_protect(request.address, request.bytes, RUM_VM_READ), 14);
     check(rum_read((rum_handle_t)file, cross, 4) == -RUM_EFAULT, 15);
+    check(rum_object_read(object, cross, 4) == -RUM_EFAULT, 68);
     uint64_t position;
     check(!rum_seek((rum_handle_t)file, 0, RUM_SEEK_CUR, &position) && !position, 16);
     check(!rum_vm_protect(request.address, request.bytes, RUM_VM_READ | RUM_VM_WRITE) &&
-          rum_read((rum_handle_t)file, cross, 4) == 4 && !rum_close((rum_handle_t)file) &&
+          !rum_close((rum_handle_t)file) && rum_object_read(object, cross, 4) == 4 && !rum_object_close(object) &&
           !rum_vm_release(request.address, request.bytes), 17);
 }
 static void file_work(unsigned seed, unsigned round, char mode)
@@ -57,6 +60,16 @@ static void file_work(unsigned seed, unsigned round, char mode)
         offset += bytes;
     }
     check(offset == 8193 && feof(file) && !ferror(file), 30);
+    rum_result_t descriptor = rum_open(path, RUM_OPEN_READ | RUM_OPEN_WRITE, 0);
+    rum_object_handle_t object;
+    check(descriptor >= 3 && !rum_object_from_descriptor((rum_handle_t)descriptor, RUM_OBJECT_FILE, RUM_RIGHT_FILE, 0, &object) &&
+          !rum_close((rum_handle_t)descriptor), 69);
+    /* Rewrite identical bytes through the typed path; the host audits all
+       8193 bytes after guest exit. Short transfers keep the same 512-byte cap. */
+    check(rum_object_write(object, data, 513) == 512 && rum_object_write(object, data + 512, 1) == 1, 70);
+    uint64_t position;
+    check(!rum_object_seek(object, 0, RUM_SEEK_END, &position) && position == 8193 && !rum_object_flush(object), 71);
+    check(rum_remove(path) == -RUM_EBUSY && rum_replace(path, data, 1) == -RUM_EBUSY, 72);
     if (mode == 'f') __asm__ volatile("ud2");
     if (mode == 'g') *(volatile unsigned char *)(uintptr_t)(RUM_ABI_STACK_BASE - 1) = 0;
     if (mode == 'r') *(volatile unsigned char *)(uintptr_t)image_data = 0;
@@ -64,7 +77,7 @@ static void file_work(unsigned seed, unsigned round, char mode)
         check(rum_write(3, "R", 1) == 1, 31);
         for (;;) __asm__ volatile("pause");
     }
-    check(!fclose(file), 32); protected_buffer(path);
+    check(!fclose(file) && !rum_object_close(object), 32); protected_buffer(path);
     free(guard); free(data); private_check(seed, false);
 }
 static void pressure(bool exhaust)

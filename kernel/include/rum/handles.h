@@ -8,8 +8,9 @@
 enum process_handle_kind { HANDLE_UNUSED, HANDLE_INPUT, HANDLE_OUTPUT, HANDLE_FILE, HANDLE_DIRECTORY,
                            HANDLE_PIPE_READ, HANDLE_PIPE_WRITE };
 struct kernel_pipe;
-/* A bounded, shared open description. Callers retain ownership through a
-   descriptor; do not cache a pointer after closing that descriptor. */
+/* A bounded, shared open description. Descriptors and typed handles retain
+   TABLE references; code that blocks or drops an entry needs an OPERATION
+   reference. A borrowed pointer alone never extends lifetime. */
 struct process_handle {
     struct kernel_object object;
     fs_reference reference;

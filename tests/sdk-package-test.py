@@ -52,6 +52,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix="rum external sdk ") as temporary:
         directory = Path(temporary)
         sdk = prepare(ROOT / "build/rum-sdk.zip", directory)
+        metadata = json.loads((sdk / "sdk.json").read_text())
+        assert "typed-object-io-v1" in metadata["required_features"]
         project = directory / "external application"; shutil.copytree(sdk / "template", project)
         result = subprocess.run(["make", "RUM_SDK=" + str(sdk), "CROSS_PREFIX=" + args.cross_prefix], cwd=project,
                                 capture_output=True, text=True)

@@ -205,10 +205,12 @@ rum_result_t process_handle_export(struct process_handles *table, rum_handle_t d
     if (irq_in_handler()) return -RUM_EBUSY;
     uint32_t saved = cpu_interrupt_save();
     struct process_handle *handle = process_handle_get(table, descriptor);
-    rum_result_t result = !handle ? -RUM_EBADF :
-        (type && type != (uint32_t)handle->object.type->kind) || (rights & ~object_rights_mask(handle->object.type->kind)) ?
-        -RUM_EINVAL : rights & ~process_handle_rights(handle) ? -RUM_EACCES :
-        (flags & RUM_OBJECT_INHERIT) && (table->slots[descriptor].flags & RUM_DUP_CLOSPAWN) ? -RUM_EACCES : 0;
+    rum_result_t result = 0;
+    if (!handle) result = -RUM_EBADF;
+    else if ((type && type != (uint32_t)handle->object.type->kind) ||
+             (rights & ~object_rights_mask(handle->object.type->kind))) result = -RUM_EINVAL;
+    else if ((rights & ~process_handle_rights(handle)) ||
+             ((flags & RUM_OBJECT_INHERIT) && (table->slots[descriptor].flags & RUM_DUP_CLOSPAWN))) result = -RUM_EACCES;
     if (!result) {
         result = object_acquire(&handle->object, OBJECT_OWNER);
         if (!result) {

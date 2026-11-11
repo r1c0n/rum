@@ -48,7 +48,9 @@ def main():
                 diag = console.command("diag")
                 for expected in ("Processes: 0 | 0 user tables, 0 user pages",
                                  "Memory regions: 0 | dynamic: 0 | buffer leases: 0", "Paging metadata: 0 bytes",
-                                 "Handles: 0 descriptors, 0 open descriptions, 0 aliases", "Terminal: normal"):
+                                 "Handles: 0 descriptors, 0 open descriptions, 0 aliases", "Terminal: normal",
+                                 "Objects: 0 allocated | 0 published, 0 constructing, 0 destroying",
+                                 "Object refs: 0 owners, 0 table entries, 0 operations"):
                     assert expected in diag, diag
             assert images.file_bytes(disk, "/SDKTEST.BIN") == bytes((i * 17) & 255 for i in range(8193))
             for seed in range(1, 6):
