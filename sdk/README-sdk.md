@@ -1,7 +1,7 @@
 # rum application SDK
 
 Build static i386 applications without the rum source tree. This SDK targets
-the 0.8 development interfaces. Object-handle calls require the new kernel;
+the 0.8 development interfaces. Typed I/O and process-handle calls require the new kernel;
 the documented 0.7 application interfaces remain supported. The older 0.6
 release lacks required memory/runtime calls. `sdk.json` records the target,
 interface version, source provenance,

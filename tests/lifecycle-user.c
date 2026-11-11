@@ -260,6 +260,12 @@ int main(int argc, char **argv)
         collect((rum_pid_t)sibling, RUM_PROCESS_CANCELLED, 0); return 0;
     }
     if (equal(argv[1], "delegate")) {
+        rum_object_handle_t reference = 19;
+        check(rum_process_open(first, RUM_RIGHT_TERMINATE, 0, &reference) == -RUM_EACCES &&
+              rum_process_open(second, RUM_RIGHT_QUERY, RUM_PROCESS_OPEN_SESSION, &reference) == -RUM_EACCES &&
+              rum_process_open(number(argv[4]), RUM_RIGHT_TERMINATE, RUM_PROCESS_OPEN_SESSION, &reference) == -RUM_EACCES, 87);
+        check(!rum_process_open(first, RUM_RIGHT_PROCESS, RUM_PROCESS_OPEN_SESSION, &reference) &&
+              !rum_process_terminate(reference) && !rum_object_close(reference), 88);
         check(rum_terminate(first, 0) == -RUM_EACCES &&
               rum_terminate(second, RUM_TERMINATE_SESSION) == -RUM_EACCES &&
               argc == 5 && rum_terminate(number(argv[4]), RUM_TERMINATE_SESSION) == -RUM_EACCES &&

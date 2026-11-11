@@ -16,6 +16,8 @@
 typedef uint32_t task_id;
 struct fs_context;
 struct process_handles;
+struct rum_process_object_request;
+struct rum_process_object_information;
 enum task_state { TASK_UNUSED, TASK_RUNNABLE, TASK_RUNNING, TASK_BLOCKED, TASK_EXITED };
 enum task_kind { TASK_KERNEL, TASK_PROCESS };
 enum task_termination {
@@ -159,6 +161,7 @@ rum_result_t task_job_spawn_status(void);
 bool task_join_job(task_id);
 rum_result_t task_job_operation(struct rum_job_request *, const char *, struct rum_job_entry *);
 rum_result_t task_request_termination(rum_pid_t id, bool session);
+rum_result_t task_process_object_operation(struct rum_process_object_request *, struct rum_process_object_information *);
 void task_cancel_current_if_requested(void);
 /* PIT handler: mark due sleepers runnable and account a slice. Bounded scan,
    no switch/allocation/reaping and no wakeup of unrelated event waiters. */

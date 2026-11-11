@@ -9,8 +9,10 @@ The core manages lifetime, not names or access rights. Resource implementations
 still own their payload and backend operations. Open file/directory descriptions,
 pipe endpoints and console descriptions embed a common object header. Legacy
 descriptors and typed handles own TABLE references to those same descriptions;
-active syscalls own OPERATION references. Process records retain their existing
-lifecycle implementation.
+active syscalls own OPERATION references. [Process handles](process-objects.md)
+use separate reference objects that retain sanitized status after the ordinary
+parent/job collector releases execution resources. They do not pin an exited
+process's address space, stack or registry slot.
 
 The [typed handle table](object-handles.md) uses this core for independent
 per-entry grants, generations and operation references. Its public namespace

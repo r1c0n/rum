@@ -111,9 +111,15 @@ static rum_pid_t launch(const char *self, char mode, unsigned seed, rum_handle_t
 }
 static void collect(rum_pid_t pid, unsigned termination, unsigned vector)
 {
+    rum_object_handle_t process;
+    check(!rum_process_open(pid, RUM_RIGHT_QUERY | RUM_RIGHT_WAIT, 0, &process), 73);
+    struct rum_process_object_information info = { .version = 1, .size = sizeof info };
+    check(rum_process_wait(process, 0, &info) == 1 && info.process_id == pid && info.termination == termination, 74);
     struct rum_process_result result = { .version = RUM_PROCESS_ABI_VERSION, .size = sizeof result };
     check(rum_wait(pid, 0, &result) == 1 && result.termination == termination &&
           (termination == RUM_PROCESS_EXITED ? result.status == 0 : result.fault_vector == vector), 52);
+    check(!rum_process_query(process, &info) && info.state == RUM_PROCESS_ENDED && info.fault_vector == vector &&
+          rum_process_wait(process, RUM_PROCESS_OBJECT_NOHANG, &info) == 1 && !rum_object_close(process), 75);
 }
 int main(int argc, char **argv)
 {
@@ -142,7 +148,9 @@ int main(int argc, char **argv)
         rum_pid_t child = launch(argv[0], 'c', 5, pipe.write_handle);
         check(!rum_close(pipe.write_handle), 62);
         char ready; check(rum_read(pipe.read_handle, &ready, 1) == 1 && ready == 'R', 63);
-        check(!rum_terminate(child, 0), 64); collect(child, RUM_PROCESS_CANCELLED, 0);
+        rum_object_handle_t process;
+        check(!rum_process_open(child, RUM_RIGHT_TERMINATE, 0, &process) && !rum_process_terminate(process), 64);
+        collect(child, RUM_PROCESS_CANCELLED, 0); check(!rum_object_close(process), 76);
         check(rum_read(pipe.read_handle, &ready, 1) == 0 && !rum_close(pipe.read_handle), 65);
         private_check(0, false);
     }

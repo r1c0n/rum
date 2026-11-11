@@ -13,6 +13,7 @@
 #include <rum/session.h>
 #include <rum/jobs.h>
 #include <rum/terminal_session.h>
+#include <rum/process_reference.h>
 #include <rum/keyboard.h>
 #include <rum/timer.h>
 
@@ -27,6 +28,7 @@
    use the same resource container with PID zero. No shared-address-space user
    threads are published yet. */
 struct process_state {
+    struct process_reference *reference;
     rum_pid_t process_id;
     task_id parent;
     enum task_kind kind;
@@ -705,6 +707,7 @@ static bool reap_slot(struct task *task)
     if (task->process->owns_space && !paging_space_destroy(task->process->space)) return false;
     if (!paging_kernel_stack_release(task->stack_slot)) cpu_halt();
     if (!console_detach(&task->process->console)) cpu_halt();
+    process_reference_detach(task->process->reference);
     *task->process = (struct process_state){0};
     *task = (struct task){0};
     ++reaped;
@@ -811,6 +814,7 @@ static uint32_t reap_exited(bool include_processes)
         cpu_interrupt_restore(saved);
         if (released) ++count;
     }
+    process_references_reclaim();
     return count;
 }
 
@@ -828,6 +832,7 @@ bool task_reap_process(task_id id)
         }
     }
     cpu_interrupt_restore(saved);
+    process_references_reclaim();
     return released;
 }
 
@@ -921,9 +926,11 @@ bool task_io_end(void)
 {
     if (!ready || irq_in_handler()) return false;
     struct kernel_object *object = current->io_object;
-    if (!object) return true;
-    if (object_release(object, OBJECT_OPERATION)) return false;
-    current->io_object = NULL; return true;
+    if (object) {
+        if (object_release(object, OBJECT_OPERATION)) return false;
+        current->io_object = NULL;
+    }
+    process_references_reclaim(); return true;
 }
 
 bool task_switch_hold(void)
@@ -1038,6 +1045,13 @@ static _Noreturn void terminate_current(enum task_termination termination,
     jobs_abandon(current->id);
     if (console_member_exit(&current->process->console)) keyboard_discard_input();
     current->state = TASK_EXITED;
+    if (current->process->reference) {
+        struct rum_process_object_information info = current->process->reference->information;
+        info.state = RUM_PROCESS_ENDED; info.flags = 0;
+        info.termination = current->process->termination; info.status = current->process->exit_status;
+        info.fault_vector = current->process->termination == TASK_TERMINATION_FAULT ? current->process->fault.vector : 0;
+        process_reference_complete(current->process->reference, &info);
+    }
     ++exited;
     if (current->process->kind == TASK_PROCESS)
         for (unsigned i = 0; i < TASK_SLOTS; ++i)
@@ -1136,32 +1150,116 @@ uint32_t task_console_owner_id(void)
     cpu_interrupt_restore(saved); return result;
 }
 
+/* Caller holds IF clear. Discovery alone grants nothing; both legacy requests
+   and explicit process opens use this same parent/session policy. */
+static bool process_authorized(const struct task *target, bool session)
+{
+    if (!target || target == current || target->process->console.shell || target->process->orphaned) return false;
+    if (!session) return target->process->parent == current->id;
+    struct task *shell = NULL;
+    for (unsigned i = 2; i < TASK_SLOTS; ++i)
+        if (tasks[i].state != TASK_UNUSED && tasks[i].id == current->process->parent &&
+            console_is_shell(&tasks[i].process->console)) shell = &tasks[i];
+    return shell && console_command_shell(&current->process->console) == &shell->process->console &&
+        console_same_session(&target->process->console, &shell->process->console) && target->process->parent == shell->id;
+}
+static void request_cancellation(struct task *target)
+{
+    if (target->state == TASK_EXITED) return;
+    target->process->cancellation_requested = true;
+    console_cancel_member(&target->process->console);
+    if (target->state == TASK_BLOCKED) wake_task(target, TASK_WAIT_CANCELLED);
+}
 rum_result_t task_request_termination(rum_pid_t id, bool session)
 {
     if (!id || id > RUM_ABI_PID_MAX) return -RUM_EINVAL;
     if (!task_current_is_process() || irq_in_handler()) return -RUM_EACCES;
     uint32_t saved = cpu_interrupt_save();
-    struct task *target = NULL, *shell = NULL;
+    struct task *target = NULL;
     for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].state != TASK_UNUSED) {
         if (tasks[i].process->kind == TASK_PROCESS && tasks[i].process->process_id == id) target = &tasks[i];
-        if (tasks[i].id == current->process->parent && console_is_shell(&tasks[i].process->console)) shell = &tasks[i];
     }
     rum_result_t result = 0;
-    bool authorized = session ? shell && console_command_shell(&current->process->console) == &shell->process->console &&
-        target && console_same_session(&target->process->console, &shell->process->console) && target->process->parent == shell->id :
-        target && target->process->parent == current->id;
     if (!target) result = -RUM_ESRCH;
-    else if (!authorized || target == current || target->process->console.shell || target->process->orphaned)
-        result = -RUM_EACCES;
-    else if (target->state != TASK_EXITED) {
-        target->process->cancellation_requested = true;
-        console_cancel_member(&target->process->console);
-        if (target->state == TASK_BLOCKED) {
-            wake_task(target, TASK_WAIT_CANCELLED);
-        }
-    }
+    else if (!process_authorized(target, session)) result = -RUM_EACCES;
+    else request_cancellation(target);
     cpu_interrupt_restore(saved);
     return result;
+}
+
+static struct rum_process_object_information process_object_information(const struct task *task)
+{
+    struct rum_process_object_information info = { .version = RUM_PROCESS_OBJECT_VERSION, .size = sizeof info,
+        .process_id = task->process->process_id,
+        .state = task->state == TASK_EXITED ? RUM_PROCESS_ENDED : task->state == TASK_BLOCKED ? RUM_PROCESS_WAITING :
+                 task->state == TASK_RUNNING ? RUM_PROCESS_RUNNING : RUM_PROCESS_RUNNABLE,
+        .flags = task->process->cancellation_requested ? RUM_PROCESS_CANCELLING : 0 };
+    if (task->process->reference) info.parent_id = task->process->reference->information.parent_id;
+    else for (unsigned i = 0; i < TASK_SLOTS; ++i)
+        if (tasks[i].state != TASK_UNUSED && tasks[i].id == task->process->parent) info.parent_id = tasks[i].process->process_id;
+    memcpy(info.name, task->process->name, sizeof info.name);
+    if (task->state == TASK_EXITED) {
+        info.flags = 0; info.termination = task->process->termination; info.status = task->process->exit_status;
+        info.fault_vector = info.termination == TASK_TERMINATION_FAULT ? task->process->fault.vector : 0;
+    }
+    return info;
+}
+rum_result_t task_process_object_operation(struct rum_process_object_request *request, struct rum_process_object_information *info)
+{
+    if (!task_current_is_process() || !task_blocking_allowed()) return -RUM_EBUSY;
+    if (request->operation == RUM_PROCESS_OBJECT_OPEN) {
+        process_references_reclaim();
+        uint32_t saved = cpu_interrupt_save();
+        struct task *target = NULL;
+        for (unsigned i = 2; i < TASK_SLOTS; ++i)
+            if (tasks[i].state != TASK_UNUSED && tasks[i].process->kind == TASK_PROCESS &&
+                tasks[i].process->process_id == request->process_id) target = &tasks[i];
+        uint32_t authorized = target == current ? RUM_RIGHT_COMMON :
+            process_authorized(target, request->flags & RUM_PROCESS_OPEN_SESSION) ? RUM_RIGHT_PROCESS : 0;
+        cpu_interrupt_restore(saved);
+        if (!target) return -RUM_ESRCH;
+        if (!authorized || (request->rights & ~authorized)) return -RUM_EACCES;
+        bool fresh = !target->process->reference;
+        if (fresh) {
+            struct rum_process_object_information initial = process_object_information(target);
+            target->process->reference = process_reference_create(target->id, &initial);
+            if (!target->process->reference) return -RUM_ENOMEM;
+        }
+        struct process_reference *reference = target->process->reference;
+        rum_result_t result = object_acquire(&reference->object, OBJECT_OWNER);
+        if (!result) {
+            result = object_handle_install(&current->process->objects, &reference->object, authorized, request->rights,
+                request->flags & RUM_PROCESS_OPEN_INHERIT ? RUM_OBJECT_INHERIT : 0, &request->result_handle);
+            if (result && object_release(&reference->object, OBJECT_OWNER)) cpu_halt();
+        }
+        if (result && fresh) {
+            target->process->reference = NULL;
+            process_reference_detach(reference); process_references_reclaim();
+        }
+        return result;
+    }
+    uint32_t needed = request->operation == RUM_PROCESS_OBJECT_QUERY ? RUM_RIGHT_QUERY :
+        request->operation == RUM_PROCESS_OBJECT_WAIT ? RUM_RIGHT_WAIT : RUM_RIGHT_TERMINATE;
+    struct kernel_object *object;
+    rum_result_t result = object_handle_acquire(&current->process->objects, request->handle, OBJECT_PROCESS, needed, &object);
+    if (result) return result;
+    if (!task_io_begin(object)) {
+        if (object_release(object, OBJECT_OPERATION)) cpu_halt();
+        return -RUM_EBUSY;
+    }
+    struct process_reference *reference = process_reference_from_object(object);
+    if (!reference) return -RUM_ENOSYS;
+    if (request->operation == RUM_PROCESS_OBJECT_WAIT)
+        return process_reference_wait(reference, request->flags & RUM_PROCESS_OBJECT_NOHANG, info);
+    uint32_t saved = cpu_interrupt_save();
+    struct task *target = NULL;
+    for (unsigned i = 2; reference->attached && i < TASK_SLOTS; ++i)
+        if (tasks[i].state != TASK_UNUSED && tasks[i].id == reference->execution_id &&
+            tasks[i].process->reference == reference) target = &tasks[i];
+    if (request->operation == RUM_PROCESS_OBJECT_QUERY) *info = target ? process_object_information(target) : reference->information;
+    else if (target) request_cancellation(target);
+    else if (reference->information.state != RUM_PROCESS_ENDED) result = -RUM_ESRCH;
+    cpu_interrupt_restore(saved); return result;
 }
 
 void task_cancel_current_if_requested(void)

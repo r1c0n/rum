@@ -10,6 +10,11 @@ address spaces, fresh standard streams and an independent working-directory
 reference. The shell also offers `start` and standalone process tools; see
 [Running concurrent programs](process-tools.md).
 
+For explicit management grants or status that survives collection, use
+[process handles](process-objects.md). Their query/wait/terminate operations
+coexist with these PID calls. Typed waits observe status without collecting
+the parent's `rum_wait` result, and closing a process handle does not terminate it.
+
 ## Running a foreground child
 
 ```c
