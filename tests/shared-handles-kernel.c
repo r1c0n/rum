@@ -45,10 +45,10 @@ static struct rum_arguments parent_args(void)
 {
     return (struct rum_arguments){ .argc = 2, .string_bytes = 16, .offsets = {0, 9}, .strings = "/MAP.ELF\0parent" };
 }
-static bool load(struct task_process *process, bool orphan)
+static bool load(struct task_process *process, const char *mode)
 {
     struct rum_arguments arguments = parent_args();
-    if (orphan) memcpy(arguments.strings + 9, "orphan", 7);
+    memcpy(arguments.strings + 9, mode, 7);
     return elf_load_process(shared_handles_asset_start, shared_handles_asset_end - shared_handles_asset_start, &arguments, process);
 }
 static uint32_t consume(void)
@@ -65,7 +65,7 @@ static void rollback(void)
     struct rum_handle_mapping map = {3, 0, {0}};
     check(!process_handles_prepare_spawn(&prepared, &source, &map, 1, RUM_SPAWN_NO_DEFAULT_STREAMS), "prepare inherited reference");
     struct task_process process;
-    check(load(&process, false), "load construction rollback fixture");
+    check(load(&process, "parent"), "load construction rollback fixture");
     process.initial_handles = &prepared;
     struct process_handle_statistics handles = process_handles_stats();
     struct fs_statistics fs = fs_stats();
@@ -80,21 +80,31 @@ static void rollback(void)
     check(!process_handles_destroy(&prepared) && !process_handles_destroy(&source) && paging_space_destroy(process.space),
           "producer releases failed construction");
 }
-static void exercise(bool orphan)
+static void exercise(const char *mode)
 {
+    bool orphan = mode[0] == 'o', cancel = mode[0] == 'b';
     check(test_file_put("DATA.BIN", "abcdef", 6), "reset bytes");
     struct fs_statistics fs = fs_stats();
     struct heap_statistics heap = heap_stats();
     uint32_t pages = pmm_stats().free_pages;
     struct task_process process;
-    check(load(&process, orphan) && paging_user_allocate(process.space, PAGE, 3, PAGING_WRITABLE) &&
+    check(load(&process, mode) && paging_user_allocate(process.space, PAGE, 3, PAGING_WRITABLE) &&
           paging_user_protect(process.space, PAGE + 8192, 1, 0), "validation pages");
     task_id parent = task_create_foreground_process(&process);
     check(parent != 0, "publish parent");
+    if (cancel) {
+        struct task_snapshot snapshot; bool waiting = false;
+        for (unsigned i = 0; i < RUM_TASK_CAPACITY * 4u && !waiting; ++i) {
+            check(task_yield() && task_snapshot_read(&snapshot), "run console waiter");
+            waiting = snapshot.event_waiters && object_stats().total.references[OBJECT_OPERATION] == 1;
+        }
+        check(waiting && task_cancel_foreground(), "cancel retained console read");
+    }
     struct task_information info;
     check(task_wait_process(parent, &info), "wait for parent");
     if (info.exit_status) { serial_writestring("rum_shared_handles_user_status: "); status(info.exit_status); serial_writestring("\n"); }
-    check(info.termination == TASK_TERMINATION_EXIT && !info.exit_status && !task_handle_count(parent), "user syscall assertions");
+    check(info.termination == (cancel ? TASK_TERMINATION_CANCELLED : TASK_TERMINATION_EXIT) &&
+          !info.exit_status && !task_handle_count(parent), "user syscall assertions");
     check(task_foreground_end(parent) && task_reap_process(parent), "collect parent");
     if (orphan) {
         struct task_snapshot snapshot;
@@ -106,7 +116,8 @@ static void exercise(bool orphan)
         check(test_file_remove("READY.BIN"), "remove orphan handshake");
     }
     struct process_handle_statistics handles = process_handles_stats();
-    check(!handles.descriptors && !handles.descriptions && !handles.aliases &&
+    check(!handles.descriptors && !handles.descriptions && !handles.aliases && !object_stats().total.objects &&
+          !object_stats().total.references[OBJECT_OPERATION] &&
           fs_stats().references == fs.references && fs_stats().objects == fs.objects &&
           heap_stats().allocations == heap.allocations && heap_stats().used_bytes == heap.used_bytes &&
           pmm_stats().free_pages + (heap_stats().mapped_bytes - heap.mapped_bytes) / RUM_PAGE_SIZE == pages,
@@ -122,7 +133,7 @@ void kernel_main(uint32_t magic, uint32_t information)
           test_file_put("DATA.BIN", "abcdef", 6), "test-owned files");
     cpu_interrupt_enable(); pic_unmask(0);
     rollback();
-    for (unsigned i = 0; i < 4; ++i) { exercise(false); exercise(true); }
+    for (unsigned i = 0; i < 4; ++i) { exercise("parent"); exercise("orphan"); exercise("blocks"); }
     check(process_handles_stats().descriptors == 0 && fs_stats().references == 1, "only boot cwd remains");
     serial_writestring("rum_shared_handles_ok\n"); cpu_halt();
 }

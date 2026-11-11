@@ -27,6 +27,64 @@ static rum_result_t raw_spawn(struct rum_spawn_mapped_request *request)
 {
     return rum_syscall3(RUM_SYS_SPAWN_MAPPED, (rum_address_t)(uintptr_t)request, 0, 0);
 }
+static struct rum_object_io_request io_packet(unsigned operation, rum_object_handle_t handle)
+{
+    return (struct rum_object_io_request){ .version = RUM_OBJECT_IO_VERSION,
+        .size = sizeof(struct rum_object_io_request), .operation = operation, .handle = handle };
+}
+static void typed_io(void)
+{
+    rum_result_t fd = rum_open("/TYPED.TXT", 3, RUM_OPEN_CREATE | RUM_OPEN_APPEND);
+    rum_object_handle_t file, reduced, directory, console;
+    check(fd == 3 && !rum_object_from_descriptor(3, RUM_OBJECT_FILE, RUM_RIGHT_FILE, 0, &file), 100);
+    check(rum_object_write(file, "abcd", 4) == 4 && rum_write(3, "ef", 2) == 2, 101);
+    uint64_t position;
+    char bytes[8];
+    check(!rum_object_seek(file, 0, RUM_SEEK_SET, &position) && !position &&
+          rum_read(3, bytes, 2) == 2 && bytes[0] == 'a' && bytes[1] == 'b' &&
+          rum_object_read(file, bytes, 2) == 2 && bytes[0] == 'c' && bytes[1] == 'd', 102);
+    check(!rum_object_duplicate(file, RUM_OBJECT_FILE, RUM_RIGHT_READ, 0, &reduced) &&
+          rum_object_write(reduced, "x", 1) == -RUM_EACCES && rum_object_isatty(reduced) == -RUM_EACCES, 103);
+    check(!rum_close(3) && rum_remove("/TYPED.TXT") == -RUM_EBUSY && rum_replace("/TYPED.TXT", "x", 1) == -RUM_EBUSY, 104);
+    check(rum_object_read(reduced, bytes, 8) == 2 && bytes[0] == 'e' && bytes[1] == 'f' &&
+          rum_object_read(file, bytes, 1) == 0 && rum_object_write(file, "g", 1) == 1 && !rum_object_flush(file), 105);
+    check(!rum_object_close(file) && rum_remove("/TYPED.TXT") == -RUM_EBUSY &&
+          !rum_object_close(reduced) && !rum_remove("/TYPED.TXT"), 106);
+    check(rum_open("/", 1, RUM_OPEN_DIRECTORY) == 3 &&
+          !rum_object_from_descriptor(3, RUM_OBJECT_DIRECTORY, RUM_RIGHT_DIRECTORY, 0, &directory), 107);
+    struct rum_directory_entry first = { .version = 1, .size = sizeof first }, second = first;
+    check(rum_readdir(3, &first) == 1 && rum_object_readdir(directory, &second) == 1, 108);
+    int different = 0;
+    for (unsigned i = 0; i < sizeof first.name; ++i) different |= first.name[i] != second.name[i];
+    check(different && !rum_close(3) && !rum_object_close(directory), 109);
+    check(!rum_object_from_descriptor(1, RUM_OBJECT_CONSOLE_OUTPUT, RUM_RIGHT_OUTPUT, 0, &console) &&
+          rum_object_isatty(console) == 1 && rum_object_write(console, "typed console\n", 14) == 14 &&
+          rum_object_read(console, bytes, 1) == -RUM_EINVAL && !rum_object_close(console), 110);
+    check(rum_open("/DATA.BIN", 1, 0) == 3 &&
+          !rum_object_from_descriptor(3, RUM_OBJECT_FILE, RUM_RIGHT_COMMON | RUM_RIGHT_READ | RUM_RIGHT_SEEK, 0, &file), 111);
+    rum_result_t calls = rum_syscall3(TEST_CALLS, 0, 0, 0);
+    struct rum_object_io_request packet = io_packet(RUM_OBJECT_IO_READ, file);
+    packet.data = PAGE + 8192 - 8; packet.bytes = 16;
+    check(rum_object_io(&packet) == -RUM_EFAULT, 112);
+    packet.data = PAGE + 100; packet.bytes = 1; packet.reserved[1] = 1;
+    check(rum_object_io(&packet) == -RUM_EINVAL, 113); packet.reserved[1] = 0;
+    packet.type = RUM_OBJECT_DIRECTORY; check(rum_object_io(&packet) == -RUM_EINVAL, 114); packet.type = 0;
+    check(rum_syscall3(RUM_SYS_OBJECT_IO, (rum_address_t)(uintptr_t)&packet, 1, 0) == -RUM_EINVAL &&
+          rum_object_io((void *)(PAGE + 8192 - 20)) == -RUM_EFAULT &&
+          rum_syscall3(TEST_CALLS, 0, 0, 0) == calls, 115);
+    struct rum_object_io_request *cross = (void *)(PAGE + 4096 - 20);
+    *cross = packet;
+    check(rum_object_io(cross) == 1 && *(char *)(PAGE + 100) == 'a', 116);
+    check(rum_object_seek(file, -2, RUM_SEEK_CUR, &position) == -RUM_EOVERFLOW &&
+          !rum_object_seek(file, 0, RUM_SEEK_CUR, &position) && position == 1, 117);
+    rum_object_handle_t tokens[RUM_OBJECT_HANDLE_LIMIT - 1];
+    for (unsigned i = 0; i < RUM_OBJECT_HANDLE_LIMIT - 1; ++i)
+        check(!rum_object_from_descriptor(3, RUM_OBJECT_FILE, RUM_RIGHT_READ, 0, &tokens[i]), 118);
+    reduced = 19;
+    check(rum_object_from_descriptor(3, RUM_OBJECT_FILE, RUM_RIGHT_READ, 0, &reduced) == -RUM_EMFILE && reduced == 19, 119);
+    for (unsigned i = 0; i < RUM_OBJECT_HANDLE_LIMIT - 1; ++i) check(!rum_object_close(tokens[i]), 120);
+    check(!rum_close(3) && !rum_object_close(file) && rum_object_read(file, bytes, 1) == -RUM_EBADF, 121);
+}
 static void invalid(rum_handle_t file)
 {
     struct rum_handle_mapping map[2] = {{file, 0, {0}}, {file, 1, {0}}};
@@ -72,6 +130,7 @@ static void invalid(rum_handle_t file)
 }
 static void parent(void)
 {
+    typed_io();
     char buffer[8]; uint64_t offset;
     rum_result_t file = rum_open("/DATA.BIN", 3, 0), independent = rum_open("/DATA.BIN", 1, 0);
     check(file == 3 && independent == 4 && rum_duplicate(3, RUM_DUP_ANY, 0) == 5, 32);
@@ -151,7 +210,15 @@ int main(int argc, char **argv)
         return 0;
     }
     if (argv[1][0] == 'f' && argv[1][1] == 'r') {
+        rum_object_handle_t input;
+        check(!rum_object_from_descriptor(0, RUM_OBJECT_CONSOLE_INPUT, RUM_RIGHT_INPUT, 0, &input) &&
+              rum_object_isatty(input) == 1 && rum_object_read(input, &byte, 1) == -RUM_EACCES && !rum_object_close(input), 122);
         check(rum_read(0, &byte, 1) == -RUM_EACCES && rum_close(3) == -RUM_EBADF, 65); return 0;
+    }
+    if (argv[1][0] == 'b') {
+        rum_object_handle_t input;
+        check(!rum_object_from_descriptor(0, RUM_OBJECT_CONSOLE_INPUT, RUM_RIGHT_INPUT, 0, &input) && !rum_close(0), 123);
+        (void)rum_object_read(input, &byte, 1); return 124;
     }
     if (argv[1][0] == 'f') { __asm__ volatile("ud2"); }
     check(argv[1][0] == 's' && rum_replace("/READY.BIN", "1", 1) == 0, 66);

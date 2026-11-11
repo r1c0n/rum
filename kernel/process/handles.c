@@ -197,6 +197,28 @@ rum_result_t process_handle_open(struct process_handles *table, const struct fs_
     return (rum_result_t)slot;
 }
 
+rum_result_t process_handle_export(struct process_handles *table, rum_handle_t descriptor, struct object_handles *objects,
+                                   uint32_t type, uint32_t rights, uint32_t flags, rum_object_handle_t *output)
+{
+    if (!objects || !output || (type != RUM_OBJECT_ANY && !object_rights_mask(type)) ||
+        (rights & ~RUM_RIGHT_MASK) || (flags & ~RUM_OBJECT_INHERIT)) return -RUM_EINVAL;
+    if (irq_in_handler()) return -RUM_EBUSY;
+    uint32_t saved = cpu_interrupt_save();
+    struct process_handle *handle = process_handle_get(table, descriptor);
+    rum_result_t result = !handle ? -RUM_EBADF :
+        (type && type != (uint32_t)handle->object.type->kind) || (rights & ~object_rights_mask(handle->object.type->kind)) ?
+        -RUM_EINVAL : rights & ~process_handle_rights(handle) ? -RUM_EACCES :
+        (flags & RUM_OBJECT_INHERIT) && (table->slots[descriptor].flags & RUM_DUP_CLOSPAWN) ? -RUM_EACCES : 0;
+    if (!result) {
+        result = object_acquire(&handle->object, OBJECT_OWNER);
+        if (!result) {
+            result = object_handle_install(objects, &handle->object, process_handle_rights(handle), rights, flags, output);
+            if (result && object_release(&handle->object, OBJECT_OWNER)) cpu_halt();
+        }
+    }
+    cpu_interrupt_restore(saved); return result;
+}
+
 rum_result_t process_handle_close(struct process_handles *table, rum_handle_t id)
 {
     struct process_handle *handle = process_handle_get(table, id);

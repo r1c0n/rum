@@ -29,6 +29,62 @@ rum_result_t rum_object_close(rum_object_handle_t handle)
         .operation = RUM_OBJECT_CLOSE, .handle = handle };
     return rum_object_control(&request);
 }
+rum_result_t rum_object_from_descriptor(rum_handle_t descriptor, uint32_t type, uint32_t rights,
+                                       uint32_t flags, rum_object_handle_t *output)
+{
+    if (!output) return -RUM_EINVAL;
+    struct rum_object_request request = { .version = RUM_OBJECT_ABI_VERSION, .size = sizeof request,
+        .operation = RUM_OBJECT_FROM_DESCRIPTOR, .handle = descriptor, .type = type, .rights = rights, .flags = flags };
+    rum_result_t result = rum_object_control(&request);
+    if (!result) *output = request.result_handle;
+    return result;
+}
+rum_result_t rum_object_io(struct rum_object_io_request *request)
+{
+    return rum_syscall3(RUM_SYS_OBJECT_IO, (rum_address_t)(uintptr_t)request, 0, 0);
+}
+static struct rum_object_io_request io_packet(uint32_t operation, rum_object_handle_t handle)
+{
+    return (struct rum_object_io_request){ .version = RUM_OBJECT_IO_VERSION,
+        .size = sizeof(struct rum_object_io_request), .operation = operation, .handle = handle };
+}
+rum_result_t rum_object_read(rum_object_handle_t handle, void *data, rum_size_t bytes)
+{
+    struct rum_object_io_request request = io_packet(RUM_OBJECT_IO_READ, handle);
+    request.data = (rum_address_t)(uintptr_t)data; request.bytes = bytes;
+    return rum_object_io(&request);
+}
+rum_result_t rum_object_write(rum_object_handle_t handle, const void *data, rum_size_t bytes)
+{
+    struct rum_object_io_request request = io_packet(RUM_OBJECT_IO_WRITE, handle);
+    request.data = (rum_address_t)(uintptr_t)data; request.bytes = bytes;
+    return rum_object_io(&request);
+}
+rum_result_t rum_object_seek(rum_object_handle_t handle, int64_t displacement, uint32_t whence, uint64_t *position)
+{
+    struct rum_object_io_request request = io_packet(RUM_OBJECT_IO_SEEK, handle);
+    request.type = RUM_OBJECT_FILE; request.whence = whence;
+    request.offset_lo = (uint32_t)(uint64_t)displacement; request.offset_hi = (uint32_t)((uint64_t)displacement >> 32);
+    rum_result_t result = rum_object_io(&request);
+    if (!result && position) *position = (uint64_t)request.offset_hi << 32 | request.offset_lo;
+    return result;
+}
+rum_result_t rum_object_readdir(rum_object_handle_t handle, struct rum_directory_entry *entry)
+{
+    struct rum_object_io_request request = io_packet(RUM_OBJECT_IO_READDIR, handle);
+    request.type = RUM_OBJECT_DIRECTORY; request.data = (rum_address_t)(uintptr_t)entry;
+    return rum_object_io(&request);
+}
+rum_result_t rum_object_flush(rum_object_handle_t handle)
+{
+    struct rum_object_io_request request = io_packet(RUM_OBJECT_IO_FLUSH, handle);
+    return rum_object_io(&request);
+}
+rum_result_t rum_object_isatty(rum_object_handle_t handle)
+{
+    struct rum_object_io_request request = io_packet(RUM_OBJECT_IO_ISATTY, handle);
+    return rum_object_io(&request);
+}
 rum_result_t rum_clock(struct rum_clock_request *request)
 {
     return rum_syscall3(RUM_SYS_CLOCK, (rum_address_t)(uintptr_t)request, 0, 0);

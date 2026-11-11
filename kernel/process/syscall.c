@@ -77,6 +77,17 @@ static rum_result_t copy_path(struct paging_space *space, uint32_t address, char
     return -RUM_ENAMETOOLONG;
 }
 
+static rum_result_t retain_io(struct kernel_object *object)
+{
+    if (task_io_begin(object)) return 0;
+    if (object_release(object, OBJECT_OPERATION)) cpu_halt();
+    return -RUM_EBUSY;
+}
+static rum_result_t retain_descriptor(struct process_handles *table, rum_handle_t id, struct process_handle **handle)
+{
+    rum_result_t error = process_handle_acquire(table, id, handle);
+    return error ? error : retain_io(&(*handle)->object);
+}
 static rum_result_t stream_read(struct paging_space *space, uint32_t address, uint32_t chunk)
 {
     char buffer[CONSOLE_CHUNK];
@@ -96,10 +107,9 @@ static rum_result_t stream_read(struct paging_space *space, uint32_t address, ui
     }
 }
 
-static rum_result_t transfer(struct paging_space *space, struct process_handles *table,
-                             rum_handle_t id, uint32_t address, uint32_t bytes, bool write)
+static rum_result_t transfer_handle(struct paging_space *space, struct process_handle *handle,
+                                    uint32_t address, uint32_t bytes, bool write)
 {
-    struct process_handle *handle = process_handle_get(table, id);
     if (!handle || !(handle->access & (write ? FS_WRITE : FS_READ))) return -RUM_EBADF;
     if (handle->kind == HANDLE_DIRECTORY) return -RUM_EISDIR;
     if (!bytes) return 0;
@@ -125,6 +135,13 @@ static rum_result_t transfer(struct paging_space *space, struct process_handles 
     rum_result_t result = write ? process_handle_write(handle, buffer, chunk) : process_handle_read(handle, buffer, chunk);
     if (!write && result > 0 && !paging_copy_to_user(space, address, buffer, (size_t)result)) cpu_halt();
     return result;
+}
+static rum_result_t transfer(struct paging_space *space, struct process_handles *table,
+                             rum_handle_t id, uint32_t address, uint32_t bytes, bool write)
+{
+    struct process_handle *handle;
+    rum_result_t result = retain_descriptor(table, id, &handle);
+    return result ? result : transfer_handle(space, handle, address, bytes, write);
 }
 
 static rum_result_t open_file(struct paging_space *space, struct process_handles *table, uint32_t address)
@@ -156,8 +173,9 @@ static rum_result_t file_information(struct paging_space *space, struct process_
          (uint64_t)address < (uint64_t)request.data + sizeof(struct rum_file_information))) return -RUM_EFAULT;
     struct process_handle *handle = NULL; char path[RUM_ABI_PATH_CAPACITY];
     if (request.flags) {
-        handle = process_handle_get(table, request.handle);
-        if (!handle || (handle->kind != HANDLE_FILE && handle->kind != HANDLE_DIRECTORY)) return -RUM_EBADF;
+        rum_result_t error = retain_descriptor(table, request.handle, &handle);
+        if (error) return error;
+        if (handle->kind != HANDLE_FILE && handle->kind != HANDLE_DIRECTORY) return -RUM_EBADF;
     } else {
         rum_result_t error = copy_path(space, request.path, path);
         if (error) return error;
@@ -218,8 +236,9 @@ static rum_result_t duplicate_handle(struct paging_space *space, struct process_
 
 static rum_result_t seek_file(struct paging_space *space, struct process_handles *table, uint32_t id, uint32_t address)
 {
-    struct process_handle *handle = process_handle_get(table, id);
-    if (!handle) return -RUM_EBADF;
+    struct process_handle *handle;
+    rum_result_t retained = retain_descriptor(table, id, &handle);
+    if (retained) return retained;
     struct rum_seek_request request;
     if (!accessible(space, address, sizeof request, true) ||
         !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
@@ -234,9 +253,8 @@ static rum_result_t seek_file(struct paging_space *space, struct process_handles
     return 0;
 }
 
-static rum_result_t list_directory(struct paging_space *space, struct process_handles *table, uint32_t id, uint32_t address)
+static rum_result_t list_directory_handle(struct paging_space *space, struct process_handle *handle, uint32_t address)
 {
-    struct process_handle *handle = process_handle_get(table, id);
     if (!handle) return -RUM_EBADF;
     struct rum_directory_entry output;
     if (!accessible(space, address, sizeof output, true) ||
@@ -253,6 +271,12 @@ static rum_result_t list_directory(struct paging_space *space, struct process_ha
     }
     if (!paging_copy_to_user(space, address, &output, sizeof output)) cpu_halt();
     return result;
+}
+static rum_result_t list_directory(struct paging_space *space, struct process_handles *table, uint32_t id, uint32_t address)
+{
+    struct process_handle *handle;
+    rum_result_t result = retain_descriptor(table, id, &handle);
+    return result ? result : list_directory_handle(space, handle, address);
 }
 
 static rum_result_t path_operation(struct paging_space *space, uint32_t address, uint32_t number)
@@ -708,9 +732,56 @@ static rum_result_t object_control(struct paging_space *space, uint32_t address)
        The dispatcher's mapping lease survives a yielding final destructor. */
     if (!accessible(space, address, sizeof request, true) ||
         !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
-    rum_result_t result = object_handle_request(task_current_objects(), &request);
+    rum_result_t result = object_request_validate(&request);
+    if (!result) result = request.operation == RUM_OBJECT_FROM_DESCRIPTOR ?
+        process_handle_export(task_current_handles(), request.handle, task_current_objects(), request.type,
+                              request.rights, request.flags, &request.result_handle) :
+        object_handle_request(task_current_objects(), &request);
     if (!result && !paging_copy_to_user(space, address, &request, sizeof request)) cpu_halt();
     return result;
+}
+
+static rum_result_t object_io(struct paging_space *space, uint32_t address)
+{
+    struct rum_object_io_request request;
+    if (!accessible(space, address, sizeof request, true) ||
+        !paging_copy_from_user(space, &request, address, sizeof request)) return -RUM_EFAULT;
+    if (request.version != RUM_OBJECT_IO_VERSION || request.size != sizeof request ||
+        request.operation < RUM_OBJECT_IO_READ || request.operation > RUM_OBJECT_IO_ISATTY ||
+        (request.type != RUM_OBJECT_ANY && !object_rights_mask(request.type)) || request.reserved[0] || request.reserved[1])
+        return -RUM_EINVAL;
+    bool transfer_call = request.operation == RUM_OBJECT_IO_READ || request.operation == RUM_OBJECT_IO_WRITE;
+    bool seek = request.operation == RUM_OBJECT_IO_SEEK;
+    if ((!transfer_call && request.bytes) || (seek ? request.whence > RUM_SEEK_END : request.whence || request.offset_lo || request.offset_hi) ||
+        ((!transfer_call && request.operation != RUM_OBJECT_IO_READDIR) && request.data)) return -RUM_EINVAL;
+    /* Structured output must not overwrite its own control packet. */
+    if (request.operation == RUM_OBJECT_IO_READDIR &&
+        (uint64_t)request.data < (uint64_t)address + sizeof request &&
+        (uint64_t)address < (uint64_t)request.data + sizeof(struct rum_directory_entry)) return -RUM_EINVAL;
+    uint32_t right = request.operation == RUM_OBJECT_IO_READ ? RUM_RIGHT_READ :
+        request.operation == RUM_OBJECT_IO_WRITE ? RUM_RIGHT_WRITE : seek ? RUM_RIGHT_SEEK :
+        request.operation == RUM_OBJECT_IO_READDIR ? RUM_RIGHT_ENUMERATE :
+        request.operation == RUM_OBJECT_IO_FLUSH ? RUM_RIGHT_FLUSH : RUM_RIGHT_QUERY;
+    struct kernel_object *object;
+    rum_result_t result = object_handle_acquire(task_current_objects(), request.handle, request.type, right, &object);
+    if (result) return result;
+    result = retain_io(object);
+    if (result) return result;
+    struct process_handle *handle = process_handle_from_object(object);
+    if (!handle) return -RUM_ENOSYS;
+    if (transfer_call) return transfer_handle(space, handle, request.data, request.bytes, request.operation == RUM_OBJECT_IO_WRITE);
+    if (seek) {
+        uint64_t position;
+        result = process_handle_seek(handle, (uint64_t)request.offset_hi << 32 | request.offset_lo, request.whence, &position);
+        if (!result) {
+            request.offset_lo = (uint32_t)position; request.offset_hi = (uint32_t)(position >> 32);
+            if (!paging_copy_to_user(space, address, &request, sizeof request)) cpu_halt();
+        }
+        return result;
+    }
+    if (request.operation == RUM_OBJECT_IO_READDIR) return list_directory_handle(space, handle, request.data);
+    if (request.operation == RUM_OBJECT_IO_FLUSH) return process_handle_flush(handle);
+    return handle->kind == HANDLE_INPUT || handle->kind == HANDLE_OUTPUT;
 }
 
 void syscall_dispatch(struct exception_frame *frame)
@@ -733,6 +804,8 @@ void syscall_dispatch(struct exception_frame *frame)
     bool retained = needs_buffers && task_user_buffers_begin();
     if (needs_buffers && !retained) result = -RUM_EBUSY;
     else switch (frame->eax) {
+    case RUM_SYS_OBJECT_IO:
+        result = frame->ecx || frame->edx ? -RUM_EINVAL : object_io(space, frame->ebx); break;
     case RUM_SYS_OBJECT:
         result = frame->ecx || frame->edx ? -RUM_EINVAL : object_control(space, frame->ebx); break;
     case RUM_SYS_CLOCK:
@@ -756,9 +829,9 @@ void syscall_dispatch(struct exception_frame *frame)
     case RUM_SYS_JOB:
         result = frame->ecx || frame->edx ? -RUM_EINVAL : job_control(space, frame->ebx); break;
     case RUM_SYS_ISATTY: {
-        struct process_handle *handle = process_handle_get(handles, frame->ebx);
-        result = frame->ecx || frame->edx ? -RUM_EINVAL : !handle ? -RUM_EBADF :
-            handle->kind == HANDLE_INPUT || handle->kind == HANDLE_OUTPUT;
+        struct process_handle *handle;
+        result = frame->ecx || frame->edx ? -RUM_EINVAL : retain_descriptor(handles, frame->ebx, &handle);
+        if (!result) result = handle->kind == HANDLE_INPUT || handle->kind == HANDLE_OUTPUT;
         break;
     }
     case RUM_SYS_PIPE:
@@ -772,7 +845,12 @@ void syscall_dispatch(struct exception_frame *frame)
     case RUM_SYS_CHDIR: case RUM_SYS_MKDIR: case RUM_SYS_REMOVE:
         result = path_operation(space, frame->ebx, frame->eax); break;
     case RUM_SYS_GETCWD: result = working_directory(space, frame->ebx, frame->ecx); break;
-    case RUM_SYS_FLUSH: result = process_handle_flush(process_handle_get(handles, frame->ebx)); break;
+    case RUM_SYS_FLUSH: {
+        struct process_handle *handle;
+        result = retain_descriptor(handles, frame->ebx, &handle);
+        if (!result) result = process_handle_flush(handle);
+        break;
+    }
     case RUM_SYS_RUN: result = run_child(space, frame->ebx); break;
     case RUM_SYS_YIELD:
         result = frame->ebx || frame->ecx || frame->edx ? -RUM_EINVAL : task_yield() ? 0 : -RUM_EBUSY;
@@ -794,6 +872,7 @@ void syscall_dispatch(struct exception_frame *frame)
     case RUM_SYS_SESSION: result = session_control(space, frame->ebx, frame->ecx, frame->edx); break;
     default: result = -RUM_ENOSYS; break;
     }
+    if (!task_io_end()) cpu_halt();
     if (retained && !task_user_buffers_end()) cpu_halt();
     frame->eax = (uint32_t)result;
     terminal_session_reconcile();

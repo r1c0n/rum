@@ -41,6 +41,8 @@ struct process_handle *process_handle_get(struct process_handles *, rum_handle_t
 rum_result_t process_handle_acquire(struct process_handles *, rum_handle_t, struct process_handle **);
 struct process_handle *process_handle_from_object(struct kernel_object *);
 uint32_t process_handle_rights(const struct process_handle *);
+rum_result_t process_handle_export(struct process_handles *, rum_handle_t, struct object_handles *,
+                                   uint32_t type, uint32_t rights, uint32_t flags, rum_object_handle_t *);
 rum_result_t process_handle_open(struct process_handles *, const struct fs_context *, const char *, unsigned, unsigned);
 rum_result_t process_handle_close(struct process_handles *, rum_handle_t);
 rum_result_t process_handles_pipe(struct process_handles *, rum_handle_t *reader, rum_handle_t *writer);

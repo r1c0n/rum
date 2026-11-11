@@ -93,8 +93,9 @@ static void run(const char *mode, enum task_termination expected)
         task_id id = task_create_foreground_process(&process);
         check(id && !object_handles_count(&table), "move complete object table at publication");
         if (expected == TASK_TERMINATION_CANCELLED) {
+            unsigned initial = object_stats().total.references[OBJECT_TABLE];
             uint32_t deadline = timer_ticks() + 400;
-            while (object_stats().total.references[OBJECT_TABLE] < 4) {
+            while (object_stats().total.references[OBJECT_TABLE] <= initial) {
                 check(!timer_deadline_reached(timer_ticks(), deadline) && task_yield(), "wait for CPU-bound alias owner");
             }
             check(task_cancel_foreground(), "cancel CPU-bound typed-handle owner");

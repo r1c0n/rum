@@ -102,6 +102,10 @@ bool task_current_is_process(void);
    released by termination if the syscall never returns. Begin requires IF. */
 bool task_user_buffers_begin(void);
 bool task_user_buffers_end(void);
+/* Transfer an acquired OPERATION reference to this syscall/thread. Normal
+   completion or termination releases it exactly once, before closing tables. */
+bool task_io_begin(struct kernel_object *);
+bool task_io_end(void);
 rum_pid_t task_current_process_id(void);
 struct paging_space *task_current_process_space(void);
 /* Each boot/worker/process context owns a directory reference inherited at

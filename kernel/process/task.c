@@ -56,6 +56,7 @@ struct task {
     uint32_t slice_ticks;
     bool reschedule;
     bool user_buffers_held;
+    struct kernel_object *io_object;
     void (*entry)(void *);
     void *argument;
     struct exception_user_frame user_frame;
@@ -692,7 +693,7 @@ bool task_snapshot_read(struct task_snapshot *snapshot)
 static bool reap_slot(struct task *task)
 {
     if (!task || task->state != TASK_EXITED || task == current ||
-        task->waiting || task->deadline_active || task->deadline ||
+        task->waiting || task->deadline_active || task->deadline || task->io_object ||
         task->process->console.references || task->process->console.live ||
         (task->process->owns_space && task->process->space == paging_active_space())) return false;
     /* Exit must release file handles before this interrupt-protected reaper.
@@ -907,6 +908,24 @@ bool task_user_buffers_end(void)
     return released;
 }
 
+bool task_io_begin(struct kernel_object *object)
+{
+    if (!ready || irq_in_handler() || !task_current_is_process() || !object) return false;
+    uint32_t saved = cpu_interrupt_save();
+    bool valid = (saved & IF) && !current->io_object && object->state == OBJECT_PUBLISHED &&
+                 object->owners[OBJECT_OPERATION];
+    if (valid) current->io_object = object;
+    cpu_interrupt_restore(saved); return valid;
+}
+bool task_io_end(void)
+{
+    if (!ready || irq_in_handler()) return false;
+    struct kernel_object *object = current->io_object;
+    if (!object) return true;
+    if (object_release(object, OBJECT_OPERATION)) return false;
+    current->io_object = NULL; return true;
+}
+
 bool task_switch_hold(void)
 {
     if (!ready || irq_in_handler()) return false;
@@ -966,6 +985,7 @@ static _Noreturn void terminate_current(enum task_termination termination,
        a kernel continuation; no backend callback runs under the update lock. */
     cpu_interrupt_enable();
     terminal_session_exit(current->id);
+    if (!task_io_end()) cpu_halt();
     if (object_handles_destroy(&current->process->objects)) cpu_halt();
     if (process_handles_destroy(&current->process->handles)) cpu_halt();
     /* Cancellation can abandon a blocked syscall's C continuation. Its

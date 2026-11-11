@@ -25,6 +25,7 @@ rum_result_t object_handle_install(struct object_handles *, struct kernel_object
 rum_result_t object_handle_acquire(struct object_handles *, rum_object_handle_t, uint32_t type,
                                   uint32_t required, struct kernel_object **);
 rum_result_t object_handle_request(struct object_handles *, struct rum_object_request *);
+rum_result_t object_request_validate(const struct rum_object_request *);
 /* New private empty destination only; preserve numeric inherited tokens and
    source generation history. Rights can only shrink. Publication is all-or-
    nothing; a failure releases every acquired reference. No backend callouts. */
