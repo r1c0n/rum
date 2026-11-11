@@ -1,0 +1,192 @@
+name: Generate release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vX.Y.Z tag reachable from master
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and validate on Linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      tag: ${{ steps.identity.outputs.tag }}
+      version: ${{ steps.identity.outputs.version }}
+      commit: ${{ steps.identity.outputs.commit }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Check release tag and source
+        id: identity
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: python3 scripts/release-assets.py metadata --tag "$RELEASE_TAG"
+      - name: Install build and test dependencies
+        run: sudo bash scripts/install-deps.sh
+      - name: Cache the bare-metal toolchain
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .tools/cross
+          key: ${{ runner.os }}-${{ runner.arch }}-i686-elf-${{ hashFiles('scripts/build-toolchain.sh') }}
+      - name: Build or verify the cross compiler
+        env:
+          JOBS: '4'
+        run: bash scripts/build-toolchain.sh
+      - name: Download the released compatibility SDK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.7.0 --repo "$GITHUB_REPOSITORY" --pattern rum-sdk.zip --dir build/compat
+          printf '%s\n' 'd144a3dc26144a04a0d7aede23c11b85e38c099fe00b211c51f2c3dc2a9e7624  build/compat/rum-sdk.zip' | sha256sum --check
+      - name: Run the complete clean release gate
+        run: python3 scripts/release-check.py --jobs 4 --workers 4 --compat-sdk build/compat/rum-sdk.zip --output build/release-ci
+      - name: Verify native Linux packaging and the exact ISO
+        run: python3 tests/release-host-test.py --release build/release-ci
+      - name: Save inputs for Windows verification
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-inputs
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+          path: |
+            build/release-ci/result.json
+            build/release-ci/rum.iso
+            build/release-ci/rum.zip
+            build/release-ci/rum-sdk.zip
+            build/release-ci/rum-system.raw
+            build/release-ci/vm-images/rum-vm-images.zip
+            build/release-ci/test-artifacts/suite/result.json
+            build/release-ci/host-linux/result.json
+      - name: Save Linux validation logs
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-linux-evidence
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            build/release-ci/**/*.log
+            build/release-ci/**/*.json
+            build/release-ci/SHA256SUMS.txt
+
+  windows:
+    name: Verify native Windows packaging
+    needs: build
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.build.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Install native QEMU
+        id: qemu
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-qemu
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release-inputs
+          path: build/release-ci
+      - name: Verify native packaging and boot the exact ISO
+        env:
+          MSYS2_ROOT: ${{ steps.qemu.outputs.msys2-location }}
+        shell: pwsh
+        run: |
+          $qemu = Join-Path $env:MSYS2_ROOT 'ucrt64/bin/qemu-system-i386.exe'
+          if (-not (Test-Path -LiteralPath $qemu)) { throw 'Native QEMU is missing' }
+          python tests/release-host-test.py --release build/release-ci --qemu $qemu
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./tests/disk-launcher-test.ps1
+      - name: Collect all six release downloads
+        env:
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+        run: python scripts/release-assets.py stage --tag "$env:RELEASE_TAG"
+      - name: Save release downloads
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-downloads
+          path: build/release-downloads/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Save Windows validation logs
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-windows-evidence
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            build/release-ci/host-windows/*.log
+            build/release-ci/host-windows/result.json
+
+  release:
+    name: Create the GitHub release draft
+    needs: [build, windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.build.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.build.outputs.version }}
+      SOURCE_COMMIT: ${{ needs.build.outputs.commit }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.build.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release-downloads
+          path: build/release-downloads
+      - name: Verify tag and downloads before uploading
+        run: |
+          python3 scripts/release-assets.py metadata --tag "$RELEASE_TAG"
+          python3 scripts/release-assets.py verify --tag "$RELEASE_TAG" --commit "$SOURCE_COMMIT"
+      - name: Create or update a draft with generated notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          assets=(build/release-downloads/rum.iso build/release-downloads/rum.zip
+                  build/release-downloads/rum-sdk.zip build/release-downloads/rum-vm-images.zip
+                  build/release-downloads/SHA256SUMS.txt build/release-downloads/validation.json)
+          if draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$draft" != true ]; then
+              printf '%s\n' 'Refusing to replace assets on an already published release.' >&2
+              exit 1
+            fi
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --target "$SOURCE_COMMIT" --draft --title "rum $RELEASE_VERSION" --generate-notes
+          fi
+          printf 'Release draft: %s\n' "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url)" >> "$GITHUB_STEP_SUMMARY"
