@@ -56,6 +56,10 @@ static void construction(void)
     assert(object_publish(&sample.header, OBJECT_REFERENCE_COUNT) == -RUM_EINVAL);
     assert(object_release(&sample.header, OBJECT_TABLE) == -RUM_EBADF);
     struct object_statistics after = object_stats(); assert(!memcmp(&before, &after, sizeof after));
+    assert(!object_retype(&sample.header, &pipe));
+    after = object_stats();
+    assert(!after.kinds[OBJECT_FILE].objects && after.kinds[OBJECT_PIPE_READER].constructing == 1 &&
+           after.total.objects == 1 && after.total.references[OBJECT_OWNER] == 1);
     assert(!object_release(&sample.header, OBJECT_OWNER)); /* Failed constructor rollback. */
     assert(object_release(&sample.header, OBJECT_OWNER) == -RUM_EBADF);
     empty();
@@ -66,6 +70,7 @@ static void ownership(void)
     unsigned baseline = attempts;
     assert(!object_initialize(&sample.header, &file));
     assert(!object_publish(&sample.header, OBJECT_TABLE));
+    assert(object_retype(&sample.header, &pipe) == -RUM_EINVAL);
     assert(!object_acquire(&sample.header, OBJECT_TABLE));
     assert(!object_acquire(&sample.header, OBJECT_OPERATION));
     assert(!object_transfer(&sample.header, OBJECT_TABLE, OBJECT_OWNER));

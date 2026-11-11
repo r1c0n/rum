@@ -251,6 +251,11 @@ task_id task_create(void (*entry)(void *), void *argument, struct paging_space *
     return id;
 }
 
+static void discard_process_construction(struct process_state *owner)
+{
+    if (object_handles_destroy(&owner->objects) || process_handles_destroy(&owner->handles) ||
+        fs_context_destroy(&owner->filesystem) != FS_OK) cpu_halt();
+}
 static task_id create_process(const struct task_process *process, bool make_foreground, bool shell)
 {
     if (!ready || !process || irq_in_handler()) return 0;
@@ -264,9 +269,8 @@ static task_id create_process(const struct task_process *process, bool make_fore
     struct task *slot = valid ? available_slot(process->space) : NULL;
     task_id parent = valid ? current->id : 0;
     cpu_interrupt_restore(saved);
-    if (!slot || !task_switch_hold()) return 0;
+    if (!slot || !process_filesystem_context()) return 0;
 
-    uint32_t stack_slot = (uint32_t)(slot - tasks) - 1;
     struct process_state owner = { .process_id = next_process_id, .parent = parent,
         .kind = TASK_PROCESS, .space = process->space, .owns_space = true };
     struct task constructed = { .id = next_id, .state = TASK_RUNNABLE,
@@ -275,25 +279,30 @@ static task_id create_process(const struct task_process *process, bool make_fore
     for (unsigned i = 0; i < sizeof owner.name - 1 && name[i]; ++i)
         owner.name[i] = (unsigned char)name[i] >= 32 && (unsigned char)name[i] <= 126 ? name[i] : '?';
     if (fs_context_clone(&current->process->filesystem, &owner.filesystem) != FS_OK) {
-        (void)task_switch_release();
         return 0;
     }
     if (!process->initial_handles && process_handles_initialize(&owner.handles)) {
         (void)fs_context_destroy(&owner.filesystem);
-        (void)task_switch_release();
         return 0;
     }
+    /* Default console descriptions are real objects. Construct them before
+       the short reservation hold so failure can run their final destructors.
+       Recheck the slot/IDs after taking that hold. */
+    if (!task_switch_hold()) { discard_process_construction(&owner); return 0; }
+    saved = cpu_interrupt_save();
+    slot = next_id && next_process_id <= RUM_ABI_PID_MAX ? available_slot(process->space) : NULL;
+    owner.process_id = next_process_id; constructed.id = next_id;
+    cpu_interrupt_restore(saved);
+    if (!slot) { (void)task_switch_release(); discard_process_construction(&owner); return 0; }
+    uint32_t stack_slot = (uint32_t)(slot - tasks) - 1;
     if (!process->initial_objects && object_handles_inherit(&owner.objects, &current->process->objects, RUM_RIGHT_MASK)) {
-        (void)process_handles_destroy(&owner.handles);
-        (void)fs_context_destroy(&owner.filesystem);
         (void)task_switch_release();
+        discard_process_construction(&owner);
         return 0;
     }
     if (!new_stack(&constructed, stack_slot)) {
-        if (object_handles_destroy(&owner.objects)) cpu_halt();
-        (void)process_handles_destroy(&owner.handles);
-        (void)fs_context_destroy(&owner.filesystem);
         (void)task_switch_release();
+        discard_process_construction(&owner);
         return 0;
     }
 
@@ -306,10 +315,8 @@ static task_id create_process(const struct task_process *process, bool make_fore
     if (!console_can_launch(parent_console, make_foreground) || task_current_cancelled()) {
         cpu_interrupt_restore(saved);
         (void)paging_kernel_stack_release(stack_slot);
-        if (object_handles_destroy(&owner.objects)) cpu_halt();
-        (void)process_handles_destroy(&owner.handles);
-        (void)fs_context_destroy(&owner.filesystem);
         (void)task_switch_release();
+        discard_process_construction(&owner);
         return 0;
     }
     if (process->initial_handles) {

@@ -4,6 +4,7 @@
 #include <rum/interrupts.h>
 #include <rum/process_limits.h>
 #include <rum/pipe.h>
+#include <rum/task.h>
 
 #define OPEN_DESCRIPTIONS (RUM_PROCESS_LIMIT * RUM_ABI_HANDLE_LIMIT)
 static struct process_handle descriptions[OPEN_DESCRIPTIONS];
@@ -16,10 +17,7 @@ _Static_assert(RUM_ABI_HANDLE_LIMIT == 32 && RUM_SPAWN_MAPPING_LIMIT <= 32,
 
 bool process_filesystem_context(void)
 {
-    if (irq_in_handler()) return false;
-    uint32_t flags = cpu_interrupt_save();
-    cpu_interrupt_restore(flags);
-    return (flags & 0x200u) != 0;
+    return task_blocking_allowed();
 }
 
 rum_result_t process_fs_error(enum fs_error error)
@@ -48,52 +46,86 @@ rum_result_t process_fs_error(enum fs_error error)
     return -RUM_EIO;
 }
 
+static rum_result_t destroy_description(struct kernel_object *header)
+{
+    struct process_handle *handle = (void *)header;
+    if (handle->reference) {
+        enum fs_error error = fs_close(handle->reference);
+        if (error != FS_OK) return process_fs_error(error);
+        handle->reference = 0;
+    }
+    if (handle->pipe && !pipe_close(handle->pipe, handle->kind == HANDLE_PIPE_WRITE)) return -RUM_EIO;
+    uint32_t saved = cpu_interrupt_save();
+    *handle = (struct process_handle){0};
+    cpu_interrupt_restore(saved); return 0;
+}
+static const struct object_type description_types[] = {
+    {OBJECT_INVALID, destroy_description}, {OBJECT_CONSOLE_INPUT, destroy_description},
+    {OBJECT_CONSOLE_OUTPUT, destroy_description}, {OBJECT_FILE, destroy_description},
+    {OBJECT_DIRECTORY, destroy_description}, {OBJECT_PIPE_READER, destroy_description},
+    {OBJECT_PIPE_WRITER, destroy_description}
+};
+struct process_handle *process_handle_from_object(struct kernel_object *object)
+{
+    if (object) for (unsigned i = HANDLE_INPUT; i <= HANDLE_PIPE_WRITE; ++i)
+        if (object->type == &description_types[i]) return (void *)object;
+    return NULL;
+}
+uint32_t process_handle_rights(const struct process_handle *handle)
+{
+    if (!handle) return 0;
+    uint32_t rights = RUM_RIGHT_COMMON;
+    if (handle->kind == HANDLE_DIRECTORY) return rights | RUM_RIGHT_ENUMERATE;
+    if (handle->access & FS_READ) rights |= RUM_RIGHT_READ;
+    if (handle->access & FS_WRITE) rights |= RUM_RIGHT_WRITE;
+    if (handle->kind == HANDLE_FILE) rights |= RUM_RIGHT_SEEK | RUM_RIGHT_FLUSH;
+    return rights;
+}
 static struct process_handle *new_description(enum process_handle_kind kind, unsigned access)
 {
     uint32_t flags = cpu_interrupt_save();
     struct process_handle *result = NULL;
-    for (unsigned i = 0; i < OPEN_DESCRIPTIONS; ++i) if (!descriptions[i].references) {
+    for (unsigned i = 0; i < OPEN_DESCRIPTIONS; ++i) if (descriptions[i].kind == HANDLE_UNUSED) {
         result = &descriptions[i];
-        *result = (struct process_handle){ .kind = kind, .access = access, .references = 1 };
+        *result = (struct process_handle){ .kind = kind, .access = access };
         break;
     }
     cpu_interrupt_restore(flags);
+    if (result && object_initialize(&result->object, &description_types[kind])) {
+        flags = cpu_interrupt_save(); *result = (struct process_handle){0}; cpu_interrupt_restore(flags);
+        result = NULL;
+    }
     return result;
 }
 
 static rum_result_t retain(struct process_handle *object)
 {
-    uint32_t flags = cpu_interrupt_save();
-    rum_result_t error = object->references == UINT32_MAX ? -RUM_EOVERFLOW : 0;
-    if (!error) ++object->references;
-    cpu_interrupt_restore(flags);
-    return error;
+    return object_acquire(&object->object, OBJECT_OWNER);
 }
 
 static rum_result_t release(struct process_handle *object)
 {
-    if (object->references == 1 && object->reference) {
-        enum fs_error error = fs_close(object->reference);
-        if (error != FS_OK) return process_fs_error(error);
-    }
-    uint32_t flags = cpu_interrupt_save();
-    if (object->references == 1 && object->pipe && !pipe_close(object->pipe, object->kind == HANDLE_PIPE_WRITE)) {
-        cpu_interrupt_restore(flags); return -RUM_EIO;
-    }
-    if (!--object->references) *object = (struct process_handle){0};
-    cpu_interrupt_restore(flags);
-    return 0;
+    return object_release(&object->object, OBJECT_OWNER);
+}
+/* IF clear: transfer a private constructor/staging reference into an entry. */
+static void install_descriptor(struct process_handles *table, unsigned slot, struct process_handle *handle, uint32_t flags)
+{
+    rum_result_t error = handle->object.state == OBJECT_CONSTRUCTING ? object_publish(&handle->object, OBJECT_TABLE) :
+        object_transfer(&handle->object, OBJECT_OWNER, OBJECT_TABLE);
+    if (error) cpu_halt();
+    ++handle->descriptors;
+    table->slots[slot] = (struct process_descriptor){ .object = handle, .flags = flags };
 }
 
 struct process_handle_statistics process_handles_stats(void)
 {
     uint32_t flags = cpu_interrupt_save();
     struct process_handle_statistics result = {0};
-    for (unsigned i = 0; i < OPEN_DESCRIPTIONS; ++i) if (descriptions[i].references) {
+    for (unsigned i = 0; i < OPEN_DESCRIPTIONS; ++i) if (descriptions[i].kind != HANDLE_UNUSED) {
         ++result.descriptions;
-        result.descriptors += descriptions[i].references;
+        result.descriptors += descriptions[i].descriptors;
+        if (descriptions[i].descriptors > 1) result.aliases += descriptions[i].descriptors - 1;
     }
-    result.aliases = result.descriptors - result.descriptions;
     cpu_interrupt_restore(flags);
     return result;
 }
@@ -104,8 +136,9 @@ rum_result_t process_handles_initialize(struct process_handles *table)
     if (!process_filesystem_context()) return -RUM_EBUSY;
     *table = (struct process_handles){0};
     for (unsigned i = 0; i < 3; ++i) {
-        table->slots[i].object = new_description(i ? HANDLE_OUTPUT : HANDLE_INPUT, i ? FS_WRITE : FS_READ);
-        if (!table->slots[i].object) { (void)process_handles_destroy(table); return -RUM_ENOMEM; }
+        struct process_handle *handle = new_description(i ? HANDLE_OUTPUT : HANDLE_INPUT, i ? FS_WRITE : FS_READ);
+        if (!handle) { (void)process_handles_destroy(table); return -RUM_ENOMEM; }
+        uint32_t flags = cpu_interrupt_save(); install_descriptor(table, i, handle, 0); cpu_interrupt_restore(flags);
     }
     return 0;
 }
@@ -119,7 +152,17 @@ unsigned process_handles_count(const struct process_handles *table)
 
 struct process_handle *process_handle_get(struct process_handles *table, rum_handle_t handle)
 {
-    return table && handle < RUM_ABI_HANDLE_LIMIT ? table->slots[handle].object : NULL;
+    return table && handle < RUM_ABI_HANDLE_LIMIT && !table->slots[handle].closing ? table->slots[handle].object : NULL;
+}
+rum_result_t process_handle_acquire(struct process_handles *table, rum_handle_t id, struct process_handle **output)
+{
+    if (!output) return -RUM_EINVAL;
+    if (irq_in_handler()) return -RUM_EBUSY;
+    uint32_t flags = cpu_interrupt_save();
+    struct process_handle *handle = process_handle_get(table, id);
+    rum_result_t result = handle ? object_acquire(&handle->object, OBJECT_OPERATION) : -RUM_EBADF;
+    if (!result) *output = handle;
+    cpu_interrupt_restore(flags); return result;
 }
 
 rum_result_t process_handle_open(struct process_handles *table, const struct fs_context *context,
@@ -139,15 +182,17 @@ rum_result_t process_handle_open(struct process_handles *table, const struct fs_
     fs_reference reference = 0;
     enum fs_error error = fs_open_flags(context, path, access, flags & ~RUM_OPEN_DIRECTORY, &reference);
     if (error != FS_OK) { (void)release(object); return process_fs_error(error); }
+    object->reference = reference;
     struct fs_information info;
     error = fs_stat(reference, &info);
     if (error == FS_OK && (flags & RUM_OPEN_DIRECTORY) && info.kind != FS_DIRECTORY) error = FS_NOT_DIRECTORY;
-    if (error != FS_OK) { (void)fs_close(reference); (void)release(object); return process_fs_error(error); }
+    if (error != FS_OK) { (void)release(object); return process_fs_error(error); }
     uint32_t saved = cpu_interrupt_save();
     object->reference = reference;
     object->append = (flags & RUM_OPEN_APPEND) != 0;
     object->kind = info.kind == FS_DIRECTORY ? HANDLE_DIRECTORY : HANDLE_FILE;
-    table->slots[slot] = (struct process_descriptor){ .object = object };
+    if (object_retype(&object->object, &description_types[object->kind])) cpu_halt();
+    install_descriptor(table, slot, object, 0);
     cpu_interrupt_restore(saved);
     return (rum_result_t)slot;
 }
@@ -157,18 +202,16 @@ rum_result_t process_handle_close(struct process_handles *table, rum_handle_t id
     struct process_handle *handle = process_handle_get(table, id);
     if (!handle) return -RUM_EBADF;
     if (!process_filesystem_context()) return -RUM_EBUSY;
-    if (handle->references == 1 && handle->reference) {
-        enum fs_error error = fs_close(handle->reference);
-        if (error != FS_OK) return process_fs_error(error);
-    }
     uint32_t saved = cpu_interrupt_save();
-    if (handle->references == 1 && handle->pipe && !pipe_close(handle->pipe, handle->kind == HANDLE_PIPE_WRITE)) {
-        cpu_interrupt_restore(saved); return -RUM_EIO;
-    }
-    table->slots[id] = (struct process_descriptor){0};
-    if (!--handle->references) *handle = (struct process_handle){0};
+    table->slots[id].closing = true;
+    --handle->descriptors;
     cpu_interrupt_restore(saved);
-    return 0;
+    rum_result_t result = object_release(&handle->object, OBJECT_TABLE);
+    saved = cpu_interrupt_save();
+    if (result) { ++handle->descriptors; table->slots[id].closing = false; }
+    else table->slots[id] = (struct process_descriptor){0};
+    cpu_interrupt_restore(saved);
+    return result;
 }
 
 rum_result_t process_handles_pipe(struct process_handles *table, rum_handle_t *reader, rum_handle_t *writer)
@@ -187,8 +230,8 @@ rum_result_t process_handles_pipe(struct process_handles *table, rum_handle_t *r
     if (!pipe) { (void)release(write); (void)release(read); return -RUM_ENOMEM; }
     uint32_t flags = cpu_interrupt_save();
     read->pipe = write->pipe = pipe;
-    table->slots[slots[0]] = (struct process_descriptor){ .object = read };
-    table->slots[slots[1]] = (struct process_descriptor){ .object = write };
+    install_descriptor(table, slots[0], read, 0);
+    install_descriptor(table, slots[1], write, 0);
     *reader = slots[0]; *writer = slots[1];
     cpu_interrupt_restore(flags); return 0;
 }
@@ -222,7 +265,7 @@ rum_result_t process_handle_duplicate(struct process_handles *table, rum_handle_
     if (table->slots[target].object) error = process_handle_close(table, target);
     if (error) { (void)release(object); return error; }
     uint32_t saved = cpu_interrupt_save();
-    table->slots[target] = (struct process_descriptor){ .object = object, .flags = flags };
+    install_descriptor(table, target, object, flags);
     cpu_interrupt_restore(saved);
     return (rum_result_t)target;
 }
@@ -257,7 +300,9 @@ rum_result_t process_handles_prepare_spawn(struct process_handles *destination, 
             if (error) (void)release(object);
         }
         if (error) { (void)process_handles_destroy(destination); return error; }
-        destination->slots[mappings[i].target] = (struct process_descriptor){ .object = object };
+        uint32_t saved = cpu_interrupt_save();
+        install_descriptor(destination, mappings[i].target, object, 0);
+        cpu_interrupt_restore(saved);
     }
     return 0;
 }
