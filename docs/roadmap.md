@@ -223,20 +223,24 @@ retirement, inheritance, compatibility and focused checks.
 
 ### 3. File, pipe and console integration
 
-- [ ] Adapt existing open descriptions and pipe endpoints to common object
+- [x] Adapt existing open descriptions and pipe endpoints to common object
   ownership while preserving shared offset, append and deferred-error behavior.
-- [ ] Preserve filesystem backend identity, retained open-file references and
+- [x] Preserve filesystem backend identity, retained open-file references and
   explicit removal/replacement behavior while handles remain open.
-- [ ] Keep EOF, broken-pipe, partial I/O, descriptor mapping and terminal
+- [x] Keep EOF, broken-pipe, partial I/O, descriptor mapping and terminal
   foreground ownership semantics unchanged.
-- [ ] Retain references across blocked I/O and release them exactly once on
+- [x] Retain references across blocked I/O and release them exactly once on
   completion, cancellation or process teardown.
-- [ ] Avoid double-counting or double-closing resources while old descriptor
+- [x] Avoid double-counting or double-closing resources while old descriptor
   operations and the new object interface share implementation.
 
 Repeat alias/inheritance, pipe and terminal tests through the adapted paths.
 Check close during pending operations, child faults, last-reader/last-writer
 exit and final backend release against ownership-count baselines.
+
+See [typed I/O](object-handles.md#typed-io) for descriptor export, access grants
+and syscall packets, and [shared handles](shared-handles.md#ownership-and-cleanup)
+for lifetime and diagnostic-count rules.
 
 ### 4. Process objects and management rights
 

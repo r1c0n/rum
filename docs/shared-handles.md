@@ -4,6 +4,10 @@ This guide covers stream descriptors. The [typed object-handle interface](object
 has a separate generation-aware namespace; descriptors retain the reuse and
 inheritance rules below.
 
+Typed aliases now share these same descriptions. Exporting with
+`rum_object_from_descriptor` retains the file identity, position, mode and
+pending error without reopening it. Either interface can outlive the other.
+
 Include `<rum/user.h>` and link with the normal rum runtime. Each process has
 32 descriptor slots. A slot references an open description containing the
 backend reference, access mode, file/directory position and deferred I/O error.
@@ -117,16 +121,21 @@ and CLOSPAWN sources `EACCES`, using negative `RUM_*` results.
 Failed launch releases its private table and loaded address space. The task
 constructor moves a prepared table only when the child is completely published.
 Exit, fault, cancellation and orphan cleanup close every descriptor. The final
-alias releases the backend reference; removal and whole-file replacement remain
-busy while any alias retains the object.
+reference releases the backend reference; removal and whole-file replacement
+remain busy while a descriptor, typed handle or acquired operation retains it.
+Syscalls retain descriptions while blocked and release them on completion or
+termination before either table is reclaimed.
 
 Offsets/errors update in cooperative kernel task context. Synchronous file
 callbacks do not yield, and IRQ returns to kernel mode do not preempt them.
 This does not provide synchronization for future SMP or multiple user threads.
 
-Recovery `diag` shows descriptor references, open descriptions and aliases
-(references minus descriptions). Counts include private launch tables. All
-return to zero after userspace and its children are reclaimed.
+Recovery `diag` shows legacy descriptor entries, all live open descriptions and
+extra legacy aliases (the sum of each description's descriptor count minus one,
+bounded below by zero). Typed-only and operation-only descriptions have no
+descriptor entries or aliases. Common object statistics count both tables and
+active operations separately. Counts include private launch tables and return
+to zero after userspace and its children are reclaimed.
 
 ## Focused checks
 
