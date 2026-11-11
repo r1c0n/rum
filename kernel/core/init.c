@@ -199,12 +199,12 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
         return;
     }
     boot_options(info);
+    power_initialize(info);
     if (!paging_initialize()) {
         terminal_set_color(VGA_LIGHT_RED, VGA_BLACK);
         print("rum: cannot allocate page tables. Halting.\n");
         return;
     }
-    power_initialize(pmm_stats().limit);
     if (!heap_initialize() || !fs_initialize()) {
         terminal_set_color(VGA_LIGHT_RED, VGA_BLACK);
         print("rum: cannot initialize memory or filesystem services. Halting.\n");

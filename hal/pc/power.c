@@ -2,6 +2,7 @@
 #include <rum/cpu.h>
 #include <rum/io.h>
 #include <rum/memory.h>
+#include <rum/memory_layout.h>
 #include <rum/serial.h>
 #include <rum/terminal.h>
 
@@ -9,7 +10,8 @@
    controls, and a static Name(_S5, Package(...)). No general AML execution. */
 #define TABLE_LIMIT (256u * 1024u)
 #define POLL_LIMIT 100000u
-static uint32_t physical_limit, smi_command;
+static const struct multiboot_info *boot_memory;
+static uint32_t smi_command;
 static uint16_t pm1a, pm1b, sleep_a, sleep_b;
 static uint8_t acpi_enable;
 
@@ -19,8 +21,25 @@ static uint32_t word32(const uint8_t *p)
 }
 static const uint8_t *physical(uint32_t address, uint32_t size)
 {
-    return address >= 4096 && address < physical_limit && size <= physical_limit - address ?
-        (const void *)(uintptr_t)address : NULL;
+    if (address < 4096 || address >= RUM_IDENTITY_END || size > RUM_IDENTITY_END - address) return NULL;
+    if (address >= 0x80000 && address < 0x100000 && size <= 0x100000 - address)
+        return (const void *)(uintptr_t)address;
+    /* Firmware may store ACPI tables in reserved RAM beyond the allocator's
+       available-RAM limit. Read only ranges described by the boot memory map. */
+    const uint8_t *map = (const void *)(uintptr_t)boot_memory->mmap_addr;
+    uint32_t offset = 0;
+    for (unsigned i = 0; i < 4096 && offset < boot_memory->mmap_length; ++i) {
+        if (boot_memory->mmap_length - offset < sizeof(struct multiboot_mmap_entry)) return NULL;
+        struct multiboot_mmap_entry entry;
+        memcpy(&entry, map + offset, sizeof entry);
+        uint64_t stride = (uint64_t)entry.size + 4;
+        if (entry.size < 20 || stride > boot_memory->mmap_length - offset) return NULL;
+        if (entry.type >= 1 && entry.type <= 4 && address >= entry.address &&
+            (uint64_t)address - entry.address <= entry.length && size <= entry.length - ((uint64_t)address - entry.address))
+            return (const void *)(uintptr_t)address;
+        offset += (uint32_t)stride;
+    }
+    return NULL;
 }
 static bool checksum(const uint8_t *p, uint32_t bytes)
 {
@@ -65,6 +84,7 @@ static bool sleep_types(const uint8_t *dsdt)
         const uint8_t *length = name + 5, *cursor = length;
         uint8_t lead = *cursor++;
         unsigned extra = lead >> 6;
+        if (extra && (lead & 0x30)) continue;
         if ((size_t)(end - cursor) < extra) continue;
         uint32_t bytes = lead & (extra ? 15u : 63u);
         for (unsigned i = 0; i < extra; ++i) bytes |= (uint32_t)*cursor++ << (4 + 8 * i);
@@ -78,10 +98,12 @@ static bool sleep_types(const uint8_t *dsdt)
     return false;
 }
 
-void power_initialize(uint32_t identity_limit)
+void power_initialize(const struct multiboot_info *info)
 {
-    physical_limit = identity_limit;
+    boot_memory = info;
     pm1a = pm1b = 0;
+    if (!info || !(info->flags & MULTIBOOT_MEMORY_MAP) || !info->mmap_addr ||
+        info->mmap_length > UINT32_MAX - info->mmap_addr) return;
     /* BDA itself lies on guarded page zero; the conventional EBDA search starts
        at 0x80000 and is bounded to the last 128 KiB of base memory. */
     const uint8_t *root = rsdp(0x80000, 0x20000);
