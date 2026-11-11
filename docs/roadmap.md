@@ -310,17 +310,17 @@ role policy, identity protection, writable workspaces, bounds and repair limits.
 
 ### 7. Diagnostics, integration and release
 
-- [ ] Expose bounded object/handle/reference counts and sanitized diagnostics
+- [x] Expose bounded object/handle/reference counts and sanitized diagnostics
   without exposing kernel addresses or another process's private data.
-- [ ] Combine stale handles, wrong types, rights failures, exhaustion, blocked
+- [x] Combine stale handles, wrong types, rights failures, exhaustion, blocked
   I/O, process exit and cancellation in ownership-focused regression tests.
-- [ ] Run existing shell, pipeline, job, terminal, persistence and recovery
+- [x] Run existing shell, pipeline, job, terminal, persistence and recovery
   checks alongside an external application built with the 0.7 SDK.
-- [ ] Verify that faults and failures leave no live objects or retained buffers
+- [x] Verify that faults and failures leave no live objects or retained buffers
   after their final legitimate owner is gone.
-- [ ] Document object types, rights, descriptor/handle differences, inheritance,
+- [x] Document object types, rights, descriptor/handle differences, inheritance,
   process references, trusted operations and ABI compatibility.
-- [ ] Run the full release gate and validate Windows/Linux packages and exact
+- [x] Run the full release gate and validate Windows/Linux packages and exact
   packaged boots before changing the release version.
 
 0.8.0 is ready when aliases and inherited handles preserve lifetime correctly,
@@ -328,6 +328,10 @@ stale object handles cannot target replacements, and denied operations cannot
 acquire authority. Failed construction, cancellation, faults and final close
 must restore ownership counts to baseline. Existing applications and the SDK
 must retain their documented behavior.
+
+See [resource diagnostics](resource-diagnostics.md) for caller-local counts and
+the [0.8.0 validation record](release.md#080-validation-record) for the completed
+clean gate, compatibility checks and exact release artifacts.
 
 ## Later releases
 
