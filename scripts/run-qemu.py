@@ -79,8 +79,7 @@ def main():
         if not 16 <= args.memory <= 4096:
             raise ValueError("guest memory must be 16 through 4096 MiB")
         arguments = boot_arguments(args.image, args.kernel, args.disk, args.disk_read_only, windows_paths=args.windows_paths)
-        command = [args.qemu, "-name", "rum OS", "-m", f"{args.memory}M", "-serial", "stdio",
-                   "-no-reboot", "-no-shutdown"] + arguments
+        command = [args.qemu, "-name", "rum OS", "-m", f"{args.memory}M", "-serial", "stdio"] + arguments
         if args.debug:
             command += ["-S", "-s"]
         return subprocess.call(command)

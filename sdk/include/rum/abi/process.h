@@ -34,10 +34,15 @@
 #define RUM_SESSION_RECOVERY 3
 #define RUM_SESSION_PIPELINE_BEGIN 4 /* Initial shell only; no path. */
 #define RUM_SESSION_PIPELINE_END 5 /* All scoped children must have exited. */
+#define RUM_SESSION_SHUTDOWN 6 /* Foreground shell command only; no path. */
+#define RUM_SESSION_REBOOT 7 /* Foreground shell command only; no path. */
 #define RUM_PROCESS_EXITED 1
 #define RUM_PROCESS_FAULTED 2
 #define RUM_PROCESS_CANCELLED 3
 #define RUM_SHELL_RECOVERY_STATUS 75 /* Initial shell's explicit recovery request. */
+#define RUM_SHELL_RESTART_STATUS 76 /* Intentional restart, outside crash budget. */
+#define RUM_SHELL_SHUTDOWN_STATUS 125
+#define RUM_SHELL_REBOOT_STATUS 126
 
 #ifndef __ASSEMBLER__
 #include <stddef.h>

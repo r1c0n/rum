@@ -558,7 +558,7 @@ static rum_result_t job_control(struct paging_space *space, uint32_t address)
 
 static rum_result_t session_control(struct paging_space *space, uint32_t action, uint32_t address, uint32_t reserved)
 {
-    if (reserved || action < RUM_SESSION_CHDIR || action > RUM_SESSION_PIPELINE_END ||
+    if (reserved || action < RUM_SESSION_CHDIR || action > RUM_SESSION_REBOOT ||
         (action != RUM_SESSION_CHDIR && address)) return -RUM_EINVAL;
     char path[RUM_ABI_PATH_CAPACITY];
     if (action == RUM_SESSION_CHDIR) {

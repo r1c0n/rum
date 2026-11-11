@@ -107,7 +107,7 @@ static void execute(char *line)
     char *command = stage->argv[0];
     if (equal(command, "exit") || equal(command, "recovery")) {
         if (stage->argc != 1) { tool_print("Usage: "); tool_print(command); tool_print("\n"); return; }
-        rum_exit(equal(command, "recovery") ? RUM_SHELL_RECOVERY_STATUS : 0);
+        rum_exit(equal(command, "recovery") ? RUM_SHELL_RECOVERY_STATUS : RUM_SHELL_RESTART_STATUS);
     }
     int background = equal(command, "start"); unsigned slot = 0;
     if (background) {

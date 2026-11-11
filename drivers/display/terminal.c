@@ -17,6 +17,7 @@ static uint16_t live[VGA_WIDTH * TEXT_HEIGHT];
 static uint16_t history[TERMINAL_SCROLLBACK_ROWS][VGA_WIDTH];
 static size_t history_first, history_count, view_offset;
 static bool record_history;
+static size_t content_top;
 
 static void cursor_shape(void)
 {
@@ -31,9 +32,9 @@ static void cell(size_t index, uint16_t value)
 static void paint(void)
 {
     size_t start = history_count - view_offset;
-    for (size_t y = 0; y < TEXT_HEIGHT; ++y) {
-        size_t at = start + y;
-        const uint16_t *source = at < history_count ? history[(history_first + at) % TERMINAL_SCROLLBACK_ROWS] : live + (at - history_count) * VGA_WIDTH;
+    for (size_t y = content_top; y < TEXT_HEIGHT; ++y) {
+        size_t at = start + y - content_top;
+        const uint16_t *source = at < history_count ? history[(history_first + at) % TERMINAL_SCROLLBACK_ROWS] : live + (content_top + at - history_count) * VGA_WIDTH;
         for (size_t x = 0; x < VGA_WIDTH; ++x) buffer[y * VGA_WIDTH + x] = source[x];
     }
     cursor_shape();
@@ -70,8 +71,8 @@ static void clear_row(size_t target)
 
 static void scroll_rows(size_t rows)
 {
-    for (size_t y = 0; y < rows; ++y) remember(live + y * VGA_WIDTH);
-    for (size_t y = 0; y < TEXT_HEIGHT - rows; ++y)
+    for (size_t y = content_top; y < content_top + rows; ++y) remember(live + y * VGA_WIDTH);
+    for (size_t y = content_top; y < TEXT_HEIGHT - rows; ++y)
         for (size_t x = 0; x < VGA_WIDTH; ++x) cell(y * VGA_WIDTH + x, live[(y + rows) * VGA_WIDTH + x]);
     for (size_t y = TEXT_HEIGHT - rows; y < TEXT_HEIGHT; ++y) clear_row(y);
     if (view_offset) paint();
@@ -94,6 +95,7 @@ void terminal_set_color(enum vga_color foreground, enum vga_color background)
 void terminal_initialize(void)
 {
     row = column = 0;
+    content_top = 0;
     history_first = history_count = view_offset = 0; record_history = true;
     terminal_set_color(VGA_LIGHT_GREY, VGA_BLACK);
     for (size_t y = 0; y < TEXT_HEIGHT; ++y)
@@ -117,7 +119,7 @@ void terminal_putchar(char c)
     } else if (c == '\b') {
         if (column > 0) {
             --column;
-        } else if (row > 0) {
+        } else if (row > content_top) {
             --row;
             column = VGA_WIDTH - 1;
         }
@@ -139,16 +141,28 @@ void terminal_clear(void)
     /* Clear console text only; keep the timer status and current color. */
     terminal_scroll(0);
     size_t used = TEXT_HEIGHT;
-    while (used) {
+    while (used > content_top) {
         bool blank = true;
         for (size_t x = 0; x < VGA_WIDTH; ++x) blank &= (live[(used - 1) * VGA_WIDTH + x] & 255) == ' ';
         if (!blank) break;
         --used;
     }
-    for (size_t y = 0; y < used; ++y) remember(live + y * VGA_WIDTH);
-    row = column = 0;
-    for (size_t y = 0; y < TEXT_HEIGHT; ++y)
+    for (size_t y = content_top; y < used; ++y) remember(live + y * VGA_WIDTH);
+    row = content_top; column = 0;
+    for (size_t y = content_top; y < TEXT_HEIGHT; ++y)
         clear_row(y);
+    update_cursor();
+}
+
+void terminal_title(const char *text)
+{
+    terminal_scroll(0);
+    content_top = text ? 1 : 0;
+    if (row < content_top) { row = content_top; column = 0; }
+    if (text) for (size_t x = 0; x < VGA_WIDTH; ++x) {
+        char c = *text ? *text++ : ' ';
+        cell(x, (uint16_t)(unsigned char)c | (uint16_t)(VGA_WHITE | VGA_BLUE << 4) << 8);
+    }
     update_cursor();
 }
 

@@ -3,6 +3,7 @@
 #include <rum/heap.h>
 #include <rum/diagnostics.h>
 #include <rum/fs.h>
+#include <rum/power.h>
 #include <rum/serial.h>
 #include <rum/shell.h>
 #include <rum/snake.h>
@@ -98,6 +99,8 @@ static void execute(void)
         print("Commands:\n"
               "  help         Show this list.\n"
               "  clear        Clear the console.\n"
+              "  shutdown     Flush files and turn off the computer.\n"
+              "  reboot       Flush files and restart the computer.\n"
               "  about        About rum.\n"
               "  echo <text>  Print text.\n"
               "  ls [path]    List a directory.\n"
@@ -117,6 +120,10 @@ static void execute(void)
         }
         terminal_clear();
         serial_writestring("\x1b[2J\x1b[H");
+    } else if (equal(command, "shutdown") || equal(command, "reboot")) {
+        if (*arguments) { print("Usage: "); print(command); print("\n"); return; }
+        enum fs_error error = system_power(equal(command, "reboot") ? POWER_REBOOT : POWER_SHUTDOWN);
+        file_error(command, error);
     } else if (equal(command, "about")) {
         if (*arguments) {
             print("Usage: about\n");
@@ -204,7 +211,9 @@ static void execute(void)
         if (!*program) { print("Usage: run <program> [args]\n"); return; }
         if (!launch_program) { print("User program launcher is unavailable.\n"); return; }
         struct process_result result;
+        terminal_title(NULL);
         enum process_launch_error error = launch_program(program, arguments, &result);
+        terminal_title(" rum | Recovery shell");
         if (error == PROCESS_LAUNCH_INVALID_ARGUMENTS) {
             print("Cannot launch: too many or oversized arguments.\n");
         } else if (error == PROCESS_LAUNCH_EXECUTABLE) {
@@ -230,7 +239,8 @@ static void execute(void)
         }
     } else if (equal(command, "snake")) {
         if (*arguments) { print("Usage: snake\n"); return; }
-        (void)snake_start(timer_ticks());
+        terminal_title(NULL);
+        if (!snake_start(timer_ticks())) terminal_title(" rum | Recovery shell");
     } else {
         print("Unknown command: ");
         print(command);
@@ -245,6 +255,7 @@ void shell_set_launcher(shell_launcher launch)
 
 void shell_initialize(void)
 {
+    terminal_title(" rum | Recovery shell");
     length = 0;
     line[0] = '\0';
     print("> ");

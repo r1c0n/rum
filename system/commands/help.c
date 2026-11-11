@@ -32,6 +32,8 @@ static const struct entry entries[] = {
     {"shell", "about", "about", "Show rum version information"},
     {"shell", "snake", "snake", "Play Snake; WASD move, P pause, R restart, Q quit"},
     {"shell", "exit", "exit", "Restart the shell"},
+    {"shell", "shutdown", "shutdown", "Flush files and turn off the computer"},
+    {"shell", "reboot", "reboot", "Flush files and restart the computer"},
     {"shell", "recovery", "recovery", "Open the recovery shell"},
 };
 static char output[8192]; static unsigned used; static int overflow;

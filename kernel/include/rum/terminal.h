@@ -31,6 +31,8 @@ void terminal_scrollback_enable(bool enabled);
 
 void terminal_initialize(void);
 void terminal_clear(void);
+/* Kernel recovery banner; NULL restores the full 24-row console. */
+void terminal_title(const char *text);
 void terminal_status(const char *text);
 void terminal_set_color(enum vga_color foreground, enum vga_color background);
 void terminal_putchar(char c);

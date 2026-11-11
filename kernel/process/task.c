@@ -502,7 +502,7 @@ rum_result_t task_session_control(unsigned action, const char *path)
         return (action == RUM_SESSION_PIPELINE_BEGIN ? console_pipeline_begin(&current->process->console) :
             console_pipeline_end(&current->process->console)) ? 0 : -RUM_EBUSY;
     }
-    if (action < RUM_SESSION_CHDIR || action > RUM_SESSION_RECOVERY) return -RUM_EINVAL;
+    if (action < RUM_SESSION_CHDIR || action > RUM_SESSION_REBOOT) return -RUM_EINVAL;
     if (!process_filesystem_context()) return -RUM_EBUSY;
     struct console_member *shell = console_command_shell(&current->process->console);
     if (!shell) return -RUM_EACCES;
@@ -516,7 +516,9 @@ rum_result_t task_session_control(unsigned action, const char *path)
        the shell cannot return to user mode until this direct child ends. */
     if (action == RUM_SESSION_CHDIR) return process_fs_error(fs_context_chdir(&parent->process->filesystem, path));
     return console_request_exit(&current->process->console,
-        action == RUM_SESSION_RECOVERY ? RUM_SHELL_RECOVERY_STATUS : 0) ? 0 : -RUM_EACCES;
+        action == RUM_SESSION_RECOVERY ? RUM_SHELL_RECOVERY_STATUS :
+        action == RUM_SESSION_SHUTDOWN ? RUM_SHELL_SHUTDOWN_STATUS :
+        action == RUM_SESSION_REBOOT ? RUM_SHELL_REBOOT_STATUS : RUM_SHELL_RESTART_STATUS) ? 0 : -RUM_EACCES;
 }
 
 void task_exit_shell_if_requested(void)

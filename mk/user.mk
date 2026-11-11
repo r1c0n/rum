@@ -1,7 +1,7 @@
 USER_RULES := Makefile mk/config.mk mk/user.mk
 .PHONY: user test-user
 
-SYSTEM_COMMANDS := help about echo clear ls cat more head wc hexdump pwd cd write mkdir rm touch cp mv stat setup sync run exit recovery ps kill sleep jobs fg wait
+SYSTEM_COMMANDS := help about echo clear ls cat more head wc hexdump pwd cd write mkdir rm touch cp mv stat setup sync run exit recovery shutdown reboot ps kill sleep jobs fg wait
 SDK_EXAMPLES := hello nonzero fault spin readline heapdemo
 APP_PROGRAMS := snake
 USER_PROGRAMS := shell $(SYSTEM_COMMANDS) $(APP_PROGRAMS) $(SDK_EXAMPLES)

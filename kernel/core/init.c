@@ -11,6 +11,7 @@
 #include <rum/pic.h>
 #include <rum/pmm.h>
 #include <rum/process.h>
+#include <rum/power.h>
 #include <rum/fs.h>
 #include <rum/serial.h>
 #include <rum/shell.h>
@@ -119,6 +120,17 @@ static void userspace_session(void)
         struct task_information result;
         if (!task_wait_process(child, &result) || !task_foreground_end(child) || !task_reap_process(child)) cpu_halt();
         if (result.termination == TASK_TERMINATION_EXIT && result.exit_status == RUM_SHELL_RECOVERY_STATUS) break;
+        if (result.termination == TASK_TERMINATION_EXIT &&
+            (result.exit_status == RUM_SHELL_SHUTDOWN_STATUS || result.exit_status == RUM_SHELL_REBOOT_STATUS)) {
+            enum fs_error power_error = system_power(result.exit_status == RUM_SHELL_REBOOT_STATUS ? POWER_REBOOT : POWER_SHUTDOWN);
+            print("Power request failed: "); print(fs_error_name(power_error)); print(".\n");
+            break;
+        }
+        if (result.termination == TASK_TERMINATION_EXIT && result.exit_status == RUM_SHELL_RESTART_STATUS) {
+            failures = 0;
+            print("Restarting the shell.\n");
+            continue;
+        }
         /* A session lasting 30 seconds starts a new restart window. */
         if ((uint32_t)(timer_ticks() - started) >= TIMER_HZ * 30u) failures = 0;
         if (++failures == 3) { print("The shell stopped repeatedly.\n"); break; }
@@ -192,6 +204,7 @@ void kernel_main(uint32_t multiboot_magic, uint32_t multiboot_info_address)
         print("rum: cannot allocate page tables. Halting.\n");
         return;
     }
+    power_initialize(pmm_stats().limit);
     if (!heap_initialize() || !fs_initialize()) {
         terminal_set_color(VGA_LIGHT_RED, VGA_BLACK);
         print("rum: cannot initialize memory or filesystem services. Halting.\n");
