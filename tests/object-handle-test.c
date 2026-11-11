@@ -156,6 +156,55 @@ static void inheritance(void)
     for (unsigned i = 1; i < OBJECT_REFERENCE_LIMIT; ++i) assert(!object_release(&b.object, OBJECT_OWNER));
     assert(!object_handles_destroy(&parent)); empty();
 }
+static void selected_inheritance(void)
+{
+    for (unsigned kind = OBJECT_FILE; kind < OBJECT_KIND_COUNT; ++kind) {
+        struct object_handles parent = {0}, child = {0}; struct sample a = {0}, b = {0};
+        rum_object_handle_t handle = give(&parent, &a, kind, RUM_RIGHT_QUERY, RUM_OBJECT_INHERIT);
+        rum_object_handle_t private = give(&parent, &b, kind, RUM_RIGHT_QUERY, 0);
+        struct rum_object_inheritance grant = { .handle = handle, .type = kind, .rights = RUM_RIGHT_QUERY };
+        struct object_handles zero = {0}; struct object_statistics before = object_stats();
+        struct rum_object_inheritance invalid[] = {grant, grant};
+        assert(object_handles_prepare_spawn(&child, &parent, invalid, 2) == -RUM_EINVAL);
+        invalid[0].handle = private;
+        assert(object_handles_prepare_spawn(&child, &parent, invalid, 1) == -RUM_EACCES);
+        invalid[0] = grant; invalid[0].rights = RUM_RIGHT_DUPLICATE;
+        assert(object_handles_prepare_spawn(&child, &parent, invalid, 1) == -RUM_EACCES);
+        invalid[0] = grant; invalid[0].type = kind == OBJECT_FILE ? OBJECT_PROCESS : OBJECT_FILE;
+        assert(object_handles_prepare_spawn(&child, &parent, invalid, 1) == -RUM_EINVAL);
+        invalid[0] = grant; invalid[0].flags = 2;
+        assert(object_handles_prepare_spawn(&child, &parent, invalid, 1) == -RUM_EINVAL);
+        invalid[0] = grant; invalid[0].reserved[1] = 1;
+        assert(object_handles_prepare_spawn(&child, &parent, invalid, 1) == -RUM_EINVAL);
+        invalid[0] = grant; invalid[0].handle ^= 0x20;
+        assert(object_handles_prepare_spawn(&child, &parent, invalid, 1) == -RUM_EBADF);
+        struct object_statistics after = object_stats();
+        assert(!memcmp(&before, &after, sizeof before) && !memcmp(&child, &zero, sizeof zero));
+        parent.entries[31].generation = OBJECT_HANDLE_GENERATION_MAX;
+        assert(!object_handles_prepare_spawn(&child, &parent, &grant, 1));
+        assert(child.entries[31].generation == OBJECT_HANDLE_GENERATION_MAX);
+        struct rum_object_request request = packet(RUM_OBJECT_QUERY, handle);
+        assert(!object_handle_request(&child, &request) && request.rights == RUM_RIGHT_QUERY && !request.flags);
+        fails(&child, packet(RUM_OBJECT_QUERY, private), -RUM_EBADF);
+        assert(!object_handles_destroy(&parent) && object_stats().total.objects == 1);
+        assert(!object_handles_destroy(&child)); empty();
+    }
+    struct object_handles parent = {0}, child = {0}, zero = {0}; struct sample samples[32] = {0};
+    struct rum_object_inheritance grants[32];
+    for (unsigned i = 0; i < 32; ++i) grants[i] = (struct rum_object_inheritance){
+        .handle = give(&parent, &samples[i], OBJECT_FILE, RUM_RIGHT_FILE, RUM_OBJECT_INHERIT),
+        .rights = RUM_RIGHT_READ, .flags = RUM_OBJECT_INHERIT };
+    for (unsigned i = 1; i < OBJECT_REFERENCE_LIMIT; ++i) assert(!object_acquire(&samples[31].object, OBJECT_OWNER));
+    struct object_statistics before = object_stats();
+    assert(object_handles_prepare_spawn(&child, &parent, grants, 32) == -RUM_EOVERFLOW);
+    struct object_statistics after = object_stats();
+    assert(!memcmp(&before, &after, sizeof before) && !memcmp(&child, &zero, sizeof zero));
+    for (unsigned i = 1; i < OBJECT_REFERENCE_LIMIT; ++i) assert(!object_release(&samples[31].object, OBJECT_OWNER));
+    assert(!object_handles_prepare_spawn(&child, &parent, grants, 32) && object_handles_count(&child) == 32);
+    assert(!object_handles_destroy(&child)); child = zero;
+    assert(!object_handles_prepare_spawn(&child, &parent, NULL, 0) && !object_handles_count(&child) && child.entries[0].generation);
+    assert(!object_handles_destroy(&parent)); empty();
+}
 static void cleanup_context(void)
 {
     struct object_handles table = {0};
@@ -172,7 +221,7 @@ static void cleanup_context(void)
 }
 int main(void)
 {
-    rights_and_packets(); identities_and_limits(); inheritance(); cleanup_context();
+    rights_and_packets(); identities_and_limits(); inheritance(); selected_inheritance(); cleanup_context();
     assert(destroyed);
     puts("PASS: typed handles, type/rights validation, generation retirement, capacity, inheritance and close rollback");
     return 0;

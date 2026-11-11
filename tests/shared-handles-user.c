@@ -1,4 +1,5 @@
 #include <rum/user.h>
+#include <string.h>
 
 #define PAGE 0x80800000u
 #define TEST_CALLS 0xffffffe0u
@@ -26,6 +27,131 @@ static rum_result_t raw_duplicate(struct rum_duplicate_request *request)
 static rum_result_t raw_spawn(struct rum_spawn_mapped_request *request)
 {
     return rum_syscall3(RUM_SYS_SPAWN_MAPPED, (rum_address_t)(uintptr_t)request, 0, 0);
+}
+static rum_object_handle_t resources[9];
+static struct rum_arguments *resource_args(const char *mode)
+{
+    struct rum_arguments *packet = args(mode);
+    static const char hex[] = "0123456789abcdef";
+    for (unsigned i = 0; i < 9; ++i) {
+        packet->offsets[packet->argc++] = packet->string_bytes;
+        for (unsigned j = 0; j < 8; ++j) packet->strings[packet->string_bytes++] = hex[(resources[i] >> (28 - 4 * j)) & 15];
+        packet->strings[packet->string_bytes++] = 0;
+    }
+    return packet;
+}
+static void resource_child(int argc, char **argv)
+{
+    check(argc == 11, 140);
+    for (unsigned i = 0; i < 9; ++i) {
+        uint32_t value = 0;
+        for (unsigned j = 0; j < 8; ++j) {
+            unsigned digit = (unsigned char)argv[i + 2][j]; digit = digit <= '9' ? digit - '0' : digit - 'a' + 10;
+            check(digit < 16, 141); value = value * 16 + digit;
+        }
+        check(!argv[i + 2][8], 142); resources[i] = value;
+    }
+    struct rum_object_information info;
+    if (argv[1][0] == 'n') {
+        for (unsigned i = 0; i < 9; ++i) check(rum_object_query(resources[i], 0, &info) == -RUM_EBADF, 143);
+        rum_object_handle_t fresh;
+        check(!rum_object_from_descriptor(1, RUM_OBJECT_CONSOLE_OUTPUT, RUM_RIGHT_QUERY, 0, &fresh), 144);
+        for (unsigned i = 0; i < 9; ++i) check(fresh != resources[i], 145);
+        return; /* Leave fresh for ordinary exit cleanup. */
+    }
+    for (unsigned i = 0; i < 7; ++i) check(!rum_object_query(resources[i], 0, &info) && !info.flags, 146);
+    check(rum_object_query(resources[7], 0, &info) == -RUM_EBADF &&
+          rum_object_query(resources[8], 0, &info) == -RUM_EBADF, 147);
+    char bytes[8]; uint64_t position;
+    check(rum_read(0, bytes, 1) == 1 && bytes[0] == 'a' && rum_object_read(resources[0], bytes, 1) == 1 && bytes[0] == 'b', 148);
+    check(!rum_seek(8, 0, RUM_SEEK_CUR, &position) && position == 2 && rum_write(8, "C", 1) == 1 &&
+          rum_object_write(resources[0], "x", 1) == -RUM_EACCES, 149);
+    rum_object_handle_t unused;
+    check(rum_object_duplicate(resources[0], 0, RUM_RIGHT_QUERY, 0, &unused) == -RUM_EACCES, 150);
+    struct rum_directory_entry entry = { .version = 1, .size = sizeof entry };
+    check(rum_object_readdir(resources[1], &entry) == 1, 151);
+    check(rum_write(1, "x\0y", 3) == 3 && rum_object_write(resources[4], "z", 1) == 1 &&
+          rum_object_read(resources[3], bytes, 4) == 4 && !memcmp(bytes, "x\0yz", 4), 152);
+    check(rum_object_isatty(resources[2]) == 1 && rum_object_write(resources[2], "grant child\n", 12) == 12 &&
+          rum_object_read(resources[5], bytes, 1) == -RUM_EACCES, 153);
+    struct rum_process_object_information process = { .version = 1, .size = sizeof process };
+    check(!rum_process_query(resources[6], &process) && rum_process_terminate(resources[6]) == -RUM_EACCES, 154);
+    (void)collect(rum_spawn("/MAP.ELF", resource_args("none")), RUM_PROCESS_EXITED);
+    if (argv[1][1] == 'f') __asm__ volatile("ud2");
+}
+static void selected_spawn(void)
+{
+    check(!rum_replace("/GRANT.BIN", "abcdef", 6) && rum_open("/GRANT.BIN", 3, 0) == 3 &&
+          rum_open("/", 1, RUM_OPEN_DIRECTORY) == 4, 160);
+    struct rum_pipe_request pipe = { .version = 1, .size = sizeof pipe };
+    check(!rum_pipe(&pipe), 161);
+    unsigned descriptors[] = {3, 4, 1, pipe.read_handle, pipe.write_handle, 0};
+    unsigned types[] = {RUM_OBJECT_FILE, RUM_OBJECT_DIRECTORY, RUM_OBJECT_CONSOLE_OUTPUT,
+        RUM_OBJECT_PIPE_READER, RUM_OBJECT_PIPE_WRITER, RUM_OBJECT_CONSOLE_INPUT, RUM_OBJECT_PROCESS};
+    unsigned rights[] = {RUM_RIGHT_QUERY | RUM_RIGHT_READ, RUM_RIGHT_DIRECTORY, RUM_RIGHT_OUTPUT,
+        RUM_RIGHT_INPUT, RUM_RIGHT_OUTPUT, RUM_RIGHT_INPUT, RUM_RIGHT_QUERY};
+    for (unsigned i = 0; i < 6; ++i) check(!rum_object_from_descriptor(descriptors[i], types[i],
+        i == 0 ? RUM_RIGHT_FILE : rights[i], RUM_OBJECT_INHERIT, &resources[i]), 162);
+    check(!rum_process_open((rum_pid_t)rum_getpid(), RUM_RIGHT_QUERY, RUM_PROCESS_OPEN_INHERIT, &resources[6]) &&
+          !rum_object_from_descriptor(3, RUM_OBJECT_FILE, RUM_RIGHT_QUERY, 0, &resources[7]) &&
+          !rum_object_from_descriptor(3, RUM_OBJECT_FILE, RUM_RIGHT_QUERY | RUM_RIGHT_READ, RUM_OBJECT_INHERIT, &resources[8]), 163);
+    struct rum_object_inheritance grants[7];
+    for (unsigned i = 0; i < 7; ++i) grants[i] = (struct rum_object_inheritance){ .handle = resources[i], .type = types[i], .rights = rights[i] };
+    struct rum_handle_mapping maps[] = {{3, 0, {0}}, {pipe.write_handle, 1, {0}}, {3, 8, {0}}};
+    struct rum_spawn_objects_request packet = { .streams = { RUM_SPAWN_OBJECTS_VERSION, sizeof packet,
+        (rum_address_t)(uintptr_t)"/MAP.ELF", (rum_address_t)(uintptr_t)resource_args("grant"),
+        (rum_address_t)(uintptr_t)maps, 3, RUM_SPAWN_NO_DEFAULT_STREAMS, 0 },
+        .objects = (rum_address_t)(uintptr_t)grants, .object_count = 7 };
+    rum_result_t calls = rum_syscall3(TEST_CALLS, 0, 0, 0);
+    for (unsigned i = 0; i < 6; ++i) {
+        packet.reserved[i] = 1; check(raw_spawn(&packet.streams) == -RUM_EINVAL, 164); packet.reserved[i] = 0;
+    }
+    packet.object_count = 33; check(raw_spawn(&packet.streams) == -RUM_EINVAL, 165); packet.object_count = 7;
+    packet.objects = PAGE + 12288 - 12; check(raw_spawn(&packet.streams) == -RUM_EFAULT, 166);
+    packet.objects = (rum_address_t)(uintptr_t)grants;
+    struct rum_object_inheritance saved = grants[1]; grants[1] = grants[0];
+    check(raw_spawn(&packet.streams) == -RUM_EINVAL, 167); grants[1] = saved;
+    grants[0].handle = resources[8]; grants[0].rights = RUM_RIGHT_WRITE;
+    check(raw_spawn(&packet.streams) == -RUM_EACCES, 168);
+    grants[0].handle = resources[7]; grants[0].rights = RUM_RIGHT_QUERY;
+    check(raw_spawn(&packet.streams) == -RUM_EACCES, 169);
+    grants[0].handle = resources[0]; grants[0].rights = rights[0]; grants[0].type = RUM_OBJECT_PROCESS;
+    check(raw_spawn(&packet.streams) == -RUM_EINVAL, 170); grants[0].type = RUM_OBJECT_FILE;
+    maps[2].target = 0; check(raw_spawn(&packet.streams) == -RUM_EINVAL, 171); maps[2].target = 8;
+    check(rum_duplicate(3, 3, RUM_DUP_CLOSPAWN) == 3 && raw_spawn(&packet.streams) == -RUM_EACCES &&
+          rum_duplicate(3, 3, 0) == 3 && rum_syscall3(TEST_CALLS, 0, 0, 0) == calls, 172);
+    packet.streams.path = (rum_address_t)(uintptr_t)"/MISSING.ELF";
+    check(raw_spawn(&packet.streams) == -RUM_ENOENT, 173);
+    packet.streams.path = (rum_address_t)(uintptr_t)"/GRANT.BIN";
+    check(raw_spawn(&packet.streams) == -RUM_ENOEXEC, 174); packet.streams.path = (rum_address_t)(uintptr_t)"/MAP.ELF";
+    for (unsigned i = 0; i < 3; ++i) {
+        check(!rum_seek(3, 0, 0, 0), 175);
+        if (!i) {
+            struct rum_spawn_objects_request *cross = (void *)(PAGE + 4096 - 28); *cross = packet;
+            (void)collect(raw_spawn(&cross->streams), RUM_PROCESS_EXITED);
+        } else {
+            struct rum_object_inheritance *cross = (void *)(PAGE + 4096 - 12);
+            memcpy(cross, grants, sizeof grants);
+            (void)collect(rum_spawn_with_objects("/MAP.ELF", resource_args(i == 2 ? "gfault" : "grant"),
+                maps, 3, RUM_SPAWN_NO_DEFAULT_STREAMS, cross, 7), i == 2 ? RUM_PROCESS_FAULTED : RUM_PROCESS_EXITED);
+        }
+    }
+    (void)collect(rum_spawn_with_objects("/MAP.ELF", resource_args("none"), 0, 0, 0, 0, 0), RUM_PROCESS_EXITED);
+    for (unsigned i = 0; i < 9; ++i) check(!rum_object_close(resources[i]), 176);
+    check(!rum_close(pipe.read_handle) && !rum_close(pipe.write_handle) && !rum_close(4), 177);
+    struct rum_object_inheritance full[32];
+    struct rum_arguments *all = args("all"); all->argc = 3; all->offsets[2] = all->string_bytes;
+    static const char hex[] = "0123456789abcdef";
+    for (unsigned i = 0; i < 32; ++i) {
+        rum_object_handle_t token;
+        check(!rum_object_from_descriptor(3, RUM_OBJECT_FILE, RUM_RIGHT_QUERY | RUM_RIGHT_READ, RUM_OBJECT_INHERIT, &token), 178);
+        full[i] = (struct rum_object_inheritance){ .handle = token, .type = RUM_OBJECT_FILE, .rights = RUM_RIGHT_QUERY | RUM_RIGHT_READ };
+        for (unsigned j = 0; j < 8; ++j) all->strings[all->string_bytes++] = hex[(token >> (28 - j * 4)) & 15];
+    }
+    all->strings[all->string_bytes++] = 0;
+    (void)collect(rum_spawn_with_objects("/MAP.ELF", all, NULL, 0, 0, full, 32), RUM_PROCESS_EXITED);
+    for (unsigned i = 0; i < 32; ++i) check(!rum_object_close(full[i].handle), 179);
+    check(!rum_close(3) && !rum_remove("/GRANT.BIN"), 180);
 }
 static struct rum_object_io_request io_packet(unsigned operation, rum_object_handle_t handle)
 {
@@ -152,6 +278,7 @@ static void invalid(rum_handle_t file)
 }
 static void parent(void)
 {
+    selected_spawn();
     typed_io();
     char buffer[8]; uint64_t offset;
     rum_result_t file = rum_open("/DATA.BIN", 3, 0), independent = rum_open("/DATA.BIN", 1, 0);
@@ -204,6 +331,21 @@ static void parent(void)
 }
 int main(int argc, char **argv)
 {
+    if (argc == 11) { resource_child(argc, argv); return 0; }
+    if (argc == 3 && argv[1][0] == 'a') {
+        for (unsigned i = 0; i < 32; ++i) {
+            uint32_t token = 0;
+            for (unsigned j = 0; j < 8; ++j) {
+                unsigned digit = (unsigned char)argv[2][i * 8 + j]; digit = digit <= '9' ? digit - '0' : digit - 'a' + 10;
+                check(digit < 16, 181); token = token * 16 + digit;
+            }
+            struct rum_object_information info;
+            check(!rum_object_query(token, RUM_OBJECT_FILE, &info) && info.rights == (RUM_RIGHT_QUERY | RUM_RIGHT_READ), 182);
+        }
+        rum_object_handle_t unchanged = 19;
+        check(!argv[2][256] && rum_object_from_descriptor(1, 0, RUM_RIGHT_QUERY, 0, &unchanged) == -RUM_EMFILE && unchanged == 19, 183);
+        return 0;
+    }
     check(argc == 2 || (argc == 3 && argv[1][0] == 't'), 1); char byte;
     if (argv[1][0] == 't') {
         rum_object_handle_t handle = 0;

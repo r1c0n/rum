@@ -384,16 +384,19 @@ static rum_result_t spawn_child(struct paging_space *space, uint32_t address)
 
 static rum_result_t spawn_mapped_child(struct paging_space *space, uint32_t address)
 {
-    uint32_t header[2];
-    if (!accessible(space, address, sizeof header, false) ||
-        !paging_copy_from_user(space, header, address, sizeof header)) return -RUM_EFAULT;
-    bool explicit_objects = header[0] == RUM_SPAWN_OBJECTS_VERSION;
-    uint32_t size = explicit_objects ? sizeof(struct rum_spawn_objects_request) : sizeof(struct rum_spawn_mapped_request);
-    if ((!explicit_objects && header[0] != RUM_SPAWN_MAPPED_VERSION) || header[1] != size) return -RUM_EINVAL;
+    /* Validate/copy the complete legacy packet first, preserving its EFAULT
+       precedence for truncated ranges. Version 2 then adds a bounded suffix. */
     struct rum_spawn_objects_request packet = {0};
-    if (!accessible(space, address, size, false) || !paging_copy_from_user(space, &packet, address, size)) return -RUM_EFAULT;
+    if (!accessible(space, address, sizeof packet.streams, false) ||
+        !paging_copy_from_user(space, &packet.streams, address, sizeof packet.streams)) return -RUM_EFAULT;
+    uint32_t version = packet.streams.version;
+    bool explicit_objects = version == RUM_SPAWN_OBJECTS_VERSION;
+    uint32_t size = explicit_objects ? sizeof(struct rum_spawn_objects_request) : sizeof(struct rum_spawn_mapped_request);
+    if ((!explicit_objects && version != RUM_SPAWN_MAPPED_VERSION) || packet.streams.size != size) return -RUM_EINVAL;
+    if (explicit_objects && (!accessible(space, address, size, false) ||
+        !paging_copy_from_user(space, &packet, address, size))) return -RUM_EFAULT;
     struct rum_spawn_mapped_request request = packet.streams;
-    if (request.version != header[0] || request.size != size || request.reserved ||
+    if (request.version != version || request.size != size || request.reserved ||
         (request.flags & ~(RUM_SPAWN_NO_DEFAULT_STREAMS | RUM_SPAWN_PIPELINE | RUM_SPAWN_JOB)) ||
         ((request.flags & RUM_SPAWN_JOB) && (request.flags & RUM_SPAWN_PIPELINE)) || request.mapping_count > RUM_SPAWN_MAPPING_LIMIT ||
         (!request.mapping_count && request.mappings)) return -RUM_EINVAL;

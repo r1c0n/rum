@@ -106,7 +106,16 @@ static rum_pid_t launch(const char *self, char mode, unsigned seed, rum_handle_t
     args.offsets[2] = (uint32_t)length + 3; args.strings[length + 3] = (char)('0' + seed);
     args.string_bytes = (uint32_t)length + 5;
     struct rum_handle_mapping map = { .source = control, .target = 3 };
-    rum_result_t pid = mode == 'c' ? rum_spawn_with_handles(self, &args, &map, 1, 0) : rum_spawn(self, &args);
+    rum_result_t pid;
+    if (mode == 'c') {
+        rum_object_handle_t own;
+        check(!rum_process_open((rum_pid_t)rum_getpid(), RUM_RIGHT_QUERY, RUM_PROCESS_OPEN_INHERIT, &own), 77);
+        args.argc = 4; args.offsets[3] = args.string_bytes;
+        check(snprintf(args.strings + args.string_bytes, 16, "%08x", own) == 8, 78); args.string_bytes += 9;
+        struct rum_object_inheritance grant = { .handle = own, .type = RUM_OBJECT_PROCESS, .rights = RUM_RIGHT_QUERY };
+        pid = rum_spawn_with_objects(self, &args, &map, 1, 0, &grant, 1);
+        check(!rum_object_close(own), 79);
+    } else pid = rum_spawn(self, &args);
     check(pid > 0, 51); return (rum_pid_t)pid;
 }
 static void collect(rum_pid_t pid, unsigned termination, unsigned vector)
@@ -125,10 +134,20 @@ int main(int argc, char **argv)
 {
     struct rum_object_information object;
     check(rum_object_query(RUM_OBJECT_INVALID_HANDLE, RUM_OBJECT_ANY, &object) == -RUM_EBADF, 66);
-    unsigned seed = argc == 3 ? (unsigned)(argv[2][0] - '0') : 0;
+    unsigned seed = argc >= 3 ? (unsigned)(argv[2][0] - '0') : 0;
     private_check(seed, true);
-    if (argc == 3) {
+    if (argc == 3 || argc == 4) {
         char mode = argv[1][0];
+        if (argc == 4) {
+            uint32_t token = 0;
+            for (unsigned i = 0; i < 8; ++i) {
+                unsigned digit = (unsigned char)argv[3][i]; digit = digit <= '9' ? digit - '0' : digit - 'a' + 10;
+                check(digit < 16, 81); token = token * 16 + digit;
+            }
+            struct rum_process_object_information info = { .version = 1, .size = sizeof info };
+            check(mode == 'c' && !argv[3][8] && !rum_process_query((rum_object_handle_t)token, &info) &&
+                  info.process_id != (rum_pid_t)rum_getpid() && rum_process_terminate((rum_object_handle_t)token) == -RUM_EACCES, 80);
+        }
         if (mode == 'p' || mode == 'e') pressure(mode == 'e');
         else for (unsigned round = 0; round < 4; ++round) file_work(seed, round, mode);
         return 0;

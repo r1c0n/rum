@@ -17,7 +17,10 @@ static rum_pid_t spawn(const char *mode, uint32_t value)
     args.offsets[2] = args.string_bytes;
     int bytes = snprintf(args.strings + args.string_bytes, 16, "%08x", value);
     check(bytes == 8, 1); args.string_bytes += 9;
-    rum_result_t pid = rum_spawn("/PROC.ELF", &args); check(pid > 0, 2); return (rum_pid_t)pid;
+    struct rum_object_inheritance grant = { .handle = value, .type = RUM_OBJECT_PROCESS, .rights = RUM_RIGHT_WAIT };
+    rum_result_t pid = !strcmp(mode, "wait") ?
+        rum_spawn_with_objects("/PROC.ELF", &args, NULL, 0, 0, &grant, 1) : rum_spawn("/PROC.ELF", &args);
+    check(pid > 0, 2); return (rum_pid_t)pid;
 }
 static uint32_t number(const char *text)
 {
@@ -121,7 +124,7 @@ static void blocked(void)
 {
     rum_pid_t target = spawn("spin", 0);
     rum_object_handle_t handle = open_process(target, RUM_RIGHT_PROCESS), inherited;
-    check(!rum_object_duplicate(handle, RUM_OBJECT_PROCESS, RUM_RIGHT_WAIT, RUM_OBJECT_INHERIT, &inherited), 50);
+    check(!rum_object_duplicate(handle, RUM_OBJECT_PROCESS, RUM_RIGHT_PROCESS, RUM_OBJECT_INHERIT, &inherited), 50);
     check(query(4, 0) == 1, 62);
     rum_pid_t observer = spawn("wait", inherited);
     check(!rum_object_close(inherited), 51); wait_operations(1);
