@@ -29,6 +29,7 @@ SUITES = {
     "runtime": "test-runtime",
     "executables": "test-executables",
     "sdk": "test-sdk",
+    "objects": "test-objects",
 }
 BOOT_ACTIONS = {"run", "run-kernel", "debug", "panic"}
 DISK_ACTIONS = BOOT_ACTIONS - {"panic"} | {"create-disk", "prepare-disk"}

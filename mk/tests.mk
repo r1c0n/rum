@@ -6,6 +6,16 @@ build/tests/object-test: tests/object-test.c kernel/object/object.c kernel/inclu
 test-objects-host: build/tests/object-test
 	./build/tests/object-test
 test-host test-build: build/tests/object-test
+.PHONY: test-objects
+test-objects: test-objects-host build/tests/objects.elf build/tests/objects.iso
+	python3 tests/lifecycle-qemu-test.py --qemu $(QEMU) --objects-only
+test-build test-lifecycle: build/tests/objects.elf build/tests/objects.iso
+TEST_DEPENDENCIES += build/tests/objects-kernel.d
+build/tests/objects.iso: build/tests/objects.elf $(TESTS_RULES)
+	@mkdir -p build/objects-isodir/boot/grub
+	cp $< build/objects-isodir/boot/rum.elf
+	printf 'set timeout=0\nmenuentry "rum object tests" {\n multiboot /boot/rum.elf\n boot\n}\n' > build/objects-isodir/boot/grub/grub.cfg
+	grub-mkrescue -o $@ build/objects-isodir
 .PHONY: test-sdk-host test-sdk
 test-sdk-host: sdk
 	python3 tests/sdk-package-test.py --cross-prefix $(CROSS_PREFIX)
@@ -281,6 +291,9 @@ test-shared-handles: test-shared-handles-host build/tests/shared-handles.elf bui
 FAULT_KERNELS := build/tests/fault-de.elf build/tests/fault-ud.elf build/tests/fault-gp.elf build/tests/fault-pf.elf
 FAULT_OBJECTS := $(FAULT_KERNELS:.elf=.o)
 FAULT_COMMON := build/tests/fs-backend.o $(filter-out build/kernel/core/init.o,$(OBJECTS)) build/tests/fault-trigger.o
+build/tests/objects.elf: build/tests/objects-kernel.o $(filter-out build/tests/fault-trigger.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
+	grub-file --is-x86-multiboot $@
 build/tests/vm-regions.elf: build/tests/vm-regions-kernel.o build/tests/vm-regions-image.o $(filter-out build/tests/fault-trigger.o build/arch/i386/interrupt.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@

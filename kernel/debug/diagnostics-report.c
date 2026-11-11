@@ -87,6 +87,13 @@ void diagnostics_render(const struct kernel_diagnostics *snapshot, diagnostics_w
     write("Handles: "); decimal(write, snapshot->handles.descriptors); write(" descriptors, ");
     decimal(write, snapshot->handles.descriptions); write(" open descriptions, ");
     decimal(write, snapshot->handles.aliases); write(" aliases\n");
+    write("Objects: "); decimal(write, snapshot->objects.total.objects); write(" allocated | ");
+    decimal(write, snapshot->objects.total.published); write(" published, ");
+    decimal(write, snapshot->objects.total.constructing); write(" constructing, ");
+    decimal(write, snapshot->objects.total.destroying); write(" destroying\n");
+    write("Object refs: "); decimal(write, snapshot->objects.total.references[OBJECT_OWNER]); write(" owners, ");
+    decimal(write, snapshot->objects.total.references[OBJECT_TABLE]); write(" table entries, ");
+    decimal(write, snapshot->objects.total.references[OBJECT_OPERATION]); write(" operations\n");
     write("Jobs: "); decimal(write, snapshot->jobs.jobs); write(" live, ");
     decimal(write, snapshot->jobs.running); write(" running, ");
     decimal(write, snapshot->jobs.completed); write(" completed, ");
