@@ -16,7 +16,7 @@ static rum_result_t executable_read(void *context, uint32_t offset, void *out, u
     return io.transferred <= bytes ? (rum_result_t)io.transferred : -RUM_EIO;
 }
 
-static rum_result_t start_process(const char *program, const struct rum_arguments *arguments,
+static rum_result_t start_prepared_process(const char *program, const struct rum_arguments *arguments,
                                   bool foreground, bool shell, struct process_handles *handles,
                                   struct object_handles *objects, task_id *child)
 {
@@ -70,6 +70,22 @@ static rum_result_t start_process(const char *program, const struct rum_argument
         foreground ? task_create_foreground_process(&process) : task_create_process(&process);
     if (!*child) { (void)paging_space_destroy(process.space); return -RUM_ENOMEM; }
     return 0;
+}
+
+static rum_result_t start_process(const char *program, const struct rum_arguments *arguments,
+                                  bool foreground, bool shell, struct process_handles *handles,
+                                  struct object_handles *objects, task_id *child)
+{
+    if (objects) return start_prepared_process(program, arguments, foreground, shell, handles, objects, child);
+    if (!child || !program || !elf_arguments_valid(arguments)) return -RUM_EINVAL;
+    *child = 0;
+    if (!process_filesystem_context()) return -RUM_EBUSY;
+    struct object_handles inherited = {0};
+    const struct object_handles *source = task_current_objects();
+    rum_result_t result = source ? object_handles_inherit(&inherited, source, RUM_RIGHT_MASK) : 0;
+    if (!result) result = start_prepared_process(program, arguments, foreground, shell, handles, &inherited, child);
+    rum_result_t closed = object_handles_destroy(&inherited);
+    return result ? result : closed;
 }
 
 rum_result_t process_start_foreground(const char *path, const struct rum_arguments *arguments, task_id *child)

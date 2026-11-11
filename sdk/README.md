@@ -43,6 +43,10 @@ keeps completion status after normal child collection without keeping its stack
 or address space. Typed waits observe; the parent still collects with `rum_wait`.
 See [process handles](../docs/process-objects.md) for authority and lifetime rules.
 
+All userspace programs share a system-write ceiling: `/RUM` can be read and
+executed, but updates require [kernel recovery maintenance](../docs/system-authority.md).
+Use `/APPS`, `/HOME` or ordinary root files for writable application storage.
+
 `rum_object_from_descriptor` exports a typed alias of an existing open stream.
 Use `rum_object_read`, `rum_object_write`, `rum_object_seek`,
 `rum_object_readdir`, `rum_object_flush` and `rum_object_isatty` with explicit

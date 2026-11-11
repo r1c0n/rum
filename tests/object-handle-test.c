@@ -25,9 +25,9 @@ static rum_result_t destroy(struct kernel_object *object)
     return 0;
 }
 static const struct object_type types[] = {
-    {OBJECT_INVALID, destroy}, {OBJECT_FILE, destroy}, {OBJECT_DIRECTORY, destroy},
-    {OBJECT_PIPE_READER, destroy}, {OBJECT_PIPE_WRITER, destroy},
-    {OBJECT_CONSOLE_INPUT, destroy}, {OBJECT_CONSOLE_OUTPUT, destroy}, {OBJECT_PROCESS, destroy}
+    {OBJECT_INVALID, destroy, NULL}, {OBJECT_FILE, destroy, NULL}, {OBJECT_DIRECTORY, destroy, NULL},
+    {OBJECT_PIPE_READER, destroy, NULL}, {OBJECT_PIPE_WRITER, destroy, NULL},
+    {OBJECT_CONSOLE_INPUT, destroy, NULL}, {OBJECT_CONSOLE_OUTPUT, destroy, NULL}, {OBJECT_PROCESS, destroy, NULL}
 };
 static struct rum_object_request packet(unsigned action, rum_object_handle_t handle)
 {

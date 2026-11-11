@@ -26,6 +26,11 @@ permission restoration and cancellation cleanup. These
 cases also run in the normal smoke/lifecycle groups of the full suite.
 Run `help` for the full option list.
 
+The `authority` group covers normalized and identity-based system-file protection,
+retained writable grants, explicit shell roles, raw-I/O denial, fail-closed index
+bounds and trusted recovery installation. It includes host, ring-3 and real FAT
+checks on both boot paths, with exact post-reboot bytes and ownership baselines.
+
 Use `--suite objects` / `-Suite objects` for the
 [common object ownership](objects.md) host and guest checks. They cover reference
 limits and transfer, failed construction, retryable final close, retained file

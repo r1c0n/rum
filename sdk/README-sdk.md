@@ -10,6 +10,10 @@ required kernel features and SHA-256 hashes of the packaged files. SDK format
 version 1 is separate from the OS release number and syscall ABI version 1.
 `rum_spawn_with_objects` uses version 2 of the mapped-spawn packet; kernels
 that only support its original version reject that packet with `EINVAL`.
+`system-authority-v1` protects `/RUM` from userspace changes. Keep writable
+application binaries/data in `/APPS`, `/HOME` or another ordinary directory;
+system updates use the kernel recovery installer. Names and inherited writable
+handles do not grant system-maintenance authority.
 Git builds record the commit and whether sources were modified. A clean release
 snapshot preserves that identity without Git; other source archives may report
 unknown provenance. File hashes still describe the exact packaged contents.
@@ -56,12 +60,13 @@ from `lib/librum.a` with `lib/crt0.o` and target `libgcc`.
 
 ## Install and run
 
-Stop the VM and back up its disk. Copy the stripped ELF to `/RUM/EXAMPLE.ELF`
-or an application directory using host FAT tools, then boot rum and run:
+Run `setup` in the guest to create `/APPS`, then stop the VM and back up its
+disk. Copy the stripped ELF to `/APPS/EXAMPLE.ELF` using host FAT tools, then
+boot rum and run:
 
 ```text
-run /RUM/EXAMPLE.ELF
-run /RUM/EXAMPLE.ELF /SDKTEST.BIN
+run /APPS/EXAMPLE.ELF
+run /APPS/EXAMPLE.ELF /SDKTEST.BIN
 ```
 
 The first command checks heap growth, recoverable failure and timing. The

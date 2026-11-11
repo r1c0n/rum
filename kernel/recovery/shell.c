@@ -104,9 +104,11 @@ static void execute(void)
               "  cat <name>   Read a file.\n"
               "  write <name> [text]  Create or replace a file.\n"
               "  rm <name>    Remove a file.\n"
+              "  mkdir <path> Create a directory.\n"
+              "  install <source> </RUM/path>  Install a system file.\n"
               "  mem          Show memory usage.\n"
               "  diag         Show task and memory diagnostics.\n"
-              "  run <program> [args]  Run an embedded user program.\n"
+              "  run <program> [args]  Run a disk program.\n"
               "  snake        Play ASCII Snake.\n");
     } else if (equal(command, "clear")) {
         if (*arguments) {
@@ -177,6 +179,18 @@ static void execute(void)
         while (arguments[size]) ++size;
         enum fs_error error = fs_replace(NULL, name, arguments, size);
         if (error != FS_OK) file_error("write", error);
+    } else if (equal(command, "mkdir")) {
+        char *name = take_word(&arguments);
+        if (!*name || *arguments) { print("Usage: mkdir <path>\n"); return; }
+        enum fs_error error = fs_mkdir(NULL, name);
+        if (error != FS_OK) file_error("mkdir", error);
+    } else if (equal(command, "install")) {
+        char *source = take_word(&arguments), *destination = take_word(&arguments);
+        if (!*source || !*destination || *arguments) { print("Usage: install <source> </RUM/path>\n"); return; }
+        uint64_t copied = 0;
+        enum fs_error error = fs_install_system_file(source, destination, &copied);
+        if (error != FS_OK) file_error("install", error);
+        else { print("Installed "); number((size_t)copied); print(" bytes.\n"); }
     } else if (equal(command, "mem")) {
         if (*arguments) { print("Usage: mem\n"); return; }
         struct heap_statistics heap = heap_stats();

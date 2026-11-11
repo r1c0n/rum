@@ -1,7 +1,9 @@
 # Files and paths
 
-FAT16 is mounted at `/`. `/RUM` is an ordinary directory containing installed
-programs. rum has no RAM filesystem, `/disk` mount or compatibility alias.
+FAT16 is mounted at `/`. `/RUM` contains installed system programs and is
+read-only to userspace. Use `/HOME`, `/APPS` or other ordinary directories for
+writable files. See [system authority and recovery installation](system-authority.md).
+rum has no RAM filesystem, `/disk` mount or compatibility alias.
 
 ```text
 mkdir /DOCS

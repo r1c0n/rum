@@ -22,6 +22,10 @@ struct object_type {
        Unpublished construction also uses this callback. Type storage is static.
        Do not recycle this header until the callback has returned. */
     rum_result_t (*destroy)(struct kernel_object *);
+    /* Optional current-context ceiling, checked for operations and new grants.
+       Pure, bounded and allocation-free; may run with IF clear. It must not
+       acquire references, touch user memory or perform filesystem/backend I/O. */
+    rum_result_t (*authorize)(struct kernel_object *, uint32_t rights);
 };
 struct kernel_object {
     const struct object_type *type;

@@ -10,7 +10,7 @@ static rum_result_t destroy(struct kernel_object *object)
     *reference = (struct process_reference){0};
     return 0;
 }
-static const struct object_type type = { OBJECT_PROCESS, destroy };
+static const struct object_type type = { OBJECT_PROCESS, destroy, NULL };
 struct process_reference *process_reference_from_object(struct kernel_object *object)
 {
     return object && object->type == &type ? (void *)object : NULL;

@@ -48,7 +48,8 @@ User code links with `-nostdlib`, rum's startup and syscall wrappers, and target
 4. Run `make user` and fix any compiler or ELF-validator error.
 5. Debug with the ELF under `build/user/debug/`, not the stripped asset.
 6. Prepare a new system disk to install it, or back up an existing disk and
-   copy the stripped ELF into `/RUM` with host FAT tools while the VM is stopped.
+   copy the stripped ELF into `/APPS` with host FAT tools while the VM is stopped.
+   System updates to `/RUM` use [trusted recovery installation](system-authority.md).
 
 System commands use `system/commands/name.c` and `SYSTEM_COMMANDS`. SDK examples
 use `sdk/examples/name.c` and `SDK_EXAMPLES`. The shell has its own entry at

@@ -8,7 +8,7 @@ MM_SOURCES := kernel/mm/pmm.c kernel/mm/heap.c kernel/mm/vm.c
 OBJECT_SOURCES := kernel/object/object.c kernel/object/handles.c
 PROCESS_SOURCES := kernel/process/task.c kernel/process/session.c kernel/process/jobs.c kernel/process/syscall.c kernel/process/handles.c \
                    kernel/process/elf.c kernel/process/process.c kernel/process/reference.c
-FS_SOURCES := kernel/fs/path.c kernel/fs/fs-types.c \
+FS_SOURCES := kernel/fs/path.c kernel/fs/fs-types.c kernel/fs/protection.c kernel/fs/install.c \
               kernel/fs/fs.c kernel/fs/fat16.c kernel/fs/fat16-write.c
 IO_SOURCES := kernel/io/block.c kernel/io/pipe.c kernel/io/terminal.c
 HAL_SOURCES := hal/pc/pic.c hal/pc/irq.c hal/pc/pit.c

@@ -285,24 +285,27 @@ grants, legacy compatibility, publication, rollback and the revocation contract.
 
 ### 6. Trusted operations and system-file protection
 
-- [ ] Define a small single-user authority policy for trusted boot/recovery,
+- [x] Define a small single-user authority policy for trusted boot/recovery,
   shell sessions and ordinary applications. Do not infer trust from a program's
   filename, directory or request flags alone.
-- [ ] Enforce process/device management rights and trusted changes to `/RUM`
+- [x] Enforce process/device management rights and trusted changes to `/RUM`
   at kernel service boundaries, including direct syscall use.
-- [ ] Cover create, write, truncate, remove and rename operations, checking
+- [x] Cover create, write, truncate, remove and rename operations, checking
   both source and destination identities where required. Normalization, case
   aliases and retained writable handles must not bypass protection.
-- [ ] Define how system programs are installed or updated and how ordinary
+- [x] Define how system programs are installed or updated and how ordinary
   applications can use writable data/application directories without acquiring
   system-management authority.
-- [ ] Preserve a controlled recovery path and document the limits of this
+- [x] Preserve a controlled recovery path and document the limits of this
   single-user policy. Offline host edits remain outside the guest trust model.
 
 Attempt protected operations through equivalent paths, aliases, inherited
 handles and renamed files/directories. Denied requests must acquire no extra
 rights, modify no protected data and leak no references. Exercise the supported
 trusted maintenance workflow as well as denial paths.
+
+See [system authority and recovery installation](system-authority.md) for the
+role policy, identity protection, writable workspaces, bounds and repair limits.
 
 ### 7. Diagnostics, integration and release
 

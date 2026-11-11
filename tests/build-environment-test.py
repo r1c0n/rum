@@ -63,7 +63,8 @@ with tempfile.TemporaryDirectory(prefix="rum-build-env-") as temporary:
                  "elf-loader-isodir/boot/grub/grub.cfg", "large-loader-isodir/boot/rum.elf",
                  "objects-isodir/boot/grub/grub.cfg", "objects-isodir/boot/rum.elf",
                  "object-handles-isodir/boot/grub/grub.cfg", "object-handles-isodir/boot/rum.elf",
-                 "process-objects-isodir/boot/grub/grub.cfg", "process-objects-isodir/boot/rum.elf"]
+                 "process-objects-isodir/boot/grub/grub.cfg", "process-objects-isodir/boot/rum.elf",
+                 "system-authority-isodir/boot/grub/grub.cfg", "system-authority-isodir/boot/rum.elf"]
     preserved = ["personal.raw", "tests/my-disk.img", "nested/vm.vmdk", "vm-images-custom/rum.iso",
                  "vm-images-custom/rum-data.vdi", "release-check/release/rum.elf",
                  "test-artifacts/guest.elf", "notes.txt", "disks/keep.elf"]
