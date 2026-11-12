@@ -34,7 +34,6 @@ def main():
     parser.add_argument("--qemu", default="qemu-system-i386")
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--workers", type=int, choices=range(1, 5), default=4)
-    parser.add_argument("--output", type=Path, help="new directory under build/ for release evidence")
     parser.add_argument("--compat-sdk", type=Path, default=ROOT / "build/releases/0.7.0-110836a/rum-sdk.zip",
                         help="preserved clean 0.7.0 SDK archive for backwards-compatibility validation")
     args = parser.parse_args()
@@ -49,13 +48,8 @@ def main():
     if capture("git", "status", "--porcelain"):
         parser.error("Commit source changes before checking the exact release snapshot.")
     commit = capture("git", "rev-parse", "HEAD")
-    output = args.output or ROOT / "build/release-check" / (commit[:12] + "-" + time.strftime("%Y%m%d-%H%M%S"))
-    output = output.resolve()
-    if not output.is_relative_to((ROOT / "build").resolve()) or output == (ROOT / "build").resolve():
-        parser.error("release output must be a new directory inside build/")
-    if output.exists():
-        parser.error("release output already exists; choose a new directory")
-    output.mkdir(parents=True)
+    output = ROOT / "build/release-check" / (commit[:12] + "-" + time.strftime("%Y%m%d-%H%M%S"))
+    output.mkdir(parents=True, exist_ok=True)
     report = {"commit": commit, "passed": False,
               "compat_sdk_sha256": hashlib.sha256(args.compat_sdk.read_bytes()).hexdigest()}
     started = time.monotonic()

@@ -6,39 +6,6 @@ containing `/RUM` programs. The separate `rum-vm-images.zip` contains a fresh
 installed disk in raw, VMDK and VDI formats, the ISO and a VMware preset. Never
 publish a disk that has been used for personal files or testing.
 
-## Generate a release with GitHub Actions
-
-Merge the intended version into `master`, then push an annotated tag matching
-the version in `assets/disk/readme.txt`, for example `v0.8.0`. The
-**Generate release** workflow also accepts an existing tag through **Actions →
-Generate release → Run workflow**. The tag must contain this workflow and its
-scripts and must be reachable from `master`.
-
-The workflow builds or restores the cached `i686-elf` toolchain, downloads and
-checks the preserved 0.7.0 SDK, runs the complete clean gate with four guest
-workers, and boots the exact packaged ISO with native Linux and Windows QEMU.
-Only after both hosts pass does it create a GitHub release draft with generated
-notes and all six downloads:
-
-- `rum.iso` — standalone boot and recovery ISO.
-- `rum.zip` — that ISO, README and documentation.
-- `rum-sdk.zip` — application SDK.
-- `rum-vm-images.zip` — fresh installed disks and VM setup files.
-- `SHA256SUMS.txt` — SHA-256 checksums for the four downloads above.
-- `validation.json` — source commit, workflow run, suite counts, host results and hashes.
-
-Review the draft notes and click **Publish release** when ready. Rerunning the
-workflow can replace generated assets on that draft; it refuses to change a
-published release. Downloads are also saved as the `release-downloads` workflow
-artifact, and validation logs are retained separately. Failed validation creates
-no release. No personal access token is needed: read-only permissions are used
-for building/testing, and only the final draft job has `contents: write`.
-
-The first uncached toolchain build takes longer; later runs reuse the compiler
-cache. `--output build/release-ci` gives the clean checker a stable CI evidence
-directory. It must be a new directory beneath `build/` and never replaces an
-existing release or disk.
-
 ## Validate a committed build
 
 In Ubuntu/WSL, from a clean committed checkout:

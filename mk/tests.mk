@@ -1038,7 +1038,6 @@ test-host: build/tests/block-test build/tests/console-test build/tests/memory-te
 	./build/tests/frame-test
 	./build/tests/abi-test
 	python3 tests/test-runner-test.py
-	python3 tests/release-assets-test.py
 	python3 tests/build-environment-test.py
 	python3 tests/disk-tools-test.py
 
