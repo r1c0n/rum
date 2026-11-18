@@ -23,27 +23,27 @@ and predictable process-wide cleanup. Preserve existing single-threaded programs
 
 ### 1. Thread ownership, synchronization and ABI contracts
 
-- [ ] Audit the process/thread split. Specify owners for identity, address
+- [x] Audit the process/thread split. Specify owners for identity, address
   space, handles, working directory, console membership, termination results,
   registers, wait registrations and syscall buffers.
-- [ ] Define independent system and per-process thread limits. Account for
+- [x] Define independent system and per-process thread limits. Account for
   user/kernel stacks, guards, TLS and metadata within supported memory budgets;
   update stack-slot assumptions that currently track processes.
-- [ ] Publish a lock order and context table covering scheduler updates,
+- [x] Publish a lock order and context table covering scheduler updates,
   process tables, VM, handles, open descriptions, filesystems and drivers.
   Specify where blocking, allocation, callbacks and final destruction are legal.
-- [ ] Define thread creation, return/exit, join and process-exit semantics,
+- [x] Define thread creation, return/exit, join and process-exit semantics,
   including the initial thread, faults and process-wide cancellation. Avoid
   unsafe asynchronous termination of individual threads.
-- [ ] Design fixed-width, versioned thread and synchronization packets,
+- [x] Design fixed-width, versioned thread and synchronization packets,
   object types and rights. IDs identify threads; handles authorize operations.
   Extend diagnostics without resizing existing 0.8 resource-count packets.
-- [ ] Record memory-ordering and compatibility guarantees. Preserve syscall
+- [x] Record memory-ordering and compatibility guarantees. Preserve syscall
   numbers, process waits, standard streams and documented released SDK behavior.
 
-Validation: assign every shared field an owner and lock. Check packet layouts,
-checked arithmetic, stack-slot capacity and worst-case memory use at 16 MiB.
-Resolve teardown and lock dependencies before enabling user threads.
+The [threading contract](threading.md) records ownership, lock order, packet
+layouts and teardown. Host checks cover slot bounds and ABI layout. The 16 MiB
+paging fixture checks the frame budget and all kernel stack guards.
 
 ### 2. Kernel waits, events, mutexes and semaphores
 

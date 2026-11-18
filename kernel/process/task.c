@@ -71,6 +71,8 @@ struct task {
 };
 static struct process_state processes[TASK_SLOTS];
 static struct task tasks[TASK_SLOTS];
+_Static_assert(sizeof(struct task) <= 256 && sizeof(struct process_state) <= RUM_PAGE_SIZE,
+               "recheck the minimum-RAM thread and process record budget");
 static struct task *current;
 static task_id next_id = 3;
 static rum_pid_t next_process_id = 1;

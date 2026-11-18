@@ -50,7 +50,7 @@ must be able to switch stacks while changing CR3. They remain supervisor-only.
 | Worker/process records | 16, plus permanent boot and idle records | Task registry |
 | Private user memory | 16 MiB per address space, including user stack | Paging |
 | Kernel stack | 16 KiB plus a 4 KiB guard | Stack-slot paging |
-| Kernel stack slots | 18: idle, 16 workers, emergency | Layout assertions |
+| Kernel stack slots | 34 reserved, covering idle, 32 execution slots and emergency | Layout assertions |
 | User stack | 64 KiB plus a 4 KiB guard | User mapping API |
 | Arguments | 32 including `argv[0]` | Public ABI and launch validation |
 | Argument strings | 4096 bytes including NULs | Public ABI and launch validation |
@@ -58,6 +58,8 @@ must be able to switch stacks while changing CR3. They remain supervisor-only.
 | Process handles | 32 including standard streams | Per-process table; files use slots 3–31 |
 
 Physical RAM or kernel metadata can run out before a policy limit is reached.
+The [threading contract](threading.md) gives the per-thread stack and TLS
+reservations and their cost on the minimum supported machine.
 
 The [user virtual-memory contract](virtual-memory.md) defines dynamic
 region ownership, packet validation and quotas. Paging snapshots also report
