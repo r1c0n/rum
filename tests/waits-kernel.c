@@ -3,16 +3,20 @@
 #include "../kernel/process/task.c"
 #include "../hal/pc/pit.c"
 #include <rum/heap.h>
+#include <rum/io.h>
 #include <rum/multiboot.h>
 #include <rum/pic.h>
 #include <rum/serial.h>
 #include <rum/terminal.h>
 
 void kernel_main(uint32_t magic, uint32_t information);
+void sync_checks(void);
 extern const char __kernel_start[], __kernel_end[];
 static struct task_event event, done, unrelated;
 static volatile unsigned completed, idle_ticks, tie;
 static volatile task_id tie_target;
+static struct task_wait_queue pending_queue;
+static volatile task_id pending_target;
 static uint32_t free_baseline;
 struct plan { struct task_event *event; uint32_t duration; bool timed; enum task_wait_result expected; };
 
@@ -23,6 +27,11 @@ static void check(bool condition, const char *name)
 }
 static void fixture_tick(void)
 {
+    if (pending_target) {
+        check(task_queue_grant_locked(&pending_queue, false) == pending_target,
+              "pending IRQ observes fully registered FIFO waiter");
+        pending_target = 0;
+    }
     task_id owner = task_current_id();
     uint32_t before = switches, pages = pmm_stats().free_pages;
     bool due = false;
@@ -153,5 +162,19 @@ void kernel_main(uint32_t magic, uint32_t information)
     check(task_wait_for(&event, event.sequence, 1) == TASK_WAIT_INVALID && task_sleep(1) == -RUM_EBUSY,
           "IF-clear callers cannot attach deadlines");
     cpu_interrupt_restore(saved);
+    pic_mask(0); /* The sync fixture orders grants and deadline ticks explicitly. */
+    sync_checks(); ledger();
+    /* Force an IRQ to be pending between predicate check and queue insertion.
+       Idle enables interrupts only after the blocked state is published. */
+    saved = cpu_interrupt_save();
+    check(!pending_queue.head, "queue starts empty");
+    pending_target = task_current_id();
+    pic_unmask(0);
+    outb(0x20, 0x0a); /* Master PIC interrupt request register. */
+    unsigned spins = 0;
+    while (!(inb(0x20) & 1) && ++spins < 1000000u) {}
+    check(spins < 1000000u && task_queue_wait_locked(&pending_queue, false, 0) == TASK_WAIT_EVENT &&
+          !pending_target && !pending_queue.head && !pending_queue.tail, "no lost IRQ at registration");
+    cpu_interrupt_restore(saved); ledger();
     serial_writestring("rum_waits_ok\n"); cpu_halt();
 }
