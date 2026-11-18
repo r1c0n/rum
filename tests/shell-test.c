@@ -11,7 +11,7 @@
 #include <rum/terminal.h>
 #include <rum/snake.h>
 #include <rum/power.h>
-#include "../apps/snake/model.h"
+#include "../system/apps/snake/model.h"
 #include "page-backend.h"
 
 static char output[16384];

@@ -19,7 +19,7 @@ the kernel build can see the private tree.
 Architecture-specific CPU setup, interrupt entry, and paging remain under
 `arch/i386/`. PC interrupt routing, PIC, and PIT code live in `hal/pc/`.
 Device implementations live under the top-level `drivers/` tree. Userspace
-programs live under `system/`, `apps/`, and `sdk/examples/`, with their shared
+programs live under `system/` and `sdk/examples/`, with their shared
 runtime in `sdk/lib/`.
 
 New code should live with the subsystem that owns its state. Hardware drivers

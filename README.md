@@ -128,7 +128,7 @@ refused. [Release checks](docs/development/release.md) cover packaging and recov
 | `arch/`, `boot/`, `hal/` | CPU setup, boot and platform code |
 | `kernel/`, `drivers/` | Core services, memory, processes, FAT16 and hardware drivers |
 | `sdk/` | Public ABI, runtime and example applications |
-| `system/`, `apps/` | Shell, command programs and applications |
+| `system/` | Shell, command programs and applications |
 | `assets/disk/` | Initial disk documentation |
 | `tests/`, `scripts/` | Regression tests, toolchain, build and packaging tools |
 | `mk/` | Configuration, kernel, userspace, test and workflow Make rules |

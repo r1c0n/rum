@@ -23,7 +23,10 @@ sdk: sdk-runtime
 	python3 scripts/package-sdk.py
 USER_DEBUG := $(addprefix build/user/debug/,$(addsuffix .elf,$(USER_PROGRAMS)))
 USER_ASSETS := $(addprefix build/user/system/,$(addsuffix .elf,$(USER_PROGRAMS)))
-USER_DEPENDENCIES := $(USER_RUNTIME:.o=.d) $(addprefix build/user/objects/,$(addsuffix .d,$(USER_PROGRAMS)))
+APP_DEBUG := $(addprefix build/user/debug/,$(addsuffix .elf,$(APP_PROGRAMS)))
+APP_ENTRIES := $(patsubst %,build/user/objects/apps/%/main.o,$(APP_PROGRAMS))
+USER_ENTRIES := $(patsubst %,build/user/objects/%.o,$(filter-out $(APP_PROGRAMS),$(USER_PROGRAMS))) $(APP_ENTRIES)
+USER_DEPENDENCIES := $(USER_RUNTIME:.o=.d) $(USER_ENTRIES:.o=.d)
 # Userspace has its own startup, include path, flags, objects and linker script.
 $(USER_INCLUDE_STAMP): $(ABI_HEADERS) $(USER_RULES)
 	@mkdir -p $(@D)/rum/abi
@@ -79,14 +82,14 @@ USER_DEPENDENCIES += build/user/objects/command-stream.d build/user/objects/page
 USER_DEPENDENCIES += build/user/objects/file-copy.d
 USER_DEPENDENCIES += build/user/objects/shell-editor.d build/user/objects/shell-complete.d
 
-build/user/objects/snake-model.o: apps/snake/model.c apps/snake/model.h $(USER_RULES)
+build/user/objects/apps/snake/model.o: system/apps/snake/model.c system/apps/snake/model.h $(USER_RULES)
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
 
-build/user/debug/snake.elf: build/user/objects/snake-model.o
-USER_DEPENDENCIES += build/user/objects/snake-model.d
+build/user/debug/snake.elf: build/user/objects/apps/snake/model.o
+USER_DEPENDENCIES += build/user/objects/apps/snake/model.d
 
-$(addprefix build/user/objects/,$(addsuffix .o,$(APP_PROGRAMS))): build/user/objects/%.o: apps/%/main.c $(USER_INCLUDE_STAMP) $(USER_RULES)
+$(APP_ENTRIES): build/user/objects/apps/%/main.o: system/apps/%/main.c $(USER_INCLUDE_STAMP) $(USER_RULES)
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) $(USER_CFLAGS) -MMD -MP -c $< -o $@
 
@@ -102,11 +105,18 @@ build/sdk/lib/syscall-entry.o: sdk/lib/syscall.s $(USER_INCLUDE_STAMP) $(USER_RU
 	@mkdir -p $(@D)
 	$(CC) $(USER_CPPFLAGS) -x assembler-with-cpp -MMD -MP -c $< -o $@
 
-build/user/debug/%.elf: build/user/objects/%.o $(USER_RUNTIME) build/sdk/linker/user.ld
+define link_user_program
 	@mkdir -p $(@D)
 	$(CC) -T build/sdk/linker/user.ld -nostdlib -static -no-pie \
 	    -Wl,--build-id=none -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 \
 	    -Wl,-Map,$(@:.elf=.map) $(filter %.o,$^) -lgcc -o $@
+endef
+
+$(APP_DEBUG): build/user/debug/%.elf: build/user/objects/apps/%/main.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(link_user_program)
+
+build/user/debug/%.elf: build/user/objects/%.o $(USER_RUNTIME) build/sdk/linker/user.ld
+	$(link_user_program)
 
 build/tools/check-user-elf: sdk/tools/check-user-elf.c $(ABI_HEADERS) sdk/include/rum/elf-image.h
 	@mkdir -p $(@D)

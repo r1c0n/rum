@@ -412,8 +412,8 @@ test-authority-host: build/tests/authority-test build/tests/shell-test build/tes
 	./build/tests/shell-test
 	./build/tests/block-test
 test-host test-build: build/tests/authority-test
-SNAKE_HOST_SOURCES := kernel/recovery/snake.c apps/snake/model.c
-SNAKE_HOST_HEADERS := kernel/include/rum/snake.h apps/snake/model.h kernel/include/rum/timer.h
+SNAKE_HOST_SOURCES := kernel/recovery/snake.c system/apps/snake/model.c
+SNAKE_HOST_HEADERS := kernel/include/rum/snake.h system/apps/snake/model.h kernel/include/rum/timer.h
 ABI_CASES := args limits hello
 ABI_KERNELS := $(addprefix build/tests/abi-,$(addsuffix .elf,$(ABI_CASES)))
 ABI_OBJECTS := $(ABI_KERNELS:.elf=.o)
@@ -489,7 +489,7 @@ build/tests/pipe-test: tests/pipe-test.c kernel/io/pipe.c kernel/core/memory.c t
 test-host: build/tests/pipe-test
 
 .SECONDARY: $(FAULT_OBJECTS) $(PAGING_OBJECTS) $(CPU_OBJECTS) $(PROCESS_FAULT_OBJECTS) build/tests/paging-spaces.o build/tests/user-memory.o
-.SECONDARY: $(USER_DEBUG) $(USER_RUNTIME) $(addprefix build/user/objects/,$(addsuffix .o,$(USER_PROGRAMS)))
+.SECONDARY: $(USER_DEBUG) $(USER_RUNTIME) $(USER_ENTRIES)
 .SECONDARY: $(ABI_OBJECTS) $(ABI_IMAGES) build/tests/elf-loader-image.o
 # Legacy diagnostics exercise the kernel recovery console deliberately.
 build/tests/recovery.iso: build/rum.elf $(TESTS_RULES)
@@ -927,7 +927,7 @@ build/tests/storage-test: tests/storage-test.c tests/storage-checks.c tests/stor
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -fno-builtin -Itests/include -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 
-build/tests/snake-test: tests/snake-test.c apps/snake/model.c apps/snake/model.h
+build/tests/snake-test: tests/snake-test.c system/apps/snake/model.c system/apps/snake/model.h
 	@mkdir -p $(@D)
 	$(HOST_CC) -std=gnu11 -O2 -Wall -Wextra -Werror -Ikernel/include -Isdk/include $(sort $(filter %.c,$^)) -o $@
 

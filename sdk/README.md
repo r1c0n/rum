@@ -20,7 +20,7 @@ maps go to `build/user/debug/`; stripped assets go to `build/user/system/` and
 are listed in `build/user/programs.txt`. `prepare-disk` installs that manifest
 into `/RUM` on a newly created FAT16 image. Existing disks are not changed by a build.
 
-Add an application at `apps/name/main.c` and add its name to `APP_PROGRAMS`.
+Add an application at `system/apps/name/main.c` and add its name to `APP_PROGRAMS`.
 For a small API example, add `sdk/examples/name.c` and list it in `SDK_EXAMPLES`.
 See [User ABI and ELF programs](../docs/sdk/user-abi.md) for complete build, launch,
 memory, argument, and error contracts.
@@ -70,7 +70,7 @@ operations use versioned fixed-width packets and public identifiers.
 The [terminal API](../docs/sdk/terminal.md) adds capability queries, colored text
 cells, cursor control and bounded timed character input. Interactive state
 requires foreground ownership and is restored automatically on exit or fault.
-`apps/snake/` demonstrates a complete game using public syscalls and an
+`system/apps/snake/` demonstrates a complete game using public syscalls and an
 application-local model, without kernel headers or device access.
 
 `rum_vm_allocate`, `rum_vm_protect` and `rum_vm_release` provide private,

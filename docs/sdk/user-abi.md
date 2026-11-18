@@ -45,7 +45,7 @@ User code links with `-nostdlib`, rum's startup and syscall wrappers, and target
 
 ## Adding a program
 
-1. Add `apps/name/main.c` with a normal
+1. Add `system/apps/name/main.c` with a normal
    `int main(int argc, char **argv)` entry.
 2. Include `<rum/user.h>` for the supported runtime calls.
 3. Add `name` to `APP_PROGRAMS` in `mk/user.mk`.

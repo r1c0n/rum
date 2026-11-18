@@ -15,7 +15,7 @@ To add a command:
 5. Run `make test-user` and the relevant shell tests.
 
 The command builds as a separate ELF and is installed in `/RUM` on the persistent FAT16 root disk. Adding a command does not require adding parser cases to the shell.
-Applications belong under `apps/`, and small SDK demonstrations belong under
+Applications belong under `system/apps/`, and small SDK demonstrations belong under
 `sdk/examples/`.
 
 The kernel recovery command loop lives separately in `kernel/recovery/shell.c`.

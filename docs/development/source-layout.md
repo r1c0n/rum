@@ -25,7 +25,7 @@ the kernel is built as `rum.elf` and packaged in `rum.iso`; an explicitly prepar
 | `sdk/` | Public headers, application runtime, linker script, examples, and validator |
 | `system/` | Userspace shell and standalone command programs |
 | `system/lib/` | Private command helpers for file copying, buffered input, safe text display and paging |
-| `apps/` | Application entry points |
+| `system/apps/` | Application entry points |
 | `assets/disk/` | Initial system-disk documentation |
 | `tests/` | Host checks, test backends, guest fixtures, and QEMU automation |
 | `scripts/` | Toolchain, disk-image, build, packaging, and test orchestration |
@@ -47,7 +47,7 @@ The HAL directory groups the current PC implementations. It does not introduce
 a new dynamic driver model, hardware target, or interrupt ABI. Existing private
 interfaces remain in use, including the legacy PIC routing contract.
 
-The userspace Snake entry is `apps/snake/main.c`, with its own loop, rendering,
+The userspace Snake entry is `system/apps/snake/main.c`, with its own loop, rendering,
 score I/O and public terminal calls. Its pure `model.c`/`model.h` rules are
 compiled independently into the user ELF and kernel recovery controller.
 No private kernel headers or cross-privilege game state are shared.
@@ -95,7 +95,7 @@ Add new implementation files to their owning group.
 | --- | --- | --- |
 | `system/shell/main.c` | Built-in shell entry | `shell.elf` |
 | `system/commands/name.c` | `SYSTEM_COMMANDS` | `name.elf` |
-| `apps/name/main.c` | `APP_PROGRAMS` | `name.elf` |
+| `system/apps/name/main.c` | `APP_PROGRAMS` | `name.elf` |
 | `sdk/examples/name.c` | `SDK_EXAMPLES` | `name.elf` |
 
 Names must be unique across these groups. Source discovery does not implicitly

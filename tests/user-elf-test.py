@@ -34,7 +34,7 @@ assert "kernel_main" not in symbols
 assert not subprocess.check_output([args.cross_prefix + "nm", "--undefined-only", str(debug)])
 
 programs = ["shell"]
-programs.extend(path.parent.name for path in sorted((root / "apps").glob("*/main.c")))
+programs.extend(path.parent.name for path in sorted((root / "system/apps").glob("*/main.c")))
 for directory in (root / "system/commands", root / "sdk/examples"):
     programs.extend(path.stem for path in sorted(directory.glob("*.c")))
 assert len(programs) == len(set(programs)), "duplicate userspace program names"

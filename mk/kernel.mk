@@ -12,7 +12,7 @@ FS_SOURCES := kernel/fs/path.c kernel/fs/fs-types.c kernel/fs/protection.c kerne
               kernel/fs/fs.c kernel/fs/fat16.c kernel/fs/fat16-write.c
 IO_SOURCES := kernel/io/block.c kernel/io/pipe.c kernel/io/terminal.c
 HAL_SOURCES := hal/pc/pic.c hal/pc/irq.c hal/pc/pit.c hal/pc/power.c
-RECOVERY_SOURCES := kernel/recovery/shell.c kernel/recovery/snake.c apps/snake/model.c
+RECOVERY_SOURCES := kernel/recovery/shell.c kernel/recovery/snake.c system/apps/snake/model.c
 DEBUG_SOURCES := kernel/debug/diagnostics.c kernel/debug/diagnostics-report.c
 ARCH_SOURCES := arch/i386/cpu.c arch/i386/gdt.c arch/i386/interrupt.c \
                 arch/i386/exceptions.c \

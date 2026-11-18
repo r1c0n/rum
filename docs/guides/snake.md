@@ -57,11 +57,11 @@ or repair a copy rather than repeatedly trying writes.
 
 ## Contributor notes
 
-`apps/snake/model.c` contains deterministic game rules without display, heap,
+`system/apps/snake/model.c` contains deterministic game rules without display, heap,
 filesystem or kernel dependencies. The body uses a fixed-capacity coordinate ring.
 Food selection starts from a seeded pseudo-random cell and scans for free space.
 
-`apps/snake/main.c` owns the normal game loop, controls, frame buffer, score I/O
+`system/apps/snake/main.c` owns the normal game loop, controls, frame buffer, score I/O
 and rendering. It compiles with the separate user toolchain and SDK headers.
 Timed character events drive movement; file operations use filesystem syscalls.
 No game logic runs in an IRQ handler or through a kernel game syscall.
