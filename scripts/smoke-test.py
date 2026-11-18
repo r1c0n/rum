@@ -1126,7 +1126,7 @@ def main():
     artifacts = project / "build/test-artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
     if args.paging_only:
-        boot_test(args.qemu, project, "paging-ok-64", artifacts, paging="ok", ram=64)
+        boot_test(args.qemu, project, "paging-ok-16", artifacts, paging="ok", ram=16)
         return
     if args.filesystem_only:
         for ram in TEST_RAM_SIZES:

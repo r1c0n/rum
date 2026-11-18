@@ -157,6 +157,15 @@ static void kernel_stack_checks(struct paging_space *first, struct paging_space 
     check(baseline - pmm_stats().free_pages ==
           1 + RUM_KERNEL_STACK_SLOTS * (RUM_KERNEL_STACK_SIZE / PAGE_SIZE),
           "all kernel stacks share one page table");
+    /* Charge unmapped future user stacks/TLS and one directory + stack table
+       per process to the real frame allocator without enabling sibling maps. */
+    uint32_t remaining = pmm_stats().free_pages;
+    uint32_t user_budget = RUM_SYSTEM_THREAD_LIMIT *
+        ((RUM_USER_STACK_SIZE + RUM_THREAD_TLS_SIZE) / PAGE_SIZE) + 2 * RUM_PROCESS_LIMIT;
+    check(remaining >= user_budget, "thread frame budget fits after boot");
+    uint32_t held = consume_until(remaining - user_budget);
+    check(pmm_stats().free_pages == remaining - user_budget, "reserve user thread frame budget");
+    release_pages(held);
     for (uint32_t slot = 0; slot < RUM_KERNEL_STACK_SLOTS; ++slot)
         check(paging_kernel_stack_release(slot), "release every reserved stack");
     check(pmm_stats().free_pages == baseline, "full stack window returns every frame");
