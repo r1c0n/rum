@@ -17,7 +17,7 @@ struct process_handle {
     fs_reference reference;
     uint64_t offset;
     unsigned access;
-    bool append;
+    bool append, cursor_busy;
     enum process_handle_kind kind;
     rum_result_t pending_error;
     uint32_t descriptors;
@@ -54,6 +54,9 @@ rum_result_t process_handle_close(struct process_handles *, rum_handle_t);
 rum_result_t process_handles_pipe(struct process_handles *, rum_handle_t *reader, rum_handle_t *writer);
 rum_result_t process_handle_seek(struct process_handle *, uint64_t displacement, unsigned whence, uint64_t *position);
 rum_result_t process_handle_read(struct process_handle *, void *, size_t);
+/* Syscalls transfer a bounded prefix, validating the full logical request at
+   the same cursor position used for I/O. */
+rum_result_t process_handle_transfer(struct process_handle *, void *, size_t chunk, size_t requested, bool write);
 rum_result_t process_handle_write(struct process_handle *, const void *, size_t);
 rum_result_t process_handle_readdir(struct process_handle *, struct fs_entry *);
 rum_result_t process_handle_flush(struct process_handle *);

@@ -136,8 +136,7 @@ static rum_result_t transfer_handle(struct paging_space *space, struct process_h
         if (!task_switch_release()) cpu_halt();
         return (rum_result_t)chunk;
     }
-    if (!handle->pipe && !(write && handle->append) && bytes > UINT64_MAX - handle->offset) return -RUM_EOVERFLOW;
-    rum_result_t result = write ? process_handle_write(handle, buffer, chunk) : process_handle_read(handle, buffer, chunk);
+    rum_result_t result = process_handle_transfer(handle, buffer, chunk, bytes, write);
     if (!write && result > 0 && !paging_copy_to_user(space, address, buffer, (size_t)result)) cpu_halt();
     return result;
 }

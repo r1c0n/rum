@@ -32,7 +32,7 @@ static struct object_handle_entry *lookup(struct object_handles *table, rum_obje
 {
     if (!table || !(handle & OBJECT_HANDLE_TAG)) return NULL;
     struct object_handle_entry *entry = &table->entries[handle & 31u];
-    return entry->object && handle == token(entry, handle & 31u) ? entry : NULL;
+    return (entry->object || entry->closing) && handle == token(entry, handle & 31u) ? entry : NULL;
 }
 static rum_result_t validate(struct object_handle_entry *entry, uint32_t type, uint32_t required)
 {
@@ -47,7 +47,8 @@ static rum_result_t validate(struct object_handle_entry *entry, uint32_t type, u
 static int available(const struct object_handles *table)
 {
     for (unsigned i = 0; i < RUM_OBJECT_HANDLE_LIMIT; ++i)
-        if (!table->entries[i].object && table->entries[i].generation < OBJECT_HANDLE_GENERATION_MAX) return (int)i;
+        if (!table->entries[i].object && !table->entries[i].closing &&
+            table->entries[i].generation < OBJECT_HANDLE_GENERATION_MAX) return (int)i;
     return -1;
 }
 static void install(struct object_handles *table, unsigned slot, struct kernel_object *object,
@@ -89,13 +90,13 @@ rum_result_t object_handle_acquire(struct object_handles *table, rum_object_hand
     if (!result) *output = entry->object;
     cpu_interrupt_restore(saved); return result;
 }
-static rum_result_t close_entry(struct object_handle_entry *entry)
+static rum_result_t close_entry(struct object_handle_entry *entry, struct kernel_object *object)
 {
-    struct kernel_object *object = entry->object;
     /* Caller drops its update scope before a destructor may run. */
     rum_result_t result = object_release(object, OBJECT_TABLE);
     uint32_t saved = cpu_interrupt_save();
-    if (!result) { entry->object = NULL; entry->rights = entry->flags = 0; }
+    if (result) entry->object = object;
+    else entry->rights = entry->flags = 0;
     entry->closing = false;
     cpu_interrupt_restore(saved); return result;
 }
@@ -134,9 +135,11 @@ rum_result_t object_handle_request(struct object_handles *table, struct rum_obje
     } else if (!result && request->operation == RUM_OBJECT_QUERY) {
         request->type = entry->object->type->kind; request->rights = entry->rights; request->flags = entry->flags;
     } else if (!result) {
+        struct kernel_object *object = entry->object;
+        entry->object = NULL;
         entry->closing = true;
         cpu_interrupt_restore(saved);
-        return close_entry(entry);
+        return close_entry(entry, object);
     }
     cpu_interrupt_restore(saved); return result;
 }
@@ -155,8 +158,9 @@ rum_result_t object_handles_inherit(struct object_handles *destination, const st
     rum_result_t result = 0;
     for (; acquired < RUM_OBJECT_HANDLE_LIMIT; ++acquired) {
         const struct object_handle_entry *entry = &source->entries[acquired];
-        if (!entry->object || !(entry->flags & RUM_OBJECT_INHERIT)) continue;
+        if (!(entry->flags & RUM_OBJECT_INHERIT)) continue;
         if (entry->closing) { result = -RUM_EBUSY; break; }
+        if (!entry->object) continue;
         if (entry->object->type->authorize) {
             result = entry->object->type->authorize(entry->object, entry->rights & ceiling);
             if (result) break;
