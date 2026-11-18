@@ -83,8 +83,9 @@ static void exercise(const char *mode, bool session, bool oom, bool copy)
     if (copy) {
         do { check(task_yield() && task_query(parent, &info) && info.state != TASK_EXITED, "run parent into WAIT"); }
         while (info.state != TASK_BLOCKED);
-        check(paging_user_protect(process.space, PAGE, 1, 0) &&
-              test_file_put("finish.CHD", "ready", 5), "inject failed result copy after wait registration");
+        check(!paging_user_protect(process.space, PAGE, 1, 0) &&
+              !paging_user_release(process.space, PAGE, 1) &&
+              test_file_put("finish.CHD", "ready", 5), "sleeping wait pins its result mapping");
     }
     check(task_wait_process(parent, &info), "parent completion");
     if (info.exit_status) { serial_writestring("user status: "); number((uint32_t)info.exit_status); serial_writestring("\n"); }

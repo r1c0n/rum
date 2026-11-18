@@ -417,6 +417,8 @@ rum_result_t process_handles_prepare_spawn(struct process_handles *destination, 
 rum_result_t process_handles_destroy(struct process_handles *table)
 {
     if (!table) return -RUM_EINVAL;
+    for (unsigned i = 0; i < RUM_ABI_HANDLE_LIMIT; ++i)
+        if (table->slots[i].closing) return -RUM_EBUSY;
     for (unsigned i = 0; i < RUM_ABI_HANDLE_LIMIT; ++i) if (process_handle_get(table, i)) {
         rum_result_t error = process_handle_close(table, i);
         if (error) return error;

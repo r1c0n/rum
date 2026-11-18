@@ -4,7 +4,8 @@
 #include <stdbool.h>
 #include <rum/abi/memory.h>
 
-enum vm_region_owner { VM_REGION_LOADER, VM_REGION_STACK, VM_REGION_DYNAMIC };
+enum vm_region_owner { VM_REGION_LOADER, VM_REGION_STACK, VM_REGION_DYNAMIC, VM_REGION_TLS };
+bool vm_thread_range(uint32_t address, uint32_t bytes, enum vm_region_owner owner);
 struct vm_region {
     uint32_t address, bytes, protection;
     enum vm_region_owner owner;

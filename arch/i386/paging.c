@@ -6,6 +6,7 @@
 #include <rum/paging.h>
 #include <rum/process_limits.h>
 #include <rum/vm.h>
+#include <rum/task.h>
 
 #define PRESENT 1u
 #define USER 4u
@@ -78,8 +79,10 @@ static bool user_page_range(uint32_t virtual, uint32_t pages)
 {
     if (!pages || virtual % PAGE_SIZE) return false;
     uint64_t end = (uint64_t)virtual + (uint64_t)pages * PAGE_SIZE;
-    return (virtual >= RUM_USER_BASE && end <= RUM_USER_PROGRAM_END) ||
-           (virtual >= RUM_USER_STACK_BASE && end <= RUM_USER_STACK_TOP);
+    if (virtual >= RUM_USER_BASE && end <= RUM_USER_PROGRAM_END) return true;
+    if (virtual < RUM_USER_STACK_WINDOW_BASE || end > RUM_USER_END) return false;
+    return vm_thread_range(virtual, pages * PAGE_SIZE, VM_REGION_STACK) ||
+           vm_thread_range(virtual, pages * PAGE_SIZE, VM_REGION_TLS);
 }
 
 static bool private_table_valid(const struct paging_space *space, uint32_t index)
@@ -596,8 +599,10 @@ static bool allocate_user_pages(struct paging_space *space, uint32_t virtual,
 bool paging_user_allocate(struct paging_space *space, uint32_t virtual,
                           uint32_t pages, uint32_t flags)
 {
-    return allocate_user_pages(space, virtual, pages, flags,
-        virtual >= RUM_USER_STACK_BASE ? VM_REGION_STACK : VM_REGION_LOADER);
+    enum vm_region_owner owner = VM_REGION_LOADER;
+    if (virtual >= RUM_USER_STACK_WINDOW_BASE)
+        owner = vm_thread_range(virtual, PAGE_SIZE, VM_REGION_TLS) ? VM_REGION_TLS : VM_REGION_STACK;
+    return allocate_user_pages(space, virtual, pages, flags, owner);
 }
 
 static bool append_region(struct vm_registry *registry, struct vm_region region)
@@ -643,7 +648,7 @@ bool paging_user_protect(struct paging_space *space, uint32_t virtual,
 {
     if (!user_page_range(virtual, pages) || flags & ~PAGING_WRITABLE) return false;
     uint32_t saved = cpu_interrupt_save();
-    bool success = known_space(space) && space != &kernel_space;
+    bool success = known_space(space) && space != &kernel_space && !space->buffer_users;
     for (uint32_t i = 0; success && i < pages; ++i)
         if (!user_entry(space, virtual + i * PAGE_SIZE)) success = false;
     struct vm_registry next;
@@ -665,7 +670,7 @@ bool paging_user_release(struct paging_space *space, uint32_t virtual, uint32_t 
 {
     if (!user_page_range(virtual, pages)) return false;
     uint32_t saved = cpu_interrupt_save();
-    bool success = known_space(space) && space != &kernel_space;
+    bool success = known_space(space) && space != &kernel_space && !space->buffer_users;
     for (uint32_t i = 0; success && i < pages; ++i)
         if (!user_entry(space, virtual + i * PAGE_SIZE)) success = false;
     struct vm_registry next;
@@ -723,8 +728,7 @@ rum_result_t paging_region_release(struct paging_space *space, const struct rum_
         struct vm_region region;
         result = vm_prepare_release(request, space->registry.regions, space->registry.count, &region);
         if (!result && space->buffer_users) result = -RUM_EBUSY;
-        if (!result && user_stack && user_stack >= region.address &&
-            user_stack <= region.address + region.bytes) result = -RUM_EACCES;
+        if (!result && task_stack_in_region(space, user_stack, region.address, region.bytes)) result = -RUM_EACCES;
         if (!result && !paging_user_release(space, region.address, region.bytes / PAGE_SIZE))
             result = -RUM_EINVAL;
     }
@@ -743,8 +747,8 @@ rum_result_t paging_region_protect(struct paging_space *space, const struct rum_
         if (!result && space->buffer_users) result = -RUM_EBUSY;
         /* A read-only active stack cannot service an ordinary user call/return.
            Keep it writable, including an empty stack's upper boundary. */
-        if (!result && !(region.protection & RUM_VM_WRITE) && user_stack &&
-            user_stack >= region.address && user_stack <= region.address + region.bytes) result = -RUM_EACCES;
+        if (!result && !(region.protection & RUM_VM_WRITE) &&
+            task_stack_in_region(space, user_stack, region.address, region.bytes)) result = -RUM_EACCES;
         if (!result && !paging_user_protect(space, region.address, region.bytes / PAGE_SIZE,
                 region.protection & RUM_VM_WRITE ? PAGING_WRITABLE : 0)) result = -RUM_EINVAL;
     }

@@ -35,7 +35,7 @@ static bool accessible(struct paging_space *space, uint32_t address, uint32_t by
 static rum_result_t memory_region(struct paging_space *space, uint32_t address, uint32_t operation,
                                   uint32_t user_stack)
 {
-    /* One user thread currently owns each space. Keep the packet snapshot,
+    /* Keep the packet snapshot,
        mapping transaction and output publication inside one non-switching
        scope. No filesystem callbacks, waits or temporary heap allocations. */
     if (fs_operation_active() || block_request_active() || !task_switch_hold()) return -RUM_EBUSY;
@@ -93,8 +93,8 @@ static rum_result_t stream_read(struct paging_space *space, uint32_t address, ui
 {
     char buffer[CONSOLE_CHUNK];
     for (;;) {
-        task_cancel_current_if_requested();
-        if (!task_current_owns_console()) return -RUM_EACCES;
+        if (task_current_cancelled()) return -RUM_EINTR;
+        if (!task_current_owns_console() || !terminal_input_owned(task_current_id())) return -RUM_EACCES;
         struct task_event *event = task_shell_input_event();
         if (!event) event = keyboard_input_event();
         uint32_t observed = task_event_sequence(event), count = 0;
@@ -121,7 +121,14 @@ static rum_result_t transfer_handle(struct paging_space *space, struct process_h
     /* Validate the entire request, even though this call copies one chunk. */
     if (!accessible(space, address, bytes, !write)) return -RUM_EFAULT;
     if (!process_filesystem_context()) return -RUM_EBUSY;
-    if (handle->kind == HANDLE_INPUT) return stream_read(space, address, bytes < CONSOLE_CHUNK ? bytes : CONSOLE_CHUNK);
+    if (handle->kind == HANDLE_INPUT) {
+        task_id thread = task_current_id();
+        rum_result_t result = terminal_input_begin(thread, task_current_member_id());
+        if (result) return result;
+        result = stream_read(space, address, bytes < CONSOLE_CHUNK ? bytes : CONSOLE_CHUNK);
+        terminal_input_end(thread);
+        return result;
+    }
     uint32_t limit = handle->kind == HANDLE_OUTPUT ? CONSOLE_CHUNK : FILE_CHUNK;
     uint32_t chunk = bytes < limit ? bytes : limit;
     char buffer[FILE_CHUNK];
@@ -299,12 +306,12 @@ static rum_result_t working_directory(struct paging_space *space, uint32_t addre
 {
     if (!capacity) return -RUM_ERANGE;
     if (!accessible(space, address, capacity, true)) return -RUM_EFAULT;
-    const struct fs_context *cwd = task_current_filesystem();
-    if (!cwd) return -RUM_EIO;
+    char path[FS_PATH_CAPACITY];
+    if (!task_working_directory(task_current_id(), path, sizeof path)) return -RUM_EIO;
     size_t bytes = 1;
-    while (bytes < FS_PATH_CAPACITY && cwd->path[bytes - 1]) ++bytes;
+    while (bytes < FS_PATH_CAPACITY && path[bytes - 1]) ++bytes;
     if (bytes > capacity) return -RUM_ERANGE;
-    if (!paging_copy_to_user(space, address, cwd->path, bytes)) return -RUM_EFAULT;
+    if (!paging_copy_to_user(space, address, path, bytes)) return -RUM_EFAULT;
     return (rum_result_t)bytes;
 }
 
@@ -450,14 +457,17 @@ static rum_result_t wait_child(struct paging_space *space, uint32_t address)
     if (output.version != RUM_PROCESS_ABI_VERSION || output.size != sizeof output || output.reserved)
         return -RUM_EINVAL;
     struct task_information child;
-    rum_result_t result = task_wait_child(request.process_id, request.flags & RUM_WAIT_NOHANG, &child);
+    rum_result_t result = task_claim_child(request.process_id, request.flags & RUM_WAIT_NOHANG, &child);
     if (result != 1) return result;
     output = (struct rum_process_result){ .version = RUM_PROCESS_ABI_VERSION, .size = sizeof output,
         .process_id = child.process_id, .termination = child.termination, .status = child.exit_status,
         .fault_vector = child.termination == TASK_TERMINATION_FAULT ? child.fault.vector : 0 };
     if (!accessible(space, request.result, sizeof output, true) ||
-        !paging_copy_to_user(space, request.result, &output, sizeof output)) return -RUM_EFAULT;
-    if (!task_collect_child(child.id)) cpu_halt();
+        !paging_copy_to_user(space, request.result, &output, sizeof output)) {
+        task_unclaim_child(child.id);
+        return -RUM_EFAULT;
+    }
+    if (!task_collect_child(child.id)) { task_unclaim_child(child.id); return -RUM_EBUSY; }
     return 1;
 }
 
@@ -665,10 +675,13 @@ static rum_result_t terminal_control(struct paging_space *space, uint32_t addres
         if (!paging_copy_to_user(space, request.data, &caps, sizeof caps)) cpu_halt();
     } else if (op == RUM_TERM_BEGIN) {
         struct process_handles *handles = task_current_handles();
+        uint32_t saved = cpu_interrupt_save();
         struct process_handle *in = process_handle_get(handles, RUM_STDIN), *out = process_handle_get(handles, RUM_STDOUT);
-        if (!task_current_owns_console() || !in || !out || in->kind != HANDLE_INPUT || out->kind != HANDLE_OUTPUT)
-            return -RUM_EACCES;
-        result = request.flags & RUM_TERM_INLINE ? terminal_session_begin_inline(id) : terminal_session_begin(id);
+        bool console = task_current_owns_console() && in && out && in->kind == HANDLE_INPUT && out->kind == HANDLE_OUTPUT;
+        cpu_interrupt_restore(saved);
+        if (!console) return -RUM_EACCES;
+        result = request.flags & RUM_TERM_INLINE ? terminal_session_begin_inline(id, task_current_member_id()) :
+            terminal_session_begin(id, task_current_member_id());
     } else {
         if (!terminal_session_owned(id)) return -RUM_EACCES;
         if (op == RUM_TERM_END) result = terminal_session_end(id);

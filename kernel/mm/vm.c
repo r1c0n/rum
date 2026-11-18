@@ -24,6 +24,23 @@ static bool overlaps(const struct vm_region *a, const struct vm_region *b)
     return a->address < b->address + b->bytes && b->address < a->address + a->bytes;
 }
 
+bool vm_thread_range(uint32_t address, uint32_t bytes, enum vm_region_owner owner)
+{
+    if (!bytes || address % RUM_PAGE_SIZE || bytes % RUM_PAGE_SIZE ||
+        (owner != VM_REGION_STACK && owner != VM_REGION_TLS)) return false;
+    for (unsigned i = 0; i < RUM_PROCESS_THREAD_LIMIT; ++i) {
+        uint32_t top;
+        if (!thread_stack_top(i, &top)) return false;
+        uint32_t base = top - RUM_USER_STACK_SIZE;
+        if (owner == VM_REGION_TLS) {
+            top = base - RUM_PAGE_SIZE;
+            base = top - RUM_THREAD_TLS_SIZE;
+        }
+        if (memory_range_contains(base, top, address, bytes)) return true;
+    }
+    return false;
+}
+
 static bool regions_valid(const struct vm_region *regions, uint32_t count)
 {
     if (count > RUM_VM_REGION_LIMIT || (count && !regions)) return false;
@@ -36,10 +53,8 @@ static bool regions_valid(const struct vm_region *regions, uint32_t count)
             if (!program_range(region->address, region->bytes)) return false;
             break;
         case VM_REGION_STACK:
-            if (!region->bytes || region->address % RUM_PAGE_SIZE || region->bytes % RUM_PAGE_SIZE ||
-                !memory_range_contains(RUM_USER_STACK_BASE, RUM_USER_STACK_TOP,
-                                       region->address, region->bytes))
-                return false;
+        case VM_REGION_TLS:
+            if (!vm_thread_range(region->address, region->bytes, region->owner)) return false;
             break;
         default: return false;
         }
@@ -96,7 +111,7 @@ static rum_result_t owned_region(uint32_t address, uint32_t bytes,
     /* Accept stack geometry only to report an ownership denial, never to
        return it as a mutable dynamic region. Check bounds before overlap math. */
     if (!program_range(address, bytes) &&
-        !memory_range_contains(RUM_USER_STACK_BASE, RUM_USER_STACK_TOP, address, bytes))
+        !vm_thread_range(address, bytes, VM_REGION_STACK) && !vm_thread_range(address, bytes, VM_REGION_TLS))
         return -RUM_EINVAL;
     struct vm_region candidate = {address, bytes, 0, VM_REGION_DYNAMIC};
     for (uint32_t i = 0; i < count; ++i) {

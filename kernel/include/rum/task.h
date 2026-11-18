@@ -55,6 +55,7 @@ struct task_information {
 /* A trusted kernel producer supplies a completely mapped address space and
    initial user frame. Ownership transfers only when publication succeeds. */
 struct task_process {
+    struct fs_context *initial_directory; /* Optional pin, moved only on publication. */
     struct paging_space *space;
     struct exception_user_frame user_frame;
     char name[RUM_PROCESS_NAME_CAPACITY];
@@ -101,6 +102,8 @@ rum_result_t task_session_control(unsigned action, const char *path);
 /* Called only after a syscall has released temporary buffers/child resources. */
 void task_exit_shell_if_requested(void);
 task_id task_current_id(void);
+task_id task_current_member_id(void);
+bool task_stack_in_region(const struct paging_space *, uint32_t caller_sp, uint32_t address, uint32_t bytes);
 bool task_current_is_process(void);
 /* One mapping lease per in-flight syscall/thread; survives blocking and is
    released by termination if the syscall never returns. Begin requires IF. */
@@ -130,6 +133,7 @@ uint32_t task_process_list(struct rum_process_entry *, uint32_t capacity, uint32
    wakes only a shell currently owning the console, never unrelated waiters. */
 struct task_event *task_shell_input_event(void);
 void task_notify_shell_input(void);
+void task_notify_console_loss(task_id member);
 bool task_shell_has_completion(void);
 /* Nestable, thread-owned nonblocking scopes. A successful hold must be released
    by the same thread. No yield, wait, exit, or user return is legal inside one.
@@ -176,6 +180,8 @@ bool task_wait_process(task_id id, struct task_information *information);
    PID zero selects any direct child. Copy output before task_collect_child. */
 rum_result_t task_wait_child(rum_pid_t id, bool nohang, struct task_information *);
 bool task_collect_child(task_id id);
+rum_result_t task_claim_child(rum_pid_t id, bool nohang, struct task_information *);
+void task_unclaim_child(task_id id);
 bool task_reap_process(task_id id);
 uint32_t task_reap(void); /* Foreground; only exited, inactive resources. */
 

@@ -229,6 +229,8 @@ rum_result_t object_handles_prepare_spawn(struct object_handles *destination, co
 rum_result_t object_handles_destroy(struct object_handles *table)
 {
     if (!table) return -RUM_EINVAL;
+    for (unsigned i = 0; i < RUM_OBJECT_HANDLE_LIMIT; ++i)
+        if (table->entries[i].closing) return -RUM_EBUSY;
     rum_result_t result = 0;
     for (unsigned i = 0; i < RUM_OBJECT_HANDLE_LIMIT; ++i) if (table->entries[i].object) {
         struct rum_object_request request = { .version = RUM_OBJECT_ABI_VERSION, .size = sizeof request,

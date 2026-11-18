@@ -19,6 +19,7 @@ void keyboard_discard_input(void) { ++discarded; }
 struct task_event *keyboard_input_event(void) { return &input; }
 void task_event_signal(struct task_event *event) { ++event->sequence; }
 void task_notify_shell_input(void) {}
+void task_notify_console_loss(task_id member) { assert(member != input_owner); }
 void serial_putchar(char c) { (void)c; }
 void serial_writestring(const char *s) { (void)s; }
 int main(void)
@@ -27,13 +28,13 @@ int main(void)
     assert(mapped != MAP_FAILED);
     terminal_initialize(); terminal_writestring("rum shell");
     struct terminal_snapshot baseline; terminal_capture(&baseline);
-    in_irq = true; assert(terminal_session_begin(1) == -RUM_EBUSY); in_irq = false;
-    handle_test_flags = 0; assert(terminal_session_begin(1) == -RUM_EBUSY); handle_test_flags = 0x200u;
-    assert(terminal_session_begin(2) == -RUM_EACCES && !terminal_session_owner());
+    in_irq = true; assert(terminal_session_begin(1, 1) == -RUM_EBUSY); in_irq = false;
+    handle_test_flags = 0; assert(terminal_session_begin(1, 1) == -RUM_EBUSY); handle_test_flags = 0x200u;
+    assert(terminal_session_begin(2, 2) == -RUM_EACCES && !terminal_session_owner());
     for (unsigned iteration = 0; iteration < 64; ++iteration) {
-        assert(!terminal_session_begin(1) && terminal_session_owned(1) && !terminal_session_owned(2));
+        assert(!terminal_session_begin(1, 1) && terminal_session_owned(1) && !terminal_session_owned(2));
         assert(terminal_session_output(1) && !terminal_session_output(2));
-        assert(terminal_session_begin(1) == -RUM_EBUSY);
+        assert(terminal_session_begin(1, 1) == -RUM_EBUSY);
         assert(terminal_cursor_at(79, 23) && !terminal_cursor_at(80, 0) && !terminal_cursor_at(0, 24));
         terminal_set_color(VGA_YELLOW, VGA_BLUE); terminal_cursor_visible(false);
         assert(terminal_put_at(0, 0, '@', VGA_LIGHT_GREEN, VGA_BLACK));
@@ -50,7 +51,7 @@ int main(void)
         assert(((volatile uint16_t *)mapped)[24 * 80] == 0x0875);
         assert(discarded == iteration + 1 && input.sequence == iteration + 1);
     }
-    assert(!terminal_session_begin_inline(1) && terminal_session_inline());
+    assert(!terminal_session_begin_inline(1, 1) && terminal_session_inline());
     terminal_session_line("> abc", 5, 2);
     assert(terminal_session_output(2) && terminal_session_redraw());
     terminal_writestring("notice\n");
@@ -58,20 +59,20 @@ int main(void)
     assert(!terminal_session_redraw() && terminal_state().x == 3 && terminal_state().y == 2);
     assert(!terminal_session_end(1) && discarded == 64 && terminal_state().x == 5);
     assert(((volatile uint16_t *)mapped)[80] == 0x076E); /* Background notice remains. */
-    assert(!terminal_session_begin_inline(1)); terminal_session_exit(1);
+    assert(!terminal_session_begin_inline(1, 1)); terminal_session_exit(1);
     assert(discarded == 65 && !terminal_session_owner());
     terminal_initialize();
     for (unsigned i = 0; i < 50; ++i) terminal_writestring("shell output\n");
     terminal_scroll(-1); assert(terminal_scrolled());
     uint16_t history_page[80 * 24]; memcpy(history_page, mapped, sizeof history_page);
-    assert(!terminal_session_begin(1) && !terminal_scrolled());
+    assert(!terminal_session_begin(1, 1) && !terminal_scrolled());
     for (unsigned i = 0; i < 300; ++i) terminal_writestring("application canvas\n");
     assert(!terminal_session_end(1));
     terminal_scroll(-1); assert(terminal_scrolled());
     assert(!memcmp(history_page, mapped, sizeof history_page));
-    assert(!terminal_session_begin_inline(1) && !terminal_scrolled());
+    assert(!terminal_session_begin_inline(1, 1) && !terminal_scrolled());
     terminal_scroll(-1); terminal_session_exit(1); assert(!terminal_scrolled());
-    terminal_initialize(); assert(!terminal_session_begin_inline(1));
+    terminal_initialize(); assert(!terminal_session_begin_inline(1, 1));
     struct rum_terminal_cell styled[] = {{'/', RUM_COLOR_LIGHT_CYAN, 0, 0},
         {'>', RUM_COLOR_LIGHT_GREEN, 0, 0}, {'x', RUM_COLOR_WHITE, 0, 0}};
     terminal_session_styled_line(styled, 3, 2);
@@ -81,6 +82,16 @@ int main(void)
     terminal_session_styled_line(styled, 3, 3);
     assert(((uint16_t *)mapped)[2 * 80] == 0x0b2f && !terminal_session_end(1));
     assert(terminal_state().foreground == VGA_LIGHT_GREY);
+    assert(!terminal_input_begin(17, 1) && terminal_input_owned(17));
+    assert(terminal_input_begin(18, 1) == -RUM_EBUSY && terminal_session_begin(18, 1) == -RUM_EBUSY);
+    terminal_session_exit(18);
+    assert(terminal_input_owned(17));
+    input_owner = 2; terminal_session_reconcile();
+    assert(!terminal_input_owned(17) && terminal_input_begin(17, 1) == -RUM_EACCES);
+    assert(!terminal_session_begin_inline(18, 2));
+    terminal_session_exit(17);
+    assert(terminal_session_owned(18) && terminal_session_end(17) == -RUM_EACCES);
+    assert(!terminal_session_end(18));
     assert(munmap(mapped, 4096) == 0);
     puts("PASS: terminal snapshot, colors/cursor, status guard, denied contexts, ownership changes and repeated cleanup");
     return 0;
