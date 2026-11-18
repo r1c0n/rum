@@ -59,11 +59,53 @@ their release or reprotection. The existing launcher maps only slot zero's stack
 | Switch holds, event pointer/sequence, deadline, wake reason, active I/O reference and syscall scratch | Calling thread. Scheduler guard arbitrates wakeups. The syscall owns its copies, mapping lease and operation reference until it stops accessing their targets. |
 | Completion status and waiters | Referenced thread object retains the result after stack reclamation. Synchronization object owns its state, mutex owner or permit count. Scheduler guard couples state changes to waiter registration. |
 
-Today `task.c` indexes the process container by task slot at publication and
-clears both together at reaping. Parent, session and job lookups also use task
-IDs. Before publishing a sibling, split slot allocation and give those lookups
-a stable process owner. A sibling cannot use the current one-owner reaper.
-Process listings count each process once, independently of its thread count.
+The initial task identifies the process in parent, session and job lookups.
+Process listings and memory totals count that owner once. Scheduler snapshots
+also count each execution stack and wait registration. The launcher and reaper
+still allocate and release the initial task and process container together.
+Step 4 separates those lifetimes for userspace workers.
+
+### Concurrent access
+
+A descriptor lookup takes an operation reference before releasing the table
+guard. Closing or replacing a descriptor reserves its slot until the old
+reference has been released. A pending read can finish through its reference
+even after the descriptor closes. A failed final close restores the original
+entry. Spawn retains the grants selected from the parent before installing
+the child's handles.
+
+Aliases share one file position, directory cursor and deferred error. A
+nonempty file transfer commits its byte count and cursor together. A seek or
+second transfer that reenters the same description returns `EBUSY`. A short
+transfer returns its committed byte count. The next nonempty transfer through
+any alias reports a deferred backend error once. For independent append opens,
+the filesystem selects EOF and writes one transfer under the same namespace
+guard. A caller that loops over short writes may interleave with another writer
+between calls. Pipes keep their existing wait and atomic-write rules.
+
+A relative path sees one working directory throughout lookup. Rename resolves
+both names from that same directory. A successful chdir publishes the new path
+and directory pin together. Spawn pins its starting directory for executable
+lookup, the optional `.elf` lookup and the child's initial working directory.
+Later parent directory changes leave that pin valid.
+
+Each blocking syscall that uses user buffers retains a mapping lease. As long
+as any lease remains, release and protection changes return `EBUSY` for dynamic
+regions in that address space. Registered stack and TLS mappings are kernel
+owned. A dynamic region containing a running or suspended user's stack pointer
+also rejects release and read-only protection, including an empty stack at the
+upper boundary.
+
+A consuming child wait claims one completed result before copying it out.
+Competing waiters can take another child or wait for the claim to resolve. A
+failed result copy releases the claim for retry. A synchronous foreground
+launch reserves its child for the launching thread. Opening a process handle
+rechecks the target and its authority before installing the grant.
+
+The foreground process supplies console authority. One thread at a time owns
+a raw input read or an interactive terminal session. A competing reader gets
+`EBUSY`. Foreground transfer revokes the old lease and wakes its waiter.
+Thread-specific terminal cleanup releases only that thread's lease.
 
 ## Lock order and execution context
 

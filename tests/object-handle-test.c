@@ -11,6 +11,8 @@
 uint32_t handle_test_flags = 0x200;
 static bool in_irq;
 static unsigned destroyed;
+static struct object_handles *closing_table;
+static rum_object_handle_t closing_token;
 struct sample { struct kernel_object object; bool fail, allocated; };
 bool irq_in_handler(void) { return in_irq; }
 bool task_blocking_allowed(void) { return !in_irq && (handle_test_flags & 0x200); }
@@ -18,6 +20,14 @@ static rum_result_t destroy(struct kernel_object *object)
 {
     struct sample *sample = (void *)object;
     assert(task_blocking_allowed());
+    if (closing_table) {
+        struct object_handles child = {0};
+        struct kernel_object *retained = NULL;
+        assert(!object_handles_count(closing_table) &&
+               object_handle_acquire(closing_table, closing_token, OBJECT_FILE, RUM_RIGHT_READ, &retained) == -RUM_EBUSY &&
+               !retained && object_handles_inherit(&child, closing_table, RUM_RIGHT_MASK) == -RUM_EBUSY &&
+               !object_handles_count(&child) && object_handles_destroy(closing_table) == -RUM_EBUSY);
+    }
     if (sample->fail) return -RUM_EIO;
     ++destroyed;
     if (sample->allocated) free(sample);
@@ -209,7 +219,8 @@ static void cleanup_context(void)
 {
     struct object_handles table = {0};
     struct sample *sample = calloc(1, sizeof *sample); assert(sample); sample->allocated = true;
-    rum_object_handle_t handle = give(&table, sample, OBJECT_FILE, RUM_RIGHT_FILE, 0);
+    rum_object_handle_t handle = give(&table, sample, OBJECT_FILE, RUM_RIGHT_FILE, RUM_OBJECT_INHERIT);
+    closing_table = &table; closing_token = handle;
     uint32_t flags = cpu_interrupt_save();
     fails(&table, packet(RUM_OBJECT_CLOSE, handle), -RUM_EBUSY);
     cpu_interrupt_restore(flags);
@@ -218,6 +229,7 @@ static void cleanup_context(void)
     fails(&table, packet(RUM_OBJECT_QUERY, handle), -RUM_EBUSY);
     fails(&table, packet(RUM_OBJECT_CLOSE, handle), -RUM_EBUSY);
     in_irq = false; close_handle(&table, handle); empty();
+    closing_table = NULL;
 }
 int main(void)
 {

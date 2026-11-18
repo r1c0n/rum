@@ -15,4 +15,5 @@ extern bool fs_test_backend_bad_cursor, fs_test_backend_reenter;
 extern enum fs_error fs_test_backend_reentry_result;
 extern size_t fs_test_backend_short;
 extern enum fs_error fs_test_backend_partial_error;
+extern void (*fs_test_on_lookup)(void), (*fs_test_on_release)(void), (*fs_test_on_transfer)(void);
 #endif

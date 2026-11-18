@@ -178,6 +178,26 @@ int main(void)
 {
     allocation_checks();
     ownership_checks();
+    for (unsigned slot = 0; slot < RUM_PROCESS_THREAD_LIMIT; ++slot) {
+        uint32_t top;
+        assert(thread_stack_top(slot, &top));
+        uint32_t stack = top - RUM_USER_STACK_SIZE, guard = stack - PAGE;
+        struct vm_region regions[] = {{stack, RUM_USER_STACK_SIZE, RW, VM_REGION_STACK},
+            {guard - RUM_THREAD_TLS_SIZE, RUM_THREAD_TLS_SIZE, RW, VM_REGION_TLS}};
+        struct vm_region output = untouched;
+        for (unsigned i = 0; i < 2; ++i) {
+            struct vm_region region = regions[i];
+            struct rum_vm_protect_request protect = { .version = RUM_VM_ABI_VERSION, .size = sizeof protect,
+                .address = region.address, .bytes = region.bytes, .protection = RUM_VM_READ };
+            struct rum_vm_release_request release = { .version = RUM_VM_ABI_VERSION, .size = sizeof release,
+                .address = region.address, .bytes = region.bytes };
+            assert(vm_thread_range(region.address, region.bytes, region.owner) &&
+                   !vm_thread_range(guard, PAGE, region.owner));
+            assert(vm_prepare_protect(&protect, regions, 2, &output) == -RUM_EACCES &&
+                   vm_prepare_release(&release, regions, 2, &output) == -RUM_EACCES &&
+                   !memcmp(&output, &untouched, sizeof output));
+        }
+    }
     puts("PASS: VM placement, packet bounds, quotas and region ownership");
     return 0;
 }

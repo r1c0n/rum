@@ -70,22 +70,22 @@ documents the service and the focused `make test-sleep` QEMU checks.
 
 ### 3. Protect shared process resources
 
-- [ ] Make descriptor and typed-handle acquisition, close, duplication and
+- [x] Make descriptor and typed-handle acquisition, close, duplication and
   inheritance safe under sibling-thread interleaving. Retain objects under
   table locks; do blocking work and final destruction outside those locks.
-- [ ] Serialize shared offsets, append and deferred errors across aliases,
+- [x] Serialize shared offsets, append and deferred errors across aliases,
   preserving partial I/O, EOF and pipe semantics. Define concurrent-operation
   atomicity without promising whole-file transactions.
-- [ ] Protect VM registries and mapping changes. Extend buffer leases to
+- [x] Protect VM registries and mapping changes. Extend buffer leases to
   sibling-thread release/protection races and prevent unmapping active thread
   stacks, TLS or memory still referenced by kernel operations.
-- [ ] Protect working directories, child publication/wait consumption, process
+- [x] Protect working directories, child publication/wait consumption, process
   references and diagnostics. Define what relative path operations observe
   when another thread changes the shared directory.
-- [ ] Preserve process-level console/session authority while serializing
+- [x] Preserve process-level console/session authority while serializing
   interactive leases and foreground controls. Thread exit must not detach
   another thread's console operation or grant extra shell authority.
-- [ ] Audit filesystem/block serialization and callbacks against the lock
+- [x] Audit filesystem/block serialization and callbacks against the lock
   order. Never wait while holding a lock needed by the completing operation,
   or rely on user-mode preemption being disabled.
 

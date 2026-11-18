@@ -26,6 +26,13 @@ enum fs_error fs_test_backend_partial_error;
 enum fs_error fs_test_backend_failure;
 bool fs_test_backend_bad_cursor, fs_test_backend_reenter;
 enum fs_error fs_test_backend_reentry_result;
+void (*fs_test_on_lookup)(void), (*fs_test_on_release)(void), (*fs_test_on_transfer)(void);
+static void run_once(void (**hook)(void))
+{
+    void (*callback)(void) = *hook;
+    *hook = NULL;
+    if (callback) callback();
+}
 
 static bool equal(const char *a, const char *b)
 {
@@ -53,6 +60,7 @@ static struct fs_node describe(const struct node *node)
 }
 static enum fs_error lookup(void *context, uint64_t parent, const char *name, struct fs_node *out)
 {
+    run_once(&fs_test_on_lookup);
     ++data_calls;
     (void)context; ++calls;
     struct node *directory = by_id(parent), *node = by_name(parent, name);
@@ -78,12 +86,14 @@ static enum fs_error retain(void *context, uint64_t id)
 }
 static void release(void *context, uint64_t id)
 {
+    run_once(&fs_test_on_release);
     (void)context; ++calls;
     struct node *node = by_id(id);
     if (node && node->pins) --node->pins;
 }
 static struct fs_io_result transfer(uint64_t id, uint64_t offset, void *data, size_t bytes, bool write)
 {
+    run_once(&fs_test_on_transfer);
     ++data_calls;
     ++calls;
     if (fs_test_backend_reenter) {

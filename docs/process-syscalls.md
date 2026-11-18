@@ -380,10 +380,12 @@ GRUB ISO at ELF/16 MiB and ISO/64 MiB. Tests cover packet/flag validation, cross
 structures and buffers, failed loads and construction, nohang and any-child
 waits, retained and stale results, termination permissions, delegated shell
 control, parent exit/fault/cancellation, process-limit pressure and cleanup.
-A fixture revokes output write access while a wait is blocked and verifies
-that a failed copy does not discard the completion. Private counters are seeded
-near exhaustion only inside the isolated boundary fixture; rum exposes no
-counter-setting API. Logs are under `build/test-artifacts/lifecycle/`.
+While a wait is blocked, the fixture tries to revoke write access and unmap
+the result buffer. Both changes fail and the waiting program receives its
+child's status exactly once. A second fixture runs two parent continuations
+against one completed child and checks that releasing a claim wakes the
+competing waiter. It also seeds private counters near exhaustion. Logs are
+under `build/test-artifacts/lifecycle/`.
 
 `make test-userspace-shell` checks actual ring-3 launch packets, invalid headers,
 paths and cross-page buffers, nested foreground children, signed statuses,

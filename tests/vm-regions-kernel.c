@@ -126,7 +126,11 @@ static void exercise(char mode)
             .address = reports[0].address, .bytes = reports[0].bytes, .protection = RUM_VM_READ };
         struct rum_vm_release_request remove = { .version = RUM_VM_ABI_VERSION, .size = sizeof remove,
             .address = protect.address, .bytes = protect.bytes };
-        check(paging_region_protect(reports[0].space, &protect, 0) == -RUM_EBUSY &&
+        check(paging_user_buffers_acquire(reports[0].space) && paging_space_stats(reports[0].space, &memory) &&
+              memory.buffer_users == 2 && paging_user_buffers_release(reports[0].space) &&
+              !paging_user_protect(reports[0].space, protect.address, 1, 0) &&
+              !paging_user_release(reports[0].space, protect.address, 1) &&
+              paging_region_protect(reports[0].space, &protect, 0) == -RUM_EBUSY &&
               paging_region_release(reports[0].space, &remove, 0) == -RUM_EBUSY &&
               !paging_space_destroy(reports[0].space) &&
               paging_user_accessible(reports[0].space, protect.address, protect.bytes, true),
