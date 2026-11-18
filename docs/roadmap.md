@@ -3,7 +3,7 @@
 rum 0.8.0 provides private user memory, persistent FAT16 storage, a standalone
 SDK, typed kernel objects and explicit access rights. The next foundations are
 safe sharing between threads, followed by consistent I/O ownership and input
-delivery. Completed release records live in [release validation](release.md).
+delivery. Completed release records live in [release validation](development/release.md).
 
 Keep low-level kernel mechanisms, executive services and userspace policy
 separate. Continue targeting one 32-bit x86 CPU with BIOS firmware, GRUB
@@ -41,7 +41,7 @@ and predictable process-wide cleanup. Preserve existing single-threaded programs
 - [x] Record memory-ordering and compatibility guarantees. Preserve syscall
   numbers, process waits, standard streams and documented released SDK behavior.
 
-The [threading contract](threading.md) records ownership, lock order, packet
+The [threading contract](kernel/threading.md) records ownership, lock order, packet
 layouts and teardown. Host checks cover slot bounds and ABI layout. The 16 MiB
 paging fixture checks the frame budget and all kernel stack guards.
 
@@ -65,7 +65,7 @@ paging fixture checks the frame budget and all kernel stack guards.
   saturation. General multi-object wait sets can remain future work; existing
   waits must remain compatible.
 
-The [kernel synchronization guide](threading.md#using-synchronization-inside-the-kernel)
+The [kernel synchronization guide](kernel/threading.md#using-synchronization-inside-the-kernel)
 documents the service and the focused `make test-sleep` QEMU checks.
 
 ### 3. Protect shared process resources
@@ -381,6 +381,6 @@ focused commits. Do not mark planned work complete before its checks pass.
 
 Use focused tests during development. Reserve the complete suite for release
 integration or changes spanning enough interfaces to require it. Follow the
-[local release workflow](release.md), inspect diagnostics, package only fresh
+[local release workflow](development/release.md), inspect diagnostics, package only fresh
 system disks and boot the exact downloadable ISO. Change release versions only
 after readiness gates pass; version public contracts independently.

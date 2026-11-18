@@ -1,45 +1,49 @@
 # rum documentation
 
-Start with [setup](setup.md), then [prepare a system disk](system-volume.md).
+Start with [setup](guides/setup.md), then [prepare a system disk](guides/system-volume.md).
 The ISO starts the kernel; the FAT16 disk mounted at `/` supplies `/RUM`
 programs and persistent files. With no usable disk, rum opens recovery.
 
 ## Using rum
 
-- [Shell and commands](shell.md)
-- [Files and paths](filesystems.md)
-- [File tools and workspace](file-tools.md)
-- [FAT16 storage and recovery](fat16.md)
-- [VMware and VirtualBox](virtual-machines.md)
-- [Snake](snake.md)
-- [Diagnostics](diagnostics.md)
-- [Application resource counts](resource-diagnostics.md)
+- [Shell and commands](guides/shell.md)
+- [Redirection and pipelines](guides/shell-workflows.md)
+- [Background jobs](guides/jobs.md) and [process tools](guides/process-tools.md)
+- [Files and paths](guides/filesystems.md)
+- [File tools and workspace](guides/file-tools.md)
+- [VMware and VirtualBox](guides/virtual-machines.md)
+- [Snake](guides/snake.md)
+- [Diagnostics](guides/diagnostics.md)
 
-## Building and development
+## Kernel
 
-- [Source layout](source-layout.md)
-- [Memory layout](memory-layout.md) and [memory management](memory.md)
-- [User virtual-memory contracts](virtual-memory.md)
-- [Application heap and C runtime](application-runtime.md)
-- [Standalone SDK and application builds](sdk.md)
-- [Doom compatibility probe](doom-compatibility.md)
-- [Executable loading and limits](executable-loading.md)
-- [Heap and storage](storage.md)
-- [Interrupts](interrupts.md) and [exceptions](exceptions.md)
-- [Tasks](tasks.md), [scheduling](scheduling.md) and [console sessions](console-sessions.md)
-- [Thread ownership, synchronization and ABI design](threading.md)
-- [User ABI](user-abi.md), [filesystem syscalls](filesystem-syscalls.md) and [process syscalls](process-syscalls.md)
-- [Process tools](process-tools.md)
-- [Shared handles and child streams](shared-handles.md)
-- [Typed object handles](object-handles.md) and [process handles](process-objects.md)
-- [Choosing child handles](handle-inheritance.md)
-- [System authority and recovery installation](system-authority.md)
-- [Pipes and stream I/O](pipes.md)
-- [Redirection and pipelines](shell-workflows.md)
-- [Background jobs](jobs.md)
-- [Terminal API](terminal.md)
-- [Block devices](block-devices.md)
-- [Releases](release.md) and [roadmap](roadmap.md)
+- [Memory layout](kernel/memory-layout.md) and [memory management](kernel/memory.md)
+- [Executable loading and limits](kernel/executable-loading.md)
+- [Heap and storage](kernel/storage.md)
+- [Block devices](kernel/block-devices.md) and [FAT16 storage and recovery](kernel/fat16.md)
+- [Kernel objects](kernel/objects.md)
+- [System authority and recovery installation](kernel/system-authority.md)
+- [Interrupts](kernel/interrupts.md) and [exceptions](kernel/exceptions.md)
+- [Tasks](kernel/tasks.md), [scheduling](kernel/scheduling.md) and [console sessions](kernel/console-sessions.md)
+- [Thread ownership, synchronization and ABI design](kernel/threading.md)
+
+## Application development
+
+- [Standalone SDK and application builds](sdk/sdk.md)
+- [Application heap and C runtime](sdk/application-runtime.md)
+- [User virtual memory](sdk/virtual-memory.md) and [application resource counts](sdk/resource-diagnostics.md)
+- [User ABI](sdk/user-abi.md), [filesystem syscalls](sdk/filesystem-syscalls.md) and [process syscalls](sdk/process-syscalls.md)
+- [Shared handles and child streams](sdk/shared-handles.md)
+- [Typed object handles](sdk/object-handles.md) and [process handles](sdk/process-objects.md)
+- [Choosing child handles](sdk/handle-inheritance.md)
+- [Pipes and stream I/O](sdk/pipes.md)
+- [Terminal API](sdk/terminal.md)
+
+## Project development
+
+- [Source layout](development/source-layout.md) and [testing](development/testing.md)
+- [Doom compatibility probe](development/doom-compatibility.md)
+- [Releases](development/release.md) and [roadmap](roadmap.md)
 
 ## Startup
 
@@ -65,4 +69,4 @@ Use `TEST_JOBS=2` or `1` on a smaller host. `make test-host`, `test-user`,
 `test-system-disk` are focused checks. Logs and reports are under
 `build/test-artifacts/`. Tests use disposable images, never a caller's disk.
 
-See [testing](testing.md) for worker limits, coverage and timing reports.
+See [testing](development/testing.md) for worker limits, coverage and timing reports.

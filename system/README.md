@@ -3,7 +3,7 @@
 `shell/main.c` implements the userspace command loop, input editing, executable
 lookup, and child launch. Individual commands live in `commands/` and use only
 the public SDK. The working-directory prompt and command behavior are described
-in [Shell](../docs/shell.md).
+in [Shell](../docs/guides/shell.md).
 
 To add a command:
 

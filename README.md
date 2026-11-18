@@ -36,11 +36,11 @@ and commands in `/RUM`. Keep the ISO and disk attached: the ISO starts the
 kernel; the disk supplies programs and files. Without a usable system disk,
 rum opens its recovery console. Normal startup never formats an image.
 
-See [setup](docs/setup.md), [system disk](docs/system-volume.md) and
-[VMware/VirtualBox](docs/virtual-machines.md) for details.
+See [setup](docs/guides/setup.md), [system disk](docs/guides/system-volume.md) and
+[VMware/VirtualBox](docs/guides/virtual-machines.md) for details.
 
 To build applications outside this repository, export the
-[standalone SDK](docs/sdk.md) with `.\rum.ps1 sdk` or `./rum sdk`.
+[standalone SDK](docs/sdk/sdk.md) with `.\rum.ps1 sdk` or `./rum sdk`.
 
 ## Using rum
 
@@ -67,16 +67,16 @@ run hello
 Arrow keys, Home/End and Delete edit the command; Up/Down browse history and
 Tab completes names. Page Up/Page Down browse output. Ctrl+L clears the screen
 while preserving the draft, and Ctrl+U clears the draft. See the
-[shell guide](docs/shell.md), [jobs](docs/jobs.md) and
-[file tools](docs/file-tools.md) for syntax, limits and application installation.
+[shell guide](docs/guides/shell.md), [jobs](docs/guides/jobs.md) and
+[file tools](docs/guides/file-tools.md) for syntax, limits and application installation.
 
 `recovery` enters the recovery console, where `mem`, `diag` and Snake remain
 available even without usable storage. `exit` restarts the normal shell.
 `handles` shows the command's own resource counts. Use `shutdown` or `reboot`
 to flush storage and stop or restart rum. FAT16 has no journal;
-an interrupted write may require host repair. See [filesystem behavior](docs/fat16.md).
+an interrupted write may require host repair. See [filesystem behavior](docs/kernel/fat16.md).
 Keep applications and data in `/APPS` and `/HOME`. Updating `/RUM` uses
-[recovery installation](docs/system-authority.md).
+[recovery installation](docs/kernel/system-authority.md).
 
 ## Screenshots
 
@@ -107,8 +107,8 @@ tools. Never run two VMs against the same writable disk.
 Both launchers share `scripts/rum.py`; Windows uses WSL's Python and build
 tools. Build jobs and test workers default to four. Use `-Suite host` /
 `--suite host` for host checks or `-DryRun` / `--dry-run` to preview commands.
-The underlying Make targets remain available. See [setup](docs/setup.md) and
-[testing](docs/testing.md) for options, coverage and reports.
+The underlying Make targets remain available. See [setup](docs/guides/setup.md) and
+[testing](docs/development/testing.md) for options, coverage and reports.
 
 ## Packaging
 
@@ -119,7 +119,7 @@ a prepared system disk.
 Run `.\rum.ps1 vm-images` or `./rum vm-images` to build and create
 a separate `rum-vm-images.zip` with a fresh installed system disk in raw, VMDK
 and VDI formats, the ISO and a VMware preset. Existing output directories are
-refused. [Release checks](docs/release.md) cover packaging and recovery.
+refused. [Release checks](docs/development/release.md) cover packaging and recovery.
 
 ## Source
 
@@ -133,5 +133,5 @@ refused. [Release checks](docs/release.md) cover packaging and recovery.
 | `tests/`, `scripts/` | Regression tests, toolchain, build and packaging tools |
 | `mk/` | Configuration, kernel, userspace, test and workflow Make rules |
 
-See the [documentation](docs/README.md), [source layout](docs/source-layout.md)
+See the [documentation](docs/README.md), [source layout](docs/development/source-layout.md)
 and [roadmap](docs/roadmap.md).

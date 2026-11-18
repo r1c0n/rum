@@ -25,5 +25,5 @@ runtime in `sdk/lib/`.
 New code should live with the subsystem that owns its state. Hardware drivers
 belong in the top-level `drivers/`, while filesystem formats and namespace code
 belong in `kernel/fs/`. Applications use public SDK headers and syscalls.
-See the [source layout guide](../docs/source-layout.md) for build rules and
+See the [source layout guide](../docs/development/source-layout.md) for build rules and
 application entry points.

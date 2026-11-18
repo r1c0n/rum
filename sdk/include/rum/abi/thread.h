@@ -4,7 +4,7 @@
 #include <rum/abi/object.h>
 
 /* 0.9 wire design. No thread or synchronization syscall is dispatched yet.
-   See docs/threading.md for validation, rights and lifetime rules. */
+   See docs/kernel/threading.md for validation, rights and lifetime rules. */
 #define RUM_THREAD_ABI_VERSION 1u
 #define RUM_OBJECT_THREAD      8u
 #define RUM_OBJECT_EVENT       9u

@@ -15,7 +15,7 @@ if ! [[ "$jobs" =~ ^([1-9]|[1-5][0-9]|6[0-4])$ ]]; then
 fi
 
 for tool in gcc g++ make bison flex makeinfo curl tar xz; do
-    command -v "$tool" >/dev/null || { echo "Missing $tool; see docs/setup.md." >&2; exit 1; }
+    command -v "$tool" >/dev/null || { echo "Missing $tool; see docs/guides/setup.md." >&2; exit 1; }
 done
 if test -x "$prefix/bin/$target-gcc" &&
    test "$("$prefix/bin/$target-gcc" -dumpmachine)" = "$target" &&
