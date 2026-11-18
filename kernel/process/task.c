@@ -13,6 +13,7 @@
 #include <rum/task.h>
 #include <rum/session.h>
 #include <rum/jobs.h>
+#include <rum/sync.h>
 #include <rum/terminal_session.h>
 #include <rum/process_reference.h>
 #include <rum/keyboard.h>
@@ -1018,6 +1019,7 @@ static _Noreturn void terminate_current(enum task_termination termination,
        file pins in task context before publishing EXITED. IRQs cannot schedule
        a kernel continuation; no backend callback runs under the update lock. */
     cpu_interrupt_enable();
+    sync_abandon_current();
     terminal_session_exit(current->id);
     if (!task_io_end()) cpu_halt();
     if (object_handles_destroy(&current->process->objects)) cpu_halt();
