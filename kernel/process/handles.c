@@ -156,6 +156,15 @@ static void install_descriptor(struct process_handles *table, unsigned slot, str
     table->slots[slot] = (struct process_descriptor){ .object = handle, .flags = flags };
 }
 
+/* An empty, closing slot is reserved across construction or final release.
+   A reentrant open/dup must never publish over it. Caller holds IF clear. */
+static unsigned free_slot(const struct process_handles *table, unsigned start)
+{
+    while (start < RUM_ABI_HANDLE_LIMIT &&
+           (table->slots[start].object || table->slots[start].closing)) ++start;
+    return start;
+}
+
 struct process_handle_statistics process_handles_stats(void)
 {
     uint32_t flags = cpu_interrupt_save();
@@ -212,28 +221,36 @@ rum_result_t process_handle_open(struct process_handles *table, const struct fs_
         ((flags & RUM_OPEN_EXCLUSIVE) && !(flags & RUM_OPEN_CREATE)) ||
         ((flags & RUM_OPEN_DIRECTORY) && (access != FS_READ || flags != RUM_OPEN_DIRECTORY)) ||
         ((flags & ~RUM_OPEN_DIRECTORY) && !(access & FS_WRITE))) return -RUM_EINVAL;
-    unsigned slot = 3;
-    while (slot < RUM_ABI_HANDLE_LIMIT && table->slots[slot].object) ++slot;
-    if (slot == RUM_ABI_HANDLE_LIMIT) return -RUM_EMFILE;
     if (!process_filesystem_context()) return -RUM_EBUSY;
+    uint32_t saved = cpu_interrupt_save();
+    unsigned slot = free_slot(table, 3);
+    if (slot < RUM_ABI_HANDLE_LIMIT) table->slots[slot].closing = true;
+    cpu_interrupt_restore(saved);
+    if (slot == RUM_ABI_HANDLE_LIMIT) return -RUM_EMFILE;
     struct process_handle *object = new_description(HANDLE_FILE, access);
-    if (!object) return -RUM_ENOMEM;
+    enum fs_error error = FS_NO_MEMORY;
+    if (!object) goto failed;
     fs_reference reference = 0;
-    enum fs_error error = fs_open_flags(context, path, access, flags & ~RUM_OPEN_DIRECTORY, &reference);
-    if (error != FS_OK) { (void)release(object); return process_fs_error(error); }
+    error = fs_open_flags(context, path, access, flags & ~RUM_OPEN_DIRECTORY, &reference);
+    if (error != FS_OK) goto failed;
     object->reference = reference;
     struct fs_information info;
     error = fs_stat(reference, &info);
     if (error == FS_OK && (flags & RUM_OPEN_DIRECTORY) && info.kind != FS_DIRECTORY) error = FS_NOT_DIRECTORY;
-    if (error != FS_OK) { (void)release(object); return process_fs_error(error); }
-    uint32_t saved = cpu_interrupt_save();
-    object->reference = reference;
+    if (error != FS_OK) goto failed;
+    saved = cpu_interrupt_save();
     object->append = (flags & RUM_OPEN_APPEND) != 0;
     object->kind = info.kind == FS_DIRECTORY ? HANDLE_DIRECTORY : HANDLE_FILE;
     if (object_retype(&object->object, &description_types[object->kind])) cpu_halt();
     install_descriptor(table, slot, object, 0);
     cpu_interrupt_restore(saved);
     return (rum_result_t)slot;
+failed:
+    if (object && release(object)) cpu_halt();
+    saved = cpu_interrupt_save();
+    table->slots[slot].closing = false;
+    cpu_interrupt_restore(saved);
+    return process_fs_error(error);
 }
 
 rum_result_t process_handle_export(struct process_handles *table, rum_handle_t descriptor, struct object_handles *objects,
@@ -262,16 +279,17 @@ rum_result_t process_handle_export(struct process_handles *table, rum_handle_t d
 
 rum_result_t process_handle_close(struct process_handles *table, rum_handle_t id)
 {
-    struct process_handle *handle = process_handle_get(table, id);
-    if (!handle) return -RUM_EBADF;
     if (!process_filesystem_context()) return -RUM_EBUSY;
     uint32_t saved = cpu_interrupt_save();
-    table->slots[id].closing = true;
+    struct process_handle *handle = process_handle_get(table, id);
+    if (!handle) { cpu_interrupt_restore(saved); return -RUM_EBADF; }
+    struct process_descriptor original = table->slots[id];
+    table->slots[id] = (struct process_descriptor){ .closing = true };
     --handle->descriptors;
     cpu_interrupt_restore(saved);
     rum_result_t result = object_release(&handle->object, OBJECT_TABLE);
     saved = cpu_interrupt_save();
-    if (result) { ++handle->descriptors; table->slots[id].closing = false; }
+    if (result) { ++handle->descriptors; table->slots[id] = original; }
     else table->slots[id] = (struct process_descriptor){0};
     cpu_interrupt_restore(saved);
     return result;
@@ -281,21 +299,27 @@ rum_result_t process_handles_pipe(struct process_handles *table, rum_handle_t *r
 {
     if (!table || !reader || !writer || reader == writer) return -RUM_EINVAL;
     if (!process_filesystem_context()) return -RUM_EBUSY;
-    unsigned slots[2], count = 0;
-    for (unsigned i = 3; i < RUM_ABI_HANDLE_LIMIT && count < 2; ++i)
-        if (!table->slots[i].object) slots[count++] = i;
-    if (count != 2) return -RUM_EMFILE;
-    struct process_handle *read = new_description(HANDLE_PIPE_READ, FS_READ);
-    if (!read) return -RUM_ENOMEM;
-    struct process_handle *write = new_description(HANDLE_PIPE_WRITE, FS_WRITE);
-    if (!write) { (void)release(read); return -RUM_ENOMEM; }
-    struct kernel_pipe *pipe = pipe_create();
-    if (!pipe) { (void)release(write); (void)release(read); return -RUM_ENOMEM; }
     uint32_t flags = cpu_interrupt_save();
+    unsigned first = free_slot(table, 3), second = free_slot(table, first + 1);
+    if (second >= RUM_ABI_HANDLE_LIMIT) { cpu_interrupt_restore(flags); return -RUM_EMFILE; }
+    table->slots[first].closing = table->slots[second].closing = true;
+    cpu_interrupt_restore(flags);
+    struct process_handle *read = new_description(HANDLE_PIPE_READ, FS_READ);
+    struct process_handle *write = read ? new_description(HANDLE_PIPE_WRITE, FS_WRITE) : NULL;
+    struct kernel_pipe *pipe = write ? pipe_create() : NULL;
+    if (!pipe) {
+        if (write) (void)release(write);
+        if (read) (void)release(read);
+        flags = cpu_interrupt_save();
+        table->slots[first].closing = table->slots[second].closing = false;
+        cpu_interrupt_restore(flags);
+        return -RUM_ENOMEM;
+    }
+    flags = cpu_interrupt_save();
     read->pipe = write->pipe = pipe;
-    install_descriptor(table, slots[0], read, 0);
-    install_descriptor(table, slots[1], write, 0);
-    *reader = slots[0]; *writer = slots[1];
+    install_descriptor(table, first, read, 0);
+    install_descriptor(table, second, write, 0);
+    *reader = first; *writer = second;
     cpu_interrupt_restore(flags); return 0;
 }
 
@@ -312,27 +336,34 @@ static rum_result_t mapping_valid(const struct process_handle *object, unsigned 
 rum_result_t process_handle_duplicate(struct process_handles *table, rum_handle_t source, rum_handle_t target, uint32_t flags)
 {
     if (flags & ~RUM_DUP_CLOSPAWN) return -RUM_EINVAL;
-    struct process_handle *object = process_handle_get(table, source);
-    if (!object) return -RUM_EBADF;
     if (!process_filesystem_context()) return -RUM_EBUSY;
+    uint32_t saved = cpu_interrupt_save();
+    struct process_handle *object = process_handle_get(table, source);
+    if (!object) { cpu_interrupt_restore(saved); return -RUM_EBADF; }
     if (target == RUM_DUP_ANY) {
-        target = 3;
-        while (target < RUM_ABI_HANDLE_LIMIT && table->slots[target].object) ++target;
-        if (target == RUM_ABI_HANDLE_LIMIT) return -RUM_EMFILE;
+        target = free_slot(table, 3);
+        if (target == RUM_ABI_HANDLE_LIMIT) { cpu_interrupt_restore(saved); return -RUM_EMFILE; }
     }
     rum_result_t error = mapping_valid(object, target);
-    if (error) return error;
-    if (source == target) { table->slots[target].flags = flags; return (rum_result_t)target; }
-    error = authorize_description(&object->object, object->access & FS_WRITE ? RUM_RIGHT_WRITE : 0);
-    if (error) return error;
-    error = retain(object);
-    if (error) return error;
-    if (table->slots[target].object) error = process_handle_close(table, target);
-    if (error) { (void)release(object); return error; }
-    uint32_t saved = cpu_interrupt_save();
-    install_descriptor(table, target, object, flags);
+    if (!error && table->slots[target].closing) error = -RUM_EBUSY;
+    if (!error && source == target) {
+        table->slots[target].flags = flags;
+        cpu_interrupt_restore(saved); return (rum_result_t)target;
+    }
+    if (!error) error = authorize_description(&object->object, object->access & FS_WRITE ? RUM_RIGHT_WRITE : 0);
+    if (!error) error = retain(object);
+    if (error) { cpu_interrupt_restore(saved); return error; }
+    struct process_descriptor old = table->slots[target];
+    table->slots[target] = (struct process_descriptor){ .closing = true };
+    if (old.object) --old.object->descriptors;
     cpu_interrupt_restore(saved);
-    return (rum_result_t)target;
+    if (old.object) error = object_release(&old.object->object, OBJECT_TABLE);
+    saved = cpu_interrupt_save();
+    if (error) { ++old.object->descriptors; table->slots[target] = old; }
+    else install_descriptor(table, target, object, flags);
+    cpu_interrupt_restore(saved);
+    if (error && release(object)) cpu_halt();
+    return error ? error : (rum_result_t)target;
 }
 
 rum_result_t process_handles_prepare_spawn(struct process_handles *destination, const struct process_handles *source,
@@ -341,43 +372,53 @@ rum_result_t process_handles_prepare_spawn(struct process_handles *destination, 
     if (!destination || destination == source || count > RUM_SPAWN_MAPPING_LIMIT ||
         (count && (!source || !mappings)) || (flags & ~RUM_SPAWN_NO_DEFAULT_STREAMS)) return -RUM_EINVAL;
     if (!process_filesystem_context()) return -RUM_EBUSY;
-    uint32_t targets = 0;
-    for (unsigned i = 0; i < count; ++i) {
-        const struct rum_handle_mapping *map = &mappings[i];
-        if (map->reserved[0] || map->reserved[1] || map->target >= RUM_ABI_HANDLE_LIMIT) return -RUM_EINVAL;
-        if (targets & (1u << map->target)) return -RUM_EINVAL;
+    struct process_handle *pinned[RUM_SPAWN_MAPPING_LIMIT];
+    uint32_t targets = 0, saved = cpu_interrupt_save();
+    unsigned held = 0;
+    rum_result_t error = 0;
+    while (held < count) {
+        const struct rum_handle_mapping *map = &mappings[held];
+        if (map->reserved[0] || map->reserved[1] || map->target >= RUM_ABI_HANDLE_LIMIT ||
+            (targets & (1u << map->target))) { error = -RUM_EINVAL; break; }
         targets |= 1u << map->target;
-        if (map->source >= RUM_ABI_HANDLE_LIMIT || !source->slots[map->source].object) return -RUM_EBADF;
-        if (source->slots[map->source].flags & RUM_DUP_CLOSPAWN) return -RUM_EACCES;
-        rum_result_t authority = authorize_description(&source->slots[map->source].object->object,
-            source->slots[map->source].object->access & FS_WRITE ? RUM_RIGHT_WRITE : 0);
-        if (authority) return authority;
-        rum_result_t error = mapping_valid(source->slots[map->source].object, map->target);
-        if (error) return error;
+        if (map->source >= RUM_ABI_HANDLE_LIMIT) { error = -RUM_EBADF; break; }
+        const struct process_descriptor *entry = &source->slots[map->source];
+        if (entry->closing) { error = -RUM_EBUSY; break; }
+        if (!entry->object) { error = -RUM_EBADF; break; }
+        if (entry->flags & RUM_DUP_CLOSPAWN) { error = -RUM_EACCES; break; }
+        struct process_handle *object = entry->object;
+        error = authorize_description(&object->object, object->access & FS_WRITE ? RUM_RIGHT_WRITE : 0);
+        if (!error) error = mapping_valid(object, map->target);
+        if (!error) error = retain(object);
+        if (error) break;
+        pinned[held++] = object;
+    }
+    cpu_interrupt_restore(saved);
+    if (error) {
+        while (held) if (release(pinned[--held])) cpu_halt();
+        return error;
     }
     *destination = (struct process_handles){0};
-    if (!(flags & RUM_SPAWN_NO_DEFAULT_STREAMS)) {
-        rum_result_t error = process_handles_initialize(destination);
-        if (error) return error;
-    }
-    for (unsigned i = 0; i < count; ++i) {
-        struct process_handle *object = source->slots[mappings[i].source].object;
-        rum_result_t error = retain(object);
-        if (!error && destination->slots[mappings[i].target].object) {
-            error = process_handle_close(destination, mappings[i].target);
-            if (error) (void)release(object);
-        }
-        if (error) { (void)process_handles_destroy(destination); return error; }
-        uint32_t saved = cpu_interrupt_save();
-        install_descriptor(destination, mappings[i].target, object, 0);
+    if (!(flags & RUM_SPAWN_NO_DEFAULT_STREAMS)) error = process_handles_initialize(destination);
+    unsigned installed = 0;
+    while (!error && installed < held) {
+        unsigned target = mappings[installed].target;
+        if (destination->slots[target].object) error = process_handle_close(destination, target);
+        if (error) break;
+        saved = cpu_interrupt_save();
+        install_descriptor(destination, target, pinned[installed++], 0);
         cpu_interrupt_restore(saved);
     }
-    return 0;
+    while (installed < held) if (release(pinned[installed++])) cpu_halt();
+    if (error && process_handles_destroy(destination)) cpu_halt();
+    return error;
 }
 
 rum_result_t process_handles_destroy(struct process_handles *table)
 {
     if (!table) return -RUM_EINVAL;
+    for (unsigned i = 0; i < RUM_ABI_HANDLE_LIMIT; ++i)
+        if (table->slots[i].closing) return -RUM_EBUSY;
     for (unsigned i = 0; i < RUM_ABI_HANDLE_LIMIT; ++i) if (process_handle_get(table, i)) {
         rum_result_t error = process_handle_close(table, i);
         if (error) return error;
@@ -385,15 +426,25 @@ rum_result_t process_handles_destroy(struct process_handles *table)
     return 0;
 }
 
-rum_result_t process_handle_seek(struct process_handle *handle, uint64_t displacement,
-                                 unsigned whence, uint64_t *position)
+/* Synchronous file/dir operations cannot sleep. Keep interrupts enabled over
+   the backend; a reentrant operation cannot consume this alias's cursor. */
+static bool cursor_begin(struct process_handle *handle)
 {
-    if (!handle) return -RUM_EBADF;
-    if (!position || whence > RUM_SEEK_END) return -RUM_EINVAL;
-    if (handle->pipe) return -RUM_ESPIPE;
-    if (handle->kind == HANDLE_INPUT || handle->kind == HANDLE_OUTPUT) return -RUM_EINVAL;
-    if (handle->kind == HANDLE_DIRECTORY && (whence != RUM_SEEK_SET || displacement)) return -RUM_EINVAL;
-    if (!process_filesystem_context()) return -RUM_EBUSY;
+    uint32_t saved = cpu_interrupt_save();
+    bool available = !handle->cursor_busy;
+    if (available) handle->cursor_busy = true;
+    cpu_interrupt_restore(saved);
+    return available;
+}
+static void cursor_end(struct process_handle *handle)
+{
+    uint32_t saved = cpu_interrupt_save();
+    handle->cursor_busy = false;
+    cpu_interrupt_restore(saved);
+}
+static rum_result_t seek_cursor(struct process_handle *handle, uint64_t displacement,
+                                unsigned whence, uint64_t *position)
+{
     uint64_t base = whence == RUM_SEEK_CUR ? handle->offset : 0;
     if (whence == RUM_SEEK_END) {
         struct fs_information info;
@@ -409,19 +460,24 @@ rum_result_t process_handle_seek(struct process_handle *handle, uint64_t displac
     return 0;
 }
 
-static rum_result_t transfer(struct process_handle *handle, void *buffer, size_t bytes, bool write)
+rum_result_t process_handle_seek(struct process_handle *handle, uint64_t displacement,
+                                 unsigned whence, uint64_t *position)
 {
-    if (!handle || !(handle->access & (write ? FS_WRITE : FS_READ))) return -RUM_EBADF;
-    if (write) {
-        rum_result_t error = authorize_description(&handle->object, RUM_RIGHT_WRITE);
-        if (error) return error;
-    }
-    if (handle->kind == HANDLE_DIRECTORY) return -RUM_EISDIR;
-    if (handle->pipe) return write ? pipe_write(handle->pipe, buffer, bytes) : pipe_read(handle->pipe, buffer, bytes);
-    if (handle->kind != HANDLE_FILE || (bytes && !buffer)) return -RUM_EINVAL;
-    if (bytes > INT32_MAX || (!(write && handle->append) && bytes > UINT64_MAX - handle->offset)) return -RUM_EOVERFLOW;
-    if (!bytes) return 0;
-    if (!process_filesystem_context()) return -RUM_EBUSY;
+    if (!handle) return -RUM_EBADF;
+    if (!position || whence > RUM_SEEK_END) return -RUM_EINVAL;
+    if (handle->pipe) return -RUM_ESPIPE;
+    if (handle->kind == HANDLE_INPUT || handle->kind == HANDLE_OUTPUT) return -RUM_EINVAL;
+    if (handle->kind == HANDLE_DIRECTORY && (whence != RUM_SEEK_SET || displacement)) return -RUM_EINVAL;
+    if (!process_filesystem_context() || !cursor_begin(handle)) return -RUM_EBUSY;
+    rum_result_t result = seek_cursor(handle, displacement, whence, position);
+    cursor_end(handle);
+    return result;
+}
+
+static rum_result_t transfer_cursor(struct process_handle *handle, void *buffer, size_t bytes,
+                                    size_t requested, bool write)
+{
+    if (!(write && handle->append) && requested > UINT64_MAX - handle->offset) return -RUM_EOVERFLOW;
     if (handle->pending_error) {
         rum_result_t error = handle->pending_error; handle->pending_error = 0; return error;
     }
@@ -436,21 +492,41 @@ static rum_result_t transfer(struct process_handle *handle, void *buffer, size_t
     return result.transferred ? (rum_result_t)result.transferred : error;
 }
 
+rum_result_t process_handle_transfer(struct process_handle *handle, void *buffer, size_t bytes,
+                                     size_t requested, bool write)
+{
+    if (!handle || !(handle->access & (write ? FS_WRITE : FS_READ))) return -RUM_EBADF;
+    if (write) {
+        rum_result_t error = authorize_description(&handle->object, RUM_RIGHT_WRITE);
+        if (error) return error;
+    }
+    if (handle->kind == HANDLE_DIRECTORY) return -RUM_EISDIR;
+    if (bytes > requested) return -RUM_EINVAL;
+    if (handle->pipe) return write ? pipe_write(handle->pipe, buffer, bytes) : pipe_read(handle->pipe, buffer, bytes);
+    if (handle->kind != HANDLE_FILE || (bytes && !buffer)) return -RUM_EINVAL;
+    if (bytes > INT32_MAX) return -RUM_EOVERFLOW;
+    if (!bytes) return 0;
+    if (!process_filesystem_context() || !cursor_begin(handle)) return -RUM_EBUSY;
+    rum_result_t result = transfer_cursor(handle, buffer, bytes, requested, write);
+    cursor_end(handle);
+    return result;
+}
 rum_result_t process_handle_read(struct process_handle *handle, void *buffer, size_t bytes)
 {
-    return transfer(handle, buffer, bytes, false);
+    return process_handle_transfer(handle, buffer, bytes, bytes, false);
 }
 rum_result_t process_handle_write(struct process_handle *handle, const void *buffer, size_t bytes)
 {
-    return transfer(handle, (void *)buffer, bytes, true);
+    return process_handle_transfer(handle, (void *)buffer, bytes, bytes, true);
 }
 rum_result_t process_handle_readdir(struct process_handle *handle, struct fs_entry *entry)
 {
     if (handle && handle->pipe) return -RUM_ENOTDIR;
     if (!handle || !(handle->access & FS_READ)) return -RUM_EBADF;
     if (handle->kind != HANDLE_DIRECTORY) return -RUM_ENOTDIR;
-    if (!process_filesystem_context()) return -RUM_EBUSY;
+    if (!process_filesystem_context() || !cursor_begin(handle)) return -RUM_EBUSY;
     enum fs_error error = fs_readdir(handle->reference, &handle->offset, entry);
+    cursor_end(handle);
     return error == FS_OK ? 1 : process_fs_error(error);
 }
 rum_result_t process_handle_flush(struct process_handle *handle)

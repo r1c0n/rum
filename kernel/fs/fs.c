@@ -139,6 +139,17 @@ static enum fs_error preflight(const struct fs_context *context, const char *pat
     return fs_path_parse(context ? context->path : "/", path, plan);
 }
 
+/* Keep the directory pin and its canonical path together from parse through
+   resolution. chdir commits under this same namespace scope. */
+static enum fs_error enter_path(const struct fs_context *context, const char *path, struct fs_path *plan)
+{
+    enum fs_error error = enter();
+    if (error != FS_OK) return error;
+    error = preflight(context, path, plan);
+    if (error != FS_OK) leave();
+    return error;
+}
+
 static enum fs_error resolve(const struct fs_context *context, const struct fs_path *plan,
                               unsigned count, struct location *location)
 {
@@ -298,9 +309,9 @@ enum fs_error fs_open_flags(const struct fs_context *context, const char *path, 
         (flags && !(access & FS_WRITE))) return FS_INVALID;
     *result = 0;
     struct fs_path plan;
-    enum fs_error error = preflight(context, path, &plan);
-    if (error == FS_OK && (access & FS_WRITE) && path_denied(&plan)) return FS_ACCESS;
-    if (error != FS_OK || (error = enter()) != FS_OK) return error;
+    enum fs_error error = enter_path(context, path, &plan);
+    if (error != FS_OK) return error;
+    if ((access & FS_WRITE) && path_denied(&plan)) { leave(); return FS_ACCESS; }
     struct location location;
     error = resolve(context, &plan, plan.input.count, &location);
     if (error == FS_OK && (access & FS_WRITE) && location_denied(&location)) { leave(); return FS_ACCESS; }
@@ -394,8 +405,8 @@ enum fs_error fs_stat_path(const struct fs_context *context, const char *path, s
     if (!result) return FS_INVALID;
     *result = (struct fs_information){0};
     struct fs_path plan;
-    enum fs_error error = preflight(context, path, &plan);
-    if (error != FS_OK || (error = enter()) != FS_OK) return error;
+    enum fs_error error = enter_path(context, path, &plan);
+    if (error != FS_OK) return error;
     struct location location;
     error = resolve(context, &plan, plan.input.count, &location);
     if (error == FS_OK) *result = information(&location);
@@ -526,9 +537,9 @@ static enum fs_error mutate(const struct fs_context *context, const char *path,
 {
     if (bytes && !data) return FS_INVALID;
     struct fs_path plan;
-    enum fs_error error = preflight(context, path, &plan);
-    if (error == FS_OK && path_denied(&plan)) return FS_ACCESS;
-    if (error != FS_OK || (error = enter()) != FS_OK) return error;
+    enum fs_error error = enter_path(context, path, &plan);
+    if (error != FS_OK) return error;
+    if (path_denied(&plan)) { leave(); return FS_ACCESS; }
     struct location parent;
     if (!plan.input.count) error = action == REMOVE ? FS_BUSY : FS_IS_DIRECTORY;
     else {
@@ -583,16 +594,15 @@ enum fs_error fs_rename(const struct fs_context *context, const char *source, co
     /* Parse both complete paths before the first backend lookup. Keep original
        traversal semantics: missing/../name is still missing. */
     struct fs_path from, to;
-    enum fs_error error = preflight(context, source, &from);
-    if (error == FS_OK) error = preflight(context, destination, &to);
+    enum fs_error error = enter_path(context, source, &from);
     if (error != FS_OK) return error;
-    if (path_denied(&from) || path_denied(&to)) return FS_ACCESS;
-    if (!from.input.count || !to.input.count || from.input.directory || to.input.directory) return FS_INVALID;
+    error = preflight(context, destination, &to);
+    if (error != FS_OK) { leave(); return error; }
+    if (path_denied(&from) || path_denied(&to)) { leave(); return FS_ACCESS; }
+    if (!from.input.count || !to.input.count || from.input.directory || to.input.directory) { leave(); return FS_INVALID; }
     const char *old = from.input.text + from.input.offsets[from.input.count - 1];
     const char *name = to.input.text + to.input.offsets[to.input.count - 1];
-    if (equal(old, ".") || equal(old, "..") || equal(name, ".") || equal(name, "..")) return FS_INVALID;
-    error = enter();
-    if (error != FS_OK) return error;
+    if (equal(old, ".") || equal(old, "..") || equal(name, ".") || equal(name, "..")) { leave(); return FS_INVALID; }
     struct location parent, target;
     error = resolve(context, &from, from.input.count - 1, &parent);
     if (error == FS_OK) error = resolve(context, &to, to.input.count - 1, &target);
@@ -668,8 +678,8 @@ enum fs_error fs_context_chdir(struct fs_context *context, const char *path)
 {
     if (!context) return FS_INVALID;
     struct fs_path plan;
-    enum fs_error error = preflight(context, path, &plan);
-    if (error != FS_OK || (error = enter()) != FS_OK) return error;
+    enum fs_error error = enter_path(context, path, &plan);
+    if (error != FS_OK) return error;
     struct location location;
     error = resolve(context, &plan, plan.input.count, &location);
     if (error == FS_OK && location.nodes[location.depth].kind != FS_DIRECTORY) error = FS_NOT_DIRECTORY;

@@ -30,6 +30,7 @@
    use the same resource container with PID zero. No shared-address-space user
    threads are published yet. */
 struct process_state {
+    task_id leader, foreground_waiter, collector;
     struct process_reference *reference;
     rum_pid_t process_id;
     task_id parent;
@@ -129,6 +130,7 @@ static void publish(struct task *slot, const struct task *prepared)
     processes[slot - tasks] = *prepared->process;
     *slot = *prepared;
     slot->process = &processes[slot - tasks];
+    slot->process->leader = slot->id;
 }
 
 static bool new_stack(struct task *task, uint32_t slot)
@@ -176,7 +178,7 @@ bool task_initialize(void)
     }
     uint32_t saved = cpu_interrupt_save();
     processes[BOOT] = (struct process_state){
-        .space = paging_kernel_space(), .filesystem = filesystem };
+        .leader = 1, .space = paging_kernel_space(), .filesystem = filesystem };
     tasks[BOOT] = (struct task){ .id = 1, .state = TASK_RUNNING,
         .stack_base = (uintptr_t)__boot_stack_bottom, .stack_top = (uintptr_t)__boot_stack_top,
         .process = &processes[BOOT] };
@@ -296,18 +298,19 @@ static task_id create_process(const struct task_process *process, bool make_fore
         paging_space_stats(process->space, &space) && !space.kernel &&
         process->space != paging_active_space() && valid_user_frame(process->space, &process->user_frame);
     struct task *slot = valid ? available_slot(process->space) : NULL;
-    task_id parent = valid ? current->id : 0;
+    task_id parent = valid ? current->process->leader : 0;
     cpu_interrupt_restore(saved);
     if (!slot || !process_filesystem_context()) return 0;
 
     struct process_state owner = { .process_id = next_process_id, .parent = parent,
+        .foreground_waiter = make_foreground ? current->id : 0,
         .kind = TASK_PROCESS, .space = process->space, .owns_space = true };
     struct task constructed = { .id = next_id, .state = TASK_RUNNABLE,
         .process = &owner, .user_frame = process->user_frame };
     const char *name = process->name[0] ? process->name : "program";
     for (unsigned i = 0; i < sizeof owner.name - 1 && name[i]; ++i)
         owner.name[i] = (unsigned char)name[i] >= 32 && (unsigned char)name[i] <= 126 ? name[i] : '?';
-    if (fs_context_clone(&current->process->filesystem, &owner.filesystem) != FS_OK) {
+    if (!process->initial_directory && fs_context_clone(&current->process->filesystem, &owner.filesystem) != FS_OK) {
         return 0;
     }
     if (!process->initial_handles && process_handles_initialize(&owner.handles)) {
@@ -341,12 +344,17 @@ static task_id create_process(const struct task_process *process, bool make_fore
     struct console_member *parent_console = current->process->kind == TASK_PROCESS ? &current->process->console : NULL;
     /* Ctrl+C can arrive during stack/cwd construction. Recheck under the
        publication lock so cancellation never leaves a half-attached session. */
-    if (!console_can_launch(parent_console, make_foreground) || task_current_cancelled()) {
+    if ((!make_foreground && !background_capacity()) ||
+        !console_can_launch(parent_console, make_foreground) || task_current_cancelled()) {
         cpu_interrupt_restore(saved);
         (void)paging_kernel_stack_release(stack_slot);
         (void)task_switch_release();
         discard_process_construction(&owner);
         return 0;
+    }
+    if (process->initial_directory) {
+        owner.filesystem = *process->initial_directory;
+        *process->initial_directory = (struct fs_context){0};
     }
     if (process->initial_handles) {
         owner.handles = *process->initial_handles;
@@ -404,7 +412,7 @@ bool task_mark_foreground_shell(task_id id)
     uint32_t saved = cpu_interrupt_save();
     bool marked = false;
     for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].id == id &&
-        tasks[i].process->parent == current->id && tasks[i].process->kind == TASK_PROCESS &&
+        tasks[i].process->parent == current->process->leader && tasks[i].process->kind == TASK_PROCESS &&
         tasks[i].state == TASK_RUNNABLE) {
         marked = console_mark_shell(&tasks[i].process->console); break;
     }
@@ -428,7 +436,7 @@ bool task_join_pipeline(task_id id)
     uint32_t saved = cpu_interrupt_save();
     bool joined = false;
     for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].id == id && tasks[i].state == TASK_RUNNABLE &&
-        tasks[i].process->parent == current->id && tasks[i].process->kind == TASK_PROCESS) {
+        tasks[i].process->parent == current->process->leader && tasks[i].process->kind == TASK_PROCESS) {
         joined = console_pipeline_join(&current->process->console, &tasks[i].process->console);
         if (joined && console_pipeline_cancelled(&current->process->console)) {
             tasks[i].process->cancellation_requested = true;
@@ -442,7 +450,7 @@ bool task_join_pipeline(task_id id)
 rum_result_t task_job_spawn_status(void)
 {
     if (!task_current_is_shell()) return -RUM_EACCES;
-    struct kernel_job *job = jobs_building(current->id);
+    struct kernel_job *job = jobs_building(current->process->leader);
     if (!job) return -RUM_EACCES;
     return job->cancelled ? -RUM_EINTR : job->entry.stage_count == RUM_JOB_STAGE_LIMIT ? -RUM_E2BIG : 0;
 }
@@ -450,10 +458,10 @@ bool task_join_job(task_id id)
 {
     if (!task_current_is_shell()) return false;
     uint32_t saved = cpu_interrupt_save();
-    struct kernel_job *job = jobs_building(current->id);
+    struct kernel_job *job = jobs_building(current->process->leader);
     bool joined = false;
     for (unsigned i = 2; job && i < TASK_SLOTS; ++i) if (tasks[i].id == id && tasks[i].state == TASK_RUNNABLE &&
-        tasks[i].process->kind == TASK_PROCESS && tasks[i].process->parent == current->id) {
+        tasks[i].process->kind == TASK_PROCESS && tasks[i].process->parent == current->process->leader) {
         joined = jobs_join(job, id, tasks[i].process->process_id);
         if (!joined) break;
         tasks[i].process->console.job_id = job->entry.job_id;
@@ -490,7 +498,7 @@ bool task_mark_shell_command(task_id id, const char *text)
     uint32_t saved = cpu_interrupt_save();
     bool marked = false;
     for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].id == id &&
-        tasks[i].process->parent == current->id && tasks[i].process->kind == TASK_PROCESS &&
+        tasks[i].process->parent == current->process->leader && tasks[i].process->kind == TASK_PROCESS &&
         tasks[i].state == TASK_RUNNABLE) {
         if (!console_grant_command(&current->process->console, &tasks[i].process->console)) break;
         tasks[i].process->command_has_text = text != NULL;
@@ -549,6 +557,27 @@ task_id task_current_id(void)
 bool task_current_is_process(void)
 {
     return ready && current && current->process->kind == TASK_PROCESS;
+}
+
+task_id task_current_member_id(void)
+{
+    return task_current_is_process() ? current->process->console.id : 0;
+}
+
+bool task_stack_in_region(const struct paging_space *space, uint32_t caller_sp, uint32_t address, uint32_t bytes)
+{
+    if (caller_sp && caller_sp >= address && caller_sp - address <= bytes) return true;
+    uint32_t saved = cpu_interrupt_save();
+    bool found = false;
+    for (unsigned i = 2; ready && i < TASK_SLOTS; ++i) {
+        const struct task *t = &tasks[i];
+        if (t == current || t->state == TASK_UNUSED || t->state == TASK_EXITED ||
+            t->process->kind != TASK_PROCESS || t->process->space != space) continue;
+        uint32_t sp = t->user_frame.esp;
+        if (sp >= address && sp - address <= bytes) { found = true; break; }
+    }
+    cpu_interrupt_restore(saved);
+    return found;
 }
 
 rum_pid_t task_current_process_id(void)
@@ -651,7 +680,8 @@ uint32_t task_process_list(struct rum_process_entry *entries, uint32_t capacity,
     *total = 0;
     if (ready) for (unsigned i = 2; i < TASK_SLOTS; ++i) {
         const struct task *task = &tasks[i];
-        if (task->state == TASK_UNUSED || task->process->kind != TASK_PROCESS) continue;
+        if (task->state == TASK_UNUSED || task->process->kind != TASK_PROCESS ||
+            task->id != task->process->leader) continue;
         ++*total;
         if (count == capacity) continue;
         struct rum_process_entry *entry = &entries[count++];
@@ -680,13 +710,21 @@ void task_notify_shell_input(void)
             console_owns_input(&tasks[i].process->console)) task_event_signal(&tasks[i].process->console_event);
     cpu_interrupt_restore(saved);
 }
+void task_notify_console_loss(task_id member)
+{
+    uint32_t saved = cpu_interrupt_save();
+    for (unsigned i = 2; ready && i < TASK_SLOTS; ++i)
+        if (tasks[i].state != TASK_UNUSED && tasks[i].id == member)
+            task_event_signal(&tasks[i].process->console_event);
+    cpu_interrupt_restore(saved);
+}
 bool task_shell_has_completion(void)
 {
     if (!task_current_is_shell()) return false;
     uint32_t saved = cpu_interrupt_save(); bool complete = false;
     for (unsigned i = 2; i < TASK_SLOTS; ++i)
         if (tasks[i].state == TASK_EXITED && tasks[i].process->kind == TASK_PROCESS &&
-            tasks[i].process->parent == current->id && !tasks[i].process->orphaned) complete = true;
+            tasks[i].process->parent == current->process->leader && !tasks[i].process->orphaned) complete = true;
     cpu_interrupt_restore(saved); return complete;
 }
 
@@ -708,8 +746,9 @@ bool task_snapshot_read(struct task_snapshot *snapshot)
             ++snapshot->states[item.state];
             if (tasks[i].waiting || tasks[i].wait_queue) ++snapshot->event_waiters;
             if (tasks[i].deadline_active) ++snapshot->deadline_waiters;
-            if (item.kind == TASK_PROCESS) ++snapshot->processes;
             snapshot->stack_pages += item.resources.kernel_stack_pages;
+            if (item.kind == TASK_PROCESS && tasks[i].id != tasks[i].process->leader) continue;
+            if (item.kind == TASK_PROCESS) ++snapshot->processes;
             snapshot->directory_pages += item.resources.directory_pages;
             snapshot->user_table_pages += item.resources.user_table_pages;
             snapshot->user_pages += item.resources.user_pages;
@@ -723,6 +762,8 @@ bool task_snapshot_read(struct task_snapshot *snapshot)
 static bool reap_slot(struct task *task)
 {
     if (!task || task->state != TASK_EXITED || task == current ||
+        (task->process->collector && task->process->collector != current->id) ||
+        (task->process->foreground_waiter && task->process->foreground_waiter != current->id) ||
         task->waiting || task->wait_queue || task->deadline_active || task->deadline || task->io_object ||
         task->process->console.references || task->process->console.live ||
         (task->process->owns_space && task->process->space == paging_active_space())) return false;
@@ -736,6 +777,12 @@ static bool reap_slot(struct task *task)
     if (!paging_kernel_stack_release(task->stack_slot)) cpu_halt();
     if (!console_detach(&task->process->console)) cpu_halt();
     process_reference_detach(task->process->reference);
+    if (task->process->kind == TASK_PROCESS)
+        for (unsigned i = 0; i < TASK_SLOTS; ++i)
+            if (tasks[i].state != TASK_UNUSED && tasks[i].id == task->process->parent) {
+                task_event_signal(&tasks[i].process->children_event);
+                break;
+            }
     *task->process = (struct process_state){0};
     *task = (struct task){0};
     ++reaped;
@@ -761,13 +808,13 @@ rum_result_t task_job_operation(struct rum_job_request *request, const char *nam
     if ((action == RUM_JOB_CREATE || action == RUM_JOB_COMMIT || action == RUM_JOB_ACK) && shell != current)
         return -RUM_EACCES;
     if (action == RUM_JOB_LIST) {
-        request->count = jobs_list(shell->id, entries, request->capacity, &request->total);
+        request->count = jobs_list(shell->process->leader, entries, request->capacity, &request->total);
         return (rum_result_t)request->count;
     }
     uint32_t saved = cpu_interrupt_save();
     struct kernel_job *job;
     if (action == RUM_JOB_CREATE) {
-        rum_result_t error = jobs_create(shell->id, name, request->flags, &job);
+        rum_result_t error = jobs_create(shell->process->leader, name, request->flags, &job);
         if (!error && (request->flags & RUM_JOB_FOREGROUND) &&
             !console_job_focus(&current->process->console, job->entry.job_id, NULL)) {
             jobs_commit(job); (void)jobs_release(job); error = -RUM_EBUSY;
@@ -775,7 +822,7 @@ rum_result_t task_job_operation(struct rum_job_request *request, const char *nam
         if (!error) request->job_id = job->entry.job_id;
         cpu_interrupt_restore(saved); return error ? error : (rum_result_t)request->job_id;
     }
-    job = jobs_find(shell->id, request->job_id);
+    job = jobs_find(shell->process->leader, request->job_id);
     if (!job) { cpu_interrupt_restore(saved); return -RUM_ESRCH; }
     rum_result_t result = 0;
     if (action == RUM_JOB_COMMIT) {
@@ -797,7 +844,7 @@ rum_result_t task_job_operation(struct rum_job_request *request, const char *nam
     } else if (action == RUM_JOB_RELEASE) {
         if (job->entry.state != RUM_JOB_DONE || job->operations) result = -RUM_EBUSY;
         for (unsigned i = 2; !result && i < TASK_SLOTS; ++i) if (tasks[i].state != TASK_UNUSED &&
-            tasks[i].process->parent == shell->id && tasks[i].process->console.job_id == job->entry.job_id &&
+            tasks[i].process->parent == shell->process->leader && tasks[i].process->console.job_id == job->entry.job_id &&
             !reap_slot(&tasks[i])) result = -RUM_EBUSY;
         if (!result && !jobs_release(job)) result = -RUM_EBUSY;
     } else if (action == RUM_JOB_WAIT) {
@@ -832,7 +879,7 @@ static uint32_t reap_exited(bool include_processes)
         struct task *task = &tasks[i];
         if (task->state == TASK_UNUSED ||
             (task->process->kind == TASK_PROCESS && !task->process->orphaned &&
-             (!include_processes || task->process->parent != current->id))) continue;
+             (!include_processes || task->process->parent != current->process->leader))) continue;
         /* Kernel-space borrowers share the active directory; only owned
            private directories must be inactive before release. */
         /* Keep owner records and released frames consistent for IRQ snapshots.
@@ -854,7 +901,7 @@ bool task_reap_process(task_id id)
     for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
         struct task *task = &tasks[i];
         if (task->id == id && task->process->kind == TASK_PROCESS &&
-            task->process->parent == current->id) {
+            task->process->parent == current->process->leader) {
             released = reap_slot(task);
             break;
         }
@@ -1033,7 +1080,7 @@ static _Noreturn void terminate_current(enum task_termination termination,
        and let the ordinary inactive-resource reaper discard their results.
        Build the set first: rewriting parents during discovery loses ancestry. */
     bool descendants[TASK_SLOTS] = {0};
-    task_id pending[TASK_SLOTS] = { current->id };
+    task_id pending[TASK_SLOTS] = { current->process->leader };
     unsigned head = 0, tail = 1;
     while (head < tail) {
         task_id parent = pending[head++];
@@ -1051,6 +1098,7 @@ static _Noreturn void terminate_current(enum task_termination termination,
     for (unsigned i = 2; i < TASK_SLOTS; ++i) if (descendants[i]) {
         struct task *child = &tasks[i];
         child->process->parent = tasks[BOOT].id;
+        child->process->foreground_waiter = child->process->collector = 0;
         child->process->orphaned = true;
         child->process->cancellation_requested = true;
         console_cancel_member(&child->process->console);
@@ -1058,12 +1106,12 @@ static _Noreturn void terminate_current(enum task_termination termination,
             wake_task(child, TASK_WAIT_CANCELLED);
         }
     }
-    struct kernel_job *job = jobs_for_task(current->id);
+    struct kernel_job *job = jobs_for_task(current->process->leader);
     if (job) {
         struct rum_process_result result = { .version = RUM_PROCESS_ABI_VERSION, .size = sizeof result,
             .process_id = current->process->process_id, .termination = current->process->termination,
             .status = current->process->exit_status, .fault_vector = current->process->termination == TASK_TERMINATION_FAULT ? current->process->fault.vector : 0 };
-        jobs_exit(job, current->id, &result);
+        jobs_exit(job, current->process->leader, &result);
         if (job->cancelled) cancel_job_members(job);
         if (job->entry.state == RUM_JOB_DONE) {
             console_job_end(&current->process->console, job->entry.job_id);
@@ -1071,7 +1119,7 @@ static _Noreturn void terminate_current(enum task_termination termination,
         }
         jobs_reclaim(job);
     }
-    jobs_abandon(current->id);
+    jobs_abandon(current->process->leader);
     if (console_member_exit(&current->process->console)) keyboard_discard_input();
     current->state = TASK_EXITED;
     if (current->process->reference) {
@@ -1118,7 +1166,9 @@ bool task_foreground_end(task_id id)
     bool cleared = false;
     for (uint32_t i = 2; i < TASK_SLOTS; ++i) {
         if (tasks[i].id == id && tasks[i].process->kind == TASK_PROCESS &&
-            tasks[i].process->parent == current->id && tasks[i].state == TASK_EXITED &&
+            tasks[i].process->parent == current->process->leader && tasks[i].state == TASK_EXITED &&
+            (!tasks[i].process->collector || tasks[i].process->collector == current->id) &&
+            (!tasks[i].process->foreground_waiter || tasks[i].process->foreground_waiter == current->id) &&
             tasks[i].process->console.foreground_launch) {
             tasks[i].process->console.foreground_launch = false;
             cleared = true;
@@ -1175,7 +1225,7 @@ uint32_t task_console_owner_id(void)
     uint32_t saved = cpu_interrupt_save(), result = 0;
     for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].state != TASK_UNUSED && tasks[i].state != TASK_EXITED &&
         tasks[i].process->kind == TASK_PROCESS && !tasks[i].process->orphaned &&
-        console_owns_input(&tasks[i].process->console)) { result = tasks[i].id; break; }
+        console_owns_input(&tasks[i].process->console)) { result = tasks[i].process->leader; break; }
     cpu_interrupt_restore(saved); return result;
 }
 
@@ -1183,14 +1233,14 @@ uint32_t task_console_owner_id(void)
    and explicit process opens use this same parent/session policy. */
 static bool process_authorized(const struct task *target, bool session)
 {
-    if (!target || target == current || target->process->console.shell || target->process->orphaned) return false;
-    if (!session) return target->process->parent == current->id;
+    if (!target || target->process == current->process || target->process->console.shell || target->process->orphaned) return false;
+    if (!session) return target->process->parent == current->process->leader;
     struct task *shell = NULL;
     for (unsigned i = 2; i < TASK_SLOTS; ++i)
         if (tasks[i].state != TASK_UNUSED && tasks[i].id == current->process->parent &&
             console_is_shell(&tasks[i].process->console)) shell = &tasks[i];
     return shell && console_command_shell(&current->process->console) == &shell->process->console &&
-        console_same_session(&target->process->console, &shell->process->console) && target->process->parent == shell->id;
+        console_same_session(&target->process->console, &shell->process->console) && target->process->parent == shell->process->leader;
 }
 static void request_cancellation(struct task *target)
 {
@@ -1233,40 +1283,55 @@ static struct rum_process_object_information process_object_information(const st
     }
     return info;
 }
-rum_result_t task_process_object_operation(struct rum_process_object_request *request, struct rum_process_object_information *info)
+static rum_result_t open_process_reference(struct rum_process_object_request *request)
 {
-    if (!task_current_is_process() || !task_blocking_allowed()) return -RUM_EBUSY;
-    if (request->operation == RUM_PROCESS_OBJECT_OPEN) {
-        process_references_reclaim();
+    struct process_reference *candidate = NULL;
+    rum_result_t result;
+    process_references_reclaim();
+    for (;;) {
         uint32_t saved = cpu_interrupt_save();
         struct task *target = NULL;
         for (unsigned i = 2; i < TASK_SLOTS; ++i)
             if (tasks[i].state != TASK_UNUSED && tasks[i].process->kind == TASK_PROCESS &&
+                tasks[i].process->leader == tasks[i].id &&
                 tasks[i].process->process_id == request->process_id) target = &tasks[i];
-        uint32_t authorized = target == current ? RUM_RIGHT_COMMON :
+        uint32_t authorized = target && target->process == current->process ? RUM_RIGHT_COMMON :
             process_authorized(target, request->flags & RUM_PROCESS_OPEN_SESSION) ? RUM_RIGHT_PROCESS : 0;
-        cpu_interrupt_restore(saved);
-        if (!target) return -RUM_ESRCH;
-        if (!authorized || (request->rights & ~authorized)) return -RUM_EACCES;
-        bool fresh = !target->process->reference;
-        if (fresh) {
-            struct rum_process_object_information initial = process_object_information(target);
-            target->process->reference = process_reference_create(target->id, &initial);
-            if (!target->process->reference) return -RUM_ENOMEM;
-        }
+        result = !target ? -RUM_ESRCH : !authorized || (request->rights & ~authorized) ? -RUM_EACCES : 0;
+        if (result) { cpu_interrupt_restore(saved); break; }
         struct process_reference *reference = target->process->reference;
-        rum_result_t result = object_acquire(&reference->object, OBJECT_OWNER);
+        if (!reference && !candidate) {
+            task_id identity = target->id;
+            struct rum_process_object_information initial = process_object_information(target);
+            cpu_interrupt_restore(saved);
+            candidate = process_reference_create(identity, &initial);
+            if (!candidate) return -RUM_ENOMEM;
+            continue; /* Recheck PID, authority and canonical reference after construction. */
+        }
+        if (!reference) {
+            reference = candidate;
+            reference->information = process_object_information(target);
+        }
+        result = object_acquire(&reference->object, OBJECT_OWNER);
         if (!result) {
             result = object_handle_install(&current->process->objects, &reference->object, authorized, request->rights,
                 request->flags & RUM_PROCESS_OPEN_INHERIT ? RUM_OBJECT_INHERIT : 0, &request->result_handle);
             if (result && object_release(&reference->object, OBJECT_OWNER)) cpu_halt();
         }
-        if (result && fresh) {
-            target->process->reference = NULL;
-            process_reference_detach(reference); process_references_reclaim();
+        if (!result && reference == candidate) {
+            target->process->reference = candidate;
+            candidate = NULL;
         }
-        return result;
+        cpu_interrupt_restore(saved);
+        break;
     }
+    if (candidate) { process_reference_detach(candidate); process_references_reclaim(); }
+    return result;
+}
+rum_result_t task_process_object_operation(struct rum_process_object_request *request, struct rum_process_object_information *info)
+{
+    if (!task_current_is_process() || !task_blocking_allowed()) return -RUM_EBUSY;
+    if (request->operation == RUM_PROCESS_OBJECT_OPEN) return open_process_reference(request);
     uint32_t needed = request->operation == RUM_PROCESS_OBJECT_QUERY ? RUM_RIGHT_QUERY :
         request->operation == RUM_PROCESS_OBJECT_WAIT ? RUM_RIGHT_WAIT : RUM_RIGHT_TERMINATE;
     struct kernel_object *object;
@@ -1331,10 +1396,10 @@ bool task_wait_process(task_id id, struct task_information *result)
     if (!ready || !id || !result || irq_in_handler()) return false;
     struct task_information child;
     return task_query(id, &child) && child.kind == TASK_PROCESS &&
-           child.parent == current->id && task_wait_child(child.process_id, false, result) == 1;
+           child.parent == current->process->leader && task_wait_child(child.process_id, false, result) == 1;
 }
 
-rum_result_t task_wait_child(rum_pid_t id, bool nohang, struct task_information *result)
+static rum_result_t wait_child_result(rum_pid_t id, bool nohang, bool claim, struct task_information *result)
 {
     if (id > RUM_ABI_PID_MAX || !result) return -RUM_EINVAL;
     if (!ready || irq_in_handler()) return -RUM_EBUSY;
@@ -1351,10 +1416,12 @@ rum_result_t task_wait_child(rum_pid_t id, bool nohang, struct task_information 
         for (unsigned i = 2; i < TASK_SLOTS; ++i) {
             const struct task *child = &tasks[i];
             if (child->state == TASK_UNUSED || child->process->kind != TASK_PROCESS ||
-                child->process->orphaned || child->process->parent != current->id ||
-                (id && child->process->process_id != id)) continue;
+                child->process->orphaned || child->process->parent != current->process->leader ||
+                (id && child->process->process_id != id) ||
+                (child->process->foreground_waiter && child->process->foreground_waiter != current->id)) continue;
             found = true;
-            if (child->state == TASK_EXITED) {
+            if (child->state == TASK_EXITED && (!claim || !child->process->collector)) {
+                if (claim) child->process->collector = current->id;
                 *result = information(child);
                 cpu_interrupt_restore(saved);
                 return 1;
@@ -1367,14 +1434,37 @@ rum_result_t task_wait_child(rum_pid_t id, bool nohang, struct task_information 
     }
 }
 
+rum_result_t task_wait_child(rum_pid_t id, bool nohang, struct task_information *result)
+{
+    return wait_child_result(id, nohang, false, result);
+}
+rum_result_t task_claim_child(rum_pid_t id, bool nohang, struct task_information *result)
+{
+    return wait_child_result(id, nohang, true, result);
+}
+void task_unclaim_child(task_id id)
+{
+    uint32_t saved = cpu_interrupt_save();
+    for (unsigned i = 2; i < TASK_SLOTS; ++i) {
+        if (tasks[i].id != id || tasks[i].state != TASK_EXITED ||
+            tasks[i].process->collector != current->id) continue;
+        tasks[i].process->collector = 0;
+        task_event_signal(&current->process->children_event);
+        break;
+    }
+    cpu_interrupt_restore(saved);
+}
+
 bool task_collect_child(task_id id)
 {
     if (!ready || irq_in_handler()) return false;
     struct task_information info;
-    if (!task_query(id, &info) || info.parent != current->id || info.state != TASK_EXITED) return false;
+    if (!task_query(id, &info) || info.parent != current->process->leader || info.state != TASK_EXITED) return false;
     for (unsigned i = 2; i < TASK_SLOTS; ++i) if (tasks[i].id == id &&
         tasks[i].process->console.foreground_launch && !task_foreground_end(id)) return false;
-    return task_reap_process(id);
+    bool collected = task_reap_process(id);
+    if (!collected) task_unclaim_child(id);
+    return collected;
 }
 
 uint32_t task_event_sequence(const struct task_event *event)

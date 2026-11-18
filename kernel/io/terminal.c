@@ -7,7 +7,8 @@
 #include <rum/interrupts.h>
 #include <rum/serial.h>
 
-static uint32_t owner;
+static uint32_t owner, owner_member;
+static uint32_t reader, reader_member;
 static struct terminal_snapshot saved;
 static bool inline_mode, dirty;
 static char line[RUM_TERM_MAX_LINE];
@@ -27,11 +28,11 @@ static void restore(bool forced)
         terminal_cursor_visible(saved.state.visible);
     } else { terminal_restore(&saved); terminal_scrollback_enable(true); }
     if (!inline_mode || forced) keyboard_discard_input();
-    owner = 0; inline_mode = dirty = false; line_bytes = line_cursor = 0;
+    owner = owner_member = 0; inline_mode = dirty = false; line_bytes = line_cursor = 0;
     task_event_signal(keyboard_input_event());
 }
 uint32_t terminal_session_owner(void) { return owner; }
-bool terminal_session_owned(uint32_t task) { return owner && task == owner && task_console_owner_id() == owner; }
+bool terminal_session_owned(uint32_t task) { return owner && task == owner && task_console_owner_id() == owner_member; }
 bool terminal_session_inline(void) { return owner && inline_mode; }
 bool terminal_session_redraw(void) { return owner && inline_mode && dirty; }
 bool terminal_session_output(uint32_t task)
@@ -44,24 +45,51 @@ bool terminal_session_output(uint32_t task)
 }
 void terminal_session_reconcile(void)
 {
-    if (owner && task_console_owner_id() != owner) restore(true);
+    uint32_t member = task_console_owner_id();
+    if (owner && member != owner_member) {
+        task_notify_console_loss(owner_member);
+        restore(true);
+    }
+    if (reader && member != reader_member) {
+        task_notify_console_loss(reader_member);
+        reader = reader_member = 0;
+        task_event_signal(keyboard_input_event());
+    }
 }
-void terminal_session_exit(uint32_t task) { if (owner == task) restore(true); }
-static rum_result_t begin(uint32_t task, bool inline_session)
+bool terminal_input_owned(uint32_t thread) { return reader && reader == thread; }
+void terminal_input_end(uint32_t thread)
+{
+    if (terminal_input_owned(thread)) reader = reader_member = 0;
+}
+void terminal_session_exit(uint32_t thread)
+{
+    terminal_input_end(thread);
+    if (owner == thread) restore(true);
+}
+rum_result_t terminal_input_begin(uint32_t thread, uint32_t member)
 {
     if (!task_context()) return -RUM_EBUSY;
     terminal_session_reconcile();
-    if (!task || task_console_owner_id() != task) return -RUM_EACCES;
-    if (owner) return -RUM_EBUSY;
+    if (!thread || !member || member != task_console_owner_id()) return -RUM_EACCES;
+    if (reader || (owner && owner != thread)) return -RUM_EBUSY;
+    reader = thread; reader_member = member;
+    return 0;
+}
+static rum_result_t begin(uint32_t task, uint32_t member, bool inline_session)
+{
+    if (!task_context()) return -RUM_EBUSY;
+    terminal_session_reconcile();
+    if (!task || !member || task_console_owner_id() != member) return -RUM_EACCES;
+    if (owner || reader) return -RUM_EBUSY;
     terminal_scroll(0);
     if (inline_session) saved.state = terminal_state(); else terminal_capture(&saved);
-    owner = task; inline_mode = inline_session; dirty = false; line_bytes = line_cursor = 0;
+    owner = task; owner_member = member; inline_mode = inline_session; dirty = false; line_bytes = line_cursor = 0;
     if (inline_mode) { terminal_edit_begin(); terminal_cursor_visible(true); }
     else { terminal_scrollback_enable(false); terminal_clear(); terminal_cursor_visible(false); }
     return 0;
 }
-rum_result_t terminal_session_begin(uint32_t task) { return begin(task, false); }
-rum_result_t terminal_session_begin_inline(uint32_t task) { return begin(task, true); }
+rum_result_t terminal_session_begin(uint32_t task, uint32_t member) { return begin(task, member, false); }
+rum_result_t terminal_session_begin_inline(uint32_t task, uint32_t member) { return begin(task, member, true); }
 rum_result_t terminal_session_end(uint32_t task)
 {
     if (!task_context()) return -RUM_EBUSY;

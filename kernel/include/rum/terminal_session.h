@@ -4,8 +4,11 @@
 #include <rum/abi/types.h>
 #include <stdbool.h>
 /* Task context, IF enabled. No allocation or waits. Snapshot excludes status. */
-rum_result_t terminal_session_begin(uint32_t owner);
-rum_result_t terminal_session_begin_inline(uint32_t owner);
+rum_result_t terminal_session_begin(uint32_t thread, uint32_t member);
+rum_result_t terminal_session_begin_inline(uint32_t thread, uint32_t member);
+rum_result_t terminal_input_begin(uint32_t thread, uint32_t member);
+bool terminal_input_owned(uint32_t thread);
+void terminal_input_end(uint32_t thread);
 bool terminal_session_inline(void);
 bool terminal_session_redraw(void);
 void terminal_session_line(const char *, uint32_t bytes, uint32_t cursor);

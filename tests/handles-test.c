@@ -23,6 +23,58 @@ static void empty(void)
            !object_stats().total.references[OBJECT_OPERATION]);
 }
 static struct process_handles *pending_table;
+static struct fs_context cwd;
+static void during_path_lookup(void)
+{
+    assert(fs_context_chdir(&cwd, "/DOCS") == FS_BUSY);
+    struct process_handle *object;
+    assert(process_handle_acquire(pending_table, 3, &object) == -RUM_EBADF);
+    assert(process_handle_duplicate(pending_table, 1, 3, 0) == -RUM_EBUSY);
+}
+static void during_append(void)
+{
+    uint64_t position = 99;
+    assert(process_handle_seek(process_handle_get(pending_table, 4), 0, RUM_SEEK_SET, &position) == -RUM_EBUSY &&
+           position == 99);
+    assert(process_handle_write(process_handle_get(pending_table, 5), "X", 1) == -RUM_EBUSY);
+}
+static void during_close(void)
+{
+    struct process_handles child = {0};
+    struct rum_handle_mapping mapping = {5, 6, {0}};
+    assert(process_handle_duplicate(pending_table, 1, 5, 0) == -RUM_EBUSY);
+    assert(process_handles_prepare_spawn(&child, pending_table, &mapping, 1, 0) == -RUM_EBUSY);
+    assert(process_handles_destroy(pending_table) == -RUM_EBUSY);
+}
+static void interleaved_files(void)
+{
+    struct process_handles table = {0};
+    pending_table = &table;
+    assert(!process_handles_initialize(&table) && fs_context_initialize(&cwd) == FS_OK);
+    assert(fs_replace(&cwd, "RACE.BIN", "", 0) == FS_OK);
+    fs_test_on_lookup = during_path_lookup;
+    assert(process_handle_open(&table, &cwd, "RACE.BIN", FS_READ | FS_WRITE, RUM_OPEN_APPEND) == 3 && !fs_test_on_lookup);
+    assert(process_handle_duplicate(&table, 3, 4, 0) == 4);
+    assert(process_handle_open(&table, &cwd, "RACE.BIN", FS_WRITE, RUM_OPEN_APPEND) == 5);
+    fs_test_on_transfer = during_append;
+    assert(process_handle_write(process_handle_get(&table, 3), "A", 1) == 1 && !fs_test_on_transfer);
+    assert(process_handle_write(process_handle_get(&table, 5), "B", 1) == 1);
+    uint64_t position;
+    char bytes[2];
+    assert(!process_handle_seek(process_handle_get(&table, 4), 0, RUM_SEEK_SET, &position));
+    assert(process_handle_read(process_handle_get(&table, 3), bytes, sizeof bytes) == 2 && !memcmp(bytes, "AB", 2));
+    assert(!process_handle_close(&table, 3) && !process_handle_close(&table, 4));
+    fs_test_on_release = during_close;
+    assert(!process_handle_close(&table, 5) && !fs_test_on_release);
+    struct fs_context inherited = {0};
+    struct fs_information info;
+    assert(fs_context_clone(&cwd, &inherited) == FS_OK && fs_context_chdir(&cwd, "/DOCS") == FS_OK);
+    assert(fs_stat_path(&cwd, "RACE.BIN", &info) == FS_NOT_FOUND &&
+           fs_stat_path(&inherited, "RACE.BIN", &info) == FS_OK && info.size == 2);
+    assert(fs_remove(&inherited, "RACE.BIN") == FS_OK && fs_context_destroy(&inherited) == FS_OK &&
+           fs_context_destroy(&cwd) == FS_OK && !process_handles_destroy(&table));
+    empty();
+}
 static void close_pending(void)
 {
     assert(pipe_stats().operations == 1);
@@ -320,7 +372,7 @@ int main(void)
     test_page_budget(-1);
     assert(heap_initialize() && test_files_initialize() && test_files_mount());
     assert(test_file_put("DATA.BIN", "abcdef", 6));
-    retained_operations(); typed_aliases(); aliases(); validation(); exhaustion(); pipes_test(); open_modes(); resource_counts();
+    interleaved_files(); retained_operations(); typed_aliases(); aliases(); validation(); exhaustion(); pipes_test(); open_modes(); resource_counts();
     assert(!fs_stats().references && !fs_test_backend_pins() && fs_unmount_disk() == FS_OK);
     puts("PASS: shared offsets/errors, descriptor mapping, authority, pinning, limits and rollback");
     return 0;

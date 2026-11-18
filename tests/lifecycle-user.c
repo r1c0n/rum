@@ -245,10 +245,10 @@ int main(int argc, char **argv)
     if (equal(argv[1], "copywait")) {
         rum_result_t child = spawn("waitfile", 0, 0); check(child > 0, 82);
         struct rum_process_result *out = (void *)PAGE; *out = result(); out->status = 123;
-        /* The trusted fixture revokes output write permission while WAIT is
-           asleep, then lets the child exit. Retry must still find its record. */
-        check(rum_wait((rum_pid_t)child, 0, out) == -RUM_EFAULT && out->status == 123, 83);
-        collect((rum_pid_t)child, RUM_PROCESS_EXITED, 0); return 0;
+        check(rum_wait((rum_pid_t)child, 0, out) == 1 && out->status == 0 &&
+              out->process_id == (rum_pid_t)child, 83);
+        *out = result();
+        check(rum_wait((rum_pid_t)child, 0, out) == -RUM_ECHILD, 84); return 0;
     }
     if (equal(argv[1], "waitfile")) { await("/finish.CHD"); return 0; }
     if (equal(argv[1], "session")) {

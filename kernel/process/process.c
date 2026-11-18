@@ -16,7 +16,7 @@ static rum_result_t executable_read(void *context, uint32_t offset, void *out, u
     return io.transferred <= bytes ? (rum_result_t)io.transferred : -RUM_EIO;
 }
 
-static rum_result_t start_prepared_process(const char *program, const struct rum_arguments *arguments,
+static rum_result_t load_and_publish(struct fs_context *directory, const char *program, const struct rum_arguments *arguments,
                                   bool foreground, bool shell, struct process_handles *handles,
                                   struct object_handles *objects, task_id *child)
 {
@@ -31,7 +31,7 @@ static rum_result_t start_prepared_process(const char *program, const struct rum
     if (!length || length == sizeof path) return -RUM_ENAMETOOLONG;
     memcpy(path, program, length + 1);
     fs_reference file = 0;
-    enum fs_error error = fs_open(task_current_filesystem(), path, FS_READ, &file);
+    enum fs_error error = fs_open(directory->directory ? directory : NULL, path, FS_READ, &file);
     bool has_extension = false;
     for (size_t i = 0; i < length; ++i) {
         if (path[i] == '/') has_extension = false;
@@ -40,7 +40,7 @@ static rum_result_t start_prepared_process(const char *program, const struct rum
     if (error == FS_NOT_FOUND && !has_extension) {
         if (length + 5 > sizeof path) return -RUM_ENAMETOOLONG;
         memcpy(path + length, ".elf", 5);
-        error = fs_open(task_current_filesystem(), path, FS_READ, &file);
+        error = fs_open(directory->directory ? directory : NULL, path, FS_READ, &file);
     }
     if (error != FS_OK) return process_fs_error(error);
     struct fs_information info = {0};
@@ -61,6 +61,7 @@ static rum_result_t start_prepared_process(const char *program, const struct rum
         return -RUM_EINTR;
     }
     process.initial_handles = handles;
+    process.initial_directory = directory;
     process.initial_objects = objects;
     const char *name = path;
     for (unsigned i = 0; path[i]; ++i) if (path[i] == '/') name = path + i + 1;
@@ -70,6 +71,22 @@ static rum_result_t start_prepared_process(const char *program, const struct rum
         foreground ? task_create_foreground_process(&process) : task_create_process(&process);
     if (!*child) { (void)paging_space_destroy(process.space); return -RUM_ENOMEM; }
     return 0;
+}
+
+static rum_result_t start_prepared_process(const char *program, const struct rum_arguments *arguments,
+                                  bool foreground, bool shell, struct process_handles *handles,
+                                  struct object_handles *objects, task_id *child)
+{
+    struct fs_context directory = {0};
+    const struct fs_context *cwd = task_current_filesystem();
+    if (!child) return -RUM_EINVAL;
+    *child = 0;
+    enum fs_error error = cwd ? fs_context_clone(cwd, &directory) : fs_context_initialize(&directory);
+    if (!cwd && error == FS_UNAVAILABLE) error = FS_OK;
+    if (error != FS_OK) return process_fs_error(error);
+    rum_result_t result = load_and_publish(&directory, program, arguments, foreground, shell, handles, objects, child);
+    if (fs_context_destroy(&directory) != FS_OK) cpu_halt();
+    return result;
 }
 
 static rum_result_t start_process(const char *program, const struct rum_arguments *arguments,
@@ -123,10 +140,11 @@ static rum_result_t spawn_resources(const char *path, const struct rum_arguments
     struct process_handles prepared = {0};
     struct object_handles objects = {0};
     rum_result_t error = explicit_objects ?
-        object_handles_prepare_spawn(&objects, task_current_objects(), grants, grant_count) : 0;
+        object_handles_prepare_spawn(&objects, task_current_objects(), grants, grant_count) :
+        task_current_objects() ? object_handles_inherit(&objects, task_current_objects(), RUM_RIGHT_MASK) : 0;
     if (!error) error = process_handles_prepare_spawn(&prepared, task_current_handles(), mappings, count,
         flags & RUM_SPAWN_NO_DEFAULT_STREAMS);
-    if (!error) error = start_process(path, arguments, false, false, &prepared, explicit_objects ? &objects : NULL, child);
+    if (!error) error = start_prepared_process(path, arguments, false, false, &prepared, &objects, child);
     if (!error && (flags & RUM_SPAWN_PIPELINE) && !task_join_pipeline(*child)) cpu_halt();
     if (!error && (flags & RUM_SPAWN_JOB) && !task_join_job(*child)) cpu_halt();
     /* Successful publication moves the complete table, leaving this empty.
@@ -162,7 +180,7 @@ static rum_result_t run_foreground(const char *path, const struct rum_arguments 
     if (command && !task_mark_shell_command(child, command_text)) cpu_halt();
     struct task_information info;
     if (!task_query(child, &info)) cpu_halt();
-    error = task_wait_child(info.process_id, false, &info);
+    error = task_claim_child(info.process_id, false, &info);
     if (error != 1) return error < 0 ? error : -RUM_EIO;
     *result = (struct process_result){ info.process_id, info.termination, info.exit_status, info.fault };
     if (!task_collect_child(child)) cpu_halt();
