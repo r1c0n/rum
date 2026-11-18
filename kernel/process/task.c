@@ -64,6 +64,8 @@ struct task {
     void *argument;
     struct exception_user_frame user_frame;
     struct task_event *waiting;
+    struct task_wait_queue *wait_queue;
+    struct task *wait_prev, *wait_next;
     uint32_t deadline;
     bool deadline_active;
     enum task_wait_result wake_reason;
@@ -98,6 +100,14 @@ static bool block_authority(void)
 
 static void clear_wait(struct task *task)
 {
+    if (task->wait_queue) {
+        if (task->wait_prev) task->wait_prev->wait_next = task->wait_next;
+        else task->wait_queue->head = task->wait_next;
+        if (task->wait_next) task->wait_next->wait_prev = task->wait_prev;
+        else task->wait_queue->tail = task->wait_prev;
+        task->wait_queue = NULL;
+        task->wait_prev = task->wait_next = NULL;
+    }
     task->waiting = NULL;
     task->deadline_active = false;
     task->deadline = 0;
@@ -695,7 +705,7 @@ bool task_snapshot_read(struct task_snapshot *snapshot)
             struct task_information item = information(&tasks[i]);
             snapshot->tasks[snapshot->count++] = item;
             ++snapshot->states[item.state];
-            if (tasks[i].waiting) ++snapshot->event_waiters;
+            if (tasks[i].waiting || tasks[i].wait_queue) ++snapshot->event_waiters;
             if (tasks[i].deadline_active) ++snapshot->deadline_waiters;
             if (item.kind == TASK_PROCESS) ++snapshot->processes;
             snapshot->stack_pages += item.resources.kernel_stack_pages;
@@ -712,7 +722,7 @@ bool task_snapshot_read(struct task_snapshot *snapshot)
 static bool reap_slot(struct task *task)
 {
     if (!task || task->state != TASK_EXITED || task == current ||
-        task->waiting || task->deadline_active || task->deadline || task->io_object ||
+        task->waiting || task->wait_queue || task->deadline_active || task->deadline || task->io_object ||
         task->process->console.references || task->process->console.live ||
         (task->process->owns_space && task->process->space == paging_active_space())) return false;
     /* Exit must release file handles before this interrupt-protected reaper.
@@ -1385,6 +1395,41 @@ void task_event_signal(struct task_event *event)
     cpu_interrupt_restore(saved);
 }
 
+static enum task_wait_result park_locked(bool timed, uint32_t duration)
+{
+    current->deadline_active = timed;
+    current->deadline = timed ? timer_ticks() + duration : 0;
+    current->state = TASK_BLOCKED;
+    schedule();
+    if (current->waiting || current->wait_queue || current->deadline_active || current->deadline) cpu_halt();
+    return current->wake_reason;
+}
+
+enum task_wait_result task_queue_wait_locked(struct task_wait_queue *queue, bool timed, uint32_t duration)
+{
+    if ((cpu_interrupt_save() & IF) != 0) cpu_halt();
+    if (!queue || !ready || irq_in_handler() || current == &tasks[IDLE] ||
+        current->state != TASK_RUNNING || switch_protected() || current->wait_queue ||
+        current->waiting || (timed && duration >= TIMER_HALF_RANGE)) return TASK_WAIT_INVALID;
+    if (task_current_cancelled()) return TASK_WAIT_CANCELLED;
+    if (timed && !duration) return TASK_WAIT_TIMEOUT;
+    current->wait_queue = queue;
+    current->wait_prev = queue->tail;
+    if (queue->tail) queue->tail->wait_next = current;
+    else queue->head = current;
+    queue->tail = current;
+    return park_locked(timed, duration);
+}
+
+task_id task_queue_grant_locked(struct task_wait_queue *queue, bool abandoned)
+{
+    if ((cpu_interrupt_save() & IF) != 0) cpu_halt();
+    struct task *first = queue->head;
+    if (!first) return 0;
+    wake_task(first, abandoned ? TASK_WAIT_ABANDONED : TASK_WAIT_EVENT);
+    return first->id;
+}
+
 static enum task_wait_result wait_common(struct task_event *event, uint32_t observed,
                                          bool timed, uint32_t duration)
 {
@@ -1402,12 +1447,8 @@ static enum task_wait_result wait_common(struct task_event *event, uint32_t obse
         /* Tick capture, sequence check and registration form one update. An
            IRQ cannot pass a deadline or signal the event between them. */
         current->waiting = event;
-        current->deadline_active = timed;
-        current->deadline = timed ? timer_ticks() + duration : 0;
-        current->state = TASK_BLOCKED;
-        schedule();
-        if (current->waiting || current->deadline_active || current->deadline) cpu_halt();
-        reason = task_current_cancelled() ? TASK_WAIT_CANCELLED : current->wake_reason;
+        reason = park_locked(timed, duration);
+        if (task_current_cancelled()) reason = TASK_WAIT_CANCELLED;
     }
     cpu_interrupt_restore(saved);
     return reason;

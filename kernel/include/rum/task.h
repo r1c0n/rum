@@ -27,7 +27,9 @@ enum task_termination {
     TASK_TERMINATION_CANCELLED,
 };
 struct task_event { volatile uint32_t sequence; };
-enum task_wait_result { TASK_WAIT_EVENT, TASK_WAIT_TIMEOUT, TASK_WAIT_CANCELLED, TASK_WAIT_INVALID };
+struct task_wait_queue { struct task *head, *tail; };
+enum task_wait_result { TASK_WAIT_EVENT, TASK_WAIT_TIMEOUT, TASK_WAIT_CANCELLED, TASK_WAIT_INVALID,
+                        TASK_WAIT_ABANDONED };
 struct task_resources {
     uint32_t kernel_stack_pages, directory_pages, user_table_pages, user_pages;
 };
@@ -188,4 +190,12 @@ bool task_wait(struct task_event *event, uint32_t observed);
 enum task_wait_result task_wait_for(struct task_event *event, uint32_t observed, uint32_t ticks);
 void task_event_signal(struct task_event *event); /* IRQ-safe; no switch/alloc/free. */
 struct task_event *task_work_event(void); /* Timer/keyboard foreground events. */
+/* Single-CPU dispatcher protocol. Caller checks task_blocking_allowed() before
+   masking interrupts, checks the predicate with IF clear, then parks without
+   reopening the interrupt window. Returns with IF clear. A committed grant
+   survives later cancellation. Queue storage must be pinned across the wait. */
+enum task_wait_result task_queue_wait_locked(struct task_wait_queue *, bool timed, uint32_t ticks);
+/* IF clear, including IRQ context. Commit one FIFO grant and detach its timer.
+   Returns the selected thread ID or zero if the queue is empty. */
+task_id task_queue_grant_locked(struct task_wait_queue *, bool abandoned);
 #endif
