@@ -1,5 +1,6 @@
 #include <rum/object_handle.h>
 #include <rum/abi/error.h>
+#include <rum/abi/thread.h>
 #include <rum/cpu.h>
 #include <rum/interrupts.h>
 
@@ -7,7 +8,9 @@ _Static_assert(RUM_OBJECT_HANDLE_LIMIT == 32, "five-bit slot identity");
 _Static_assert(OBJECT_FILE == RUM_OBJECT_FILE && OBJECT_DIRECTORY == RUM_OBJECT_DIRECTORY &&
                OBJECT_PIPE_READER == RUM_OBJECT_PIPE_READER && OBJECT_PIPE_WRITER == RUM_OBJECT_PIPE_WRITER &&
                OBJECT_CONSOLE_INPUT == RUM_OBJECT_CONSOLE_INPUT && OBJECT_CONSOLE_OUTPUT == RUM_OBJECT_CONSOLE_OUTPUT &&
-               OBJECT_PROCESS == RUM_OBJECT_PROCESS, "private/public object type mapping");
+               OBJECT_PROCESS == RUM_OBJECT_PROCESS && OBJECT_EVENT == RUM_OBJECT_EVENT &&
+               OBJECT_MUTEX == RUM_OBJECT_MUTEX && OBJECT_SEMAPHORE == RUM_OBJECT_SEMAPHORE,
+               "private/public object type mapping");
 
 uint32_t object_rights_mask(uint32_t type)
 {
@@ -17,6 +20,7 @@ uint32_t object_rights_mask(uint32_t type)
     case RUM_OBJECT_PIPE_READER: case RUM_OBJECT_CONSOLE_INPUT: return RUM_RIGHT_INPUT;
     case RUM_OBJECT_PIPE_WRITER: case RUM_OBJECT_CONSOLE_OUTPUT: return RUM_RIGHT_OUTPUT;
     case RUM_OBJECT_PROCESS: return RUM_RIGHT_PROCESS;
+    case RUM_OBJECT_EVENT: case RUM_OBJECT_MUTEX: case RUM_OBJECT_SEMAPHORE: return RUM_RIGHT_SYNC;
     default: return 0;
     }
 }
@@ -61,6 +65,7 @@ rum_result_t object_handle_install(struct object_handles *table, struct kernel_o
         (authorized & ~object_rights_mask(object->type->kind)) || (granted & ~object_rights_mask(object->type->kind)) ||
         (flags & ~RUM_OBJECT_INHERIT)) return -RUM_EINVAL;
     if (granted & ~authorized) return -RUM_EACCES;
+    if (flags && object->type->kind >= OBJECT_THREAD) return -RUM_EACCES;
     if (irq_in_handler()) return -RUM_EBUSY;
     if (object->type->authorize) {
         rum_result_t result = object->type->authorize(object, granted);
@@ -118,7 +123,8 @@ rum_result_t object_handle_request(struct object_handles *table, struct rum_obje
                       request->operation == RUM_OBJECT_DUPLICATE ? RUM_RIGHT_DUPLICATE : 0;
     rum_result_t result = validate(entry, request->type, needed);
     if (!result && request->operation == RUM_OBJECT_DUPLICATE) {
-        if (request->rights & ~object_rights_mask(entry->object->type->kind)) result = -RUM_EINVAL;
+        if (request->flags && entry->object->type->kind >= OBJECT_THREAD) result = -RUM_EACCES;
+        else if (request->rights & ~object_rights_mask(entry->object->type->kind)) result = -RUM_EINVAL;
         else if (request->rights & ~entry->rights) result = -RUM_EACCES;
         else if (entry->object->type->authorize) result = entry->object->type->authorize(entry->object, request->rights);
         int slot = available(table);

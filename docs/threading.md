@@ -1,9 +1,9 @@
 # Threading contract for rum 0.9
 
 rum currently launches one user thread per process. This page defines the
-limits, ownership and wire formats for adding siblings. The stack reservation
-is in place. The calls below become available as the scheduler, synchronization
-objects and SDK implement them.
+limits, ownership and wire formats for adding siblings. The kernel implements
+the stack reservation and the synchronization service. Userspace thread and
+synchronization calls remain planned.
 
 ## Capacity on a 16 MiB machine
 
@@ -135,6 +135,45 @@ closes both tables, drops CWD/session ownership, and destroys the inactive
 space. Publish process completion once, then wake process/parent waiters.
 There is no per-thread terminate grant.
 
+## Using synchronization inside the kernel
+
+Call `sync_request(table, &packet)` with a kernel-resident packet, in task
+context with IF enabled and outside switch holds and synchronous I/O. Initialize
+`version`, `size`, `operation`, `type` and the inputs listed below. Zero the
+remaining words. A successful create returns its typed handle in the packet.
+The shared pool holds 64 events, mutexes and semaphores combined. A full
+pool returns ENOMEM. A full handle table returns EMFILE and releases the
+constructor's slot. Duplicate handles can grant a subset of rights within
+the same table. Requests to make them inheritable fail with EACCES.
+
+An empty poll returns ETIMEDOUT without switching. Positive finite waits use
+the PIT sleep conversion (round up and add one tick for the initial phase).
+Deadlines use a half-range comparison across 32-bit tick wrap. Durations above
+24 hours return ERANGE, apart from the explicit infinite-wait value.
+Semaphore overflow fails the whole release. Repeated sets on an already-set
+event coalesce. Manual reset releases all current waiters and stays set until
+reset. Auto reset grants one FIFO waiter, or stores one signal for a later wait.
+
+Each blocked operation pins its object and links the calling thread into one
+FIFO. Timeout, grant and cancellation unlink the waiter and disarm its deadline
+under the same interrupt guard. The first decision stands when execution resumes.
+A committed semaphore grant consumes one permit even if process cancellation
+arrives before user return. A cancelled registration consumes none. Legacy
+sequence-event waits retain their existing cancellation-on-resume behavior.
+
+IRQ producers call `sync_signal_pinned(object, count)` with an event or
+semaphore reference retained in task context. Disconnect the producer before
+dropping that pin. Signaling performs at most one handoff per registered
+waiter, even for a release of UINT32_MAX permits. Only task context can release
+a mutex. Its owner pin survives closing every handle and passes directly to the
+next waiter on handoff. Thread exit abandons each owned mutex before closing
+tables. With no waiter, the next acquisition reports abandonment.
+
+Run `make test-sleep` for the direct ELF and GRUB fixtures. The wait fixture
+checks the pending-IRQ registration boundary, FIFO grants, object references,
+mutex abandonment and final close. The process fixture orders cancellation
+on either side of a grant and checks both the semaphore count and mutex abandonment.
+
 ## Wire contract
 
 The proposed packets live in `sdk/include/rum/abi/thread.h`. Each request
@@ -179,8 +218,8 @@ Thread and synchronization objects reserve type values 8–11. Grants only
 shrink on duplication. The first interface confines them to one process,
 including during spawn. Calls 0–39, the initial ELF frame, descriptors 0–2,
 process waits and the released 80-byte resource packet retain their ABI.
-When new object kinds become live, v1 aggregate counts include them and its
-eight existing type bins keep their meanings. Bound the legacy bin index.
+The v1 aggregate counts include synchronization objects. Its eight existing
+type bins keep their original meanings.
 A separate 40-byte `rum_thread_resources` snapshot reports the caller's live
 and blocked threads and distinct local handles' objects by the four new kinds.
 Reserve a separate dispatch operation for that packet when implementing it.

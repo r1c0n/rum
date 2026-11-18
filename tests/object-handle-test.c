@@ -95,7 +95,7 @@ static void rights_and_packets(void)
     close_handle(&table, handle); close_handle(&table, restricted);
     assert(object->references == 1 && object->owners[OBJECT_OPERATION] == 1);
     assert(!object_release(object, OBJECT_OPERATION)); empty();
-    for (unsigned kind = OBJECT_FILE; kind < OBJECT_KIND_COUNT; ++kind) {
+    for (unsigned kind = OBJECT_FILE; kind <= OBJECT_PROCESS; ++kind) {
         struct sample item = {0}; handle = give(&table, &item, kind, object_rights_mask(kind), 0);
         request = packet(RUM_OBJECT_QUERY, handle); request.type = kind;
         assert(!object_handle_request(&table, &request) && request.rights == object_rights_mask(kind));
@@ -158,7 +158,7 @@ static void inheritance(void)
 }
 static void selected_inheritance(void)
 {
-    for (unsigned kind = OBJECT_FILE; kind < OBJECT_KIND_COUNT; ++kind) {
+    for (unsigned kind = OBJECT_FILE; kind <= OBJECT_PROCESS; ++kind) {
         struct object_handles parent = {0}, child = {0}; struct sample a = {0}, b = {0};
         rum_object_handle_t handle = give(&parent, &a, kind, RUM_RIGHT_QUERY, RUM_OBJECT_INHERIT);
         rum_object_handle_t private = give(&parent, &b, kind, RUM_RIGHT_QUERY, 0);

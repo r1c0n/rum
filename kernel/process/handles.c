@@ -14,7 +14,7 @@ rum_result_t process_resources_read(const struct process_handles *descriptors, c
 {
     if (!descriptors || !handles || !output) return -RUM_EINVAL;
     if (irq_in_handler()) return -RUM_EBUSY;
-    _Static_assert(OBJECT_KIND_COUNT == RUM_RESOURCE_TYPE_COUNT, "resource type count");
+    _Static_assert(OBJECT_PROCESS + 1 == RUM_RESOURCE_TYPE_COUNT, "released v1 type bins");
     const struct kernel_object *seen[RUM_ABI_HANDLE_LIMIT + RUM_OBJECT_HANDLE_LIMIT];
     struct rum_resource_information result = { .version = RUM_RESOURCE_VERSION, .size = sizeof result };
     uint32_t saved = cpu_interrupt_save();
@@ -34,9 +34,9 @@ rum_result_t process_resources_read(const struct process_handles *descriptors, c
         while (at < result.objects && seen[at] != object) ++at;
         if (at != result.objects) continue;
         uint32_t type = object->type->kind;
-        if (!type || type >= RUM_RESOURCE_TYPE_COUNT) { cpu_interrupt_restore(saved); return -RUM_EIO; }
+        if (!type || type >= OBJECT_KIND_COUNT) { cpu_interrupt_restore(saved); return -RUM_EIO; }
         seen[result.objects++] = object;
-        ++result.types[type];
+        if (type < RUM_RESOURCE_TYPE_COUNT) ++result.types[type];
     }
     cpu_interrupt_restore(saved);
     *output = result;

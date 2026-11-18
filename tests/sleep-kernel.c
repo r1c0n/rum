@@ -3,6 +3,7 @@
 #include "../hal/pc/pit.c"
 #include <rum/cpu.h>
 #include <rum/abi/syscall.h>
+#include <rum/abi/error.h>
 #include <rum/elf.h>
 #include <rum/heap.h>
 #include <rum/keyboard.h>
@@ -12,11 +13,13 @@
 #include "test-files.h"
 #include <rum/serial.h>
 #include <rum/syscall.h>
+#include <rum/sync.h>
 #include <rum/terminal.h>
 
 #define PAGE 0x80800000u
 #define TEST_CLOCK 0xfffffff0u
 #define TEST_EVENT 0xfffffff1u
+#define TEST_SYNC  0xfffffff2u
 void kernel_main(uint32_t magic, uint32_t information);
 extern const char __kernel_start[], __kernel_end[];
 extern const unsigned char sleep_asset_start[], sleep_asset_end[];
@@ -26,6 +29,24 @@ static task_id target;
 static volatile unsigned late_cancels, event_cancels;
 static struct task_snapshot snapshot;
 static struct rum_arguments arguments;
+static struct object_handles sync_table;
+enum sync_race { CANCEL_THEN_GRANT = 5, GRANT_THEN_CANCEL };
+static rum_object_handle_t sync_handle;
+static unsigned sync_kind;
+static volatile rum_result_t sync_outcome;
+
+static rum_result_t sync_call(unsigned operation, uint32_t timeout)
+{
+    struct rum_sync_request r = { .version = RUM_THREAD_ABI_VERSION, .size = sizeof r,
+        .operation = operation, .type = sync_kind, .handle = sync_handle, .timeout_ms = timeout };
+    if (sync_kind == OBJECT_SEMAPHORE) {
+        r.value = operation == RUM_SYNC_SIGNAL;
+        r.maximum = operation == RUM_SYNC_CREATE;
+    }
+    rum_result_t result = sync_request(&sync_table, &r);
+    if (!result && operation == RUM_SYNC_CREATE) sync_handle = r.result_handle;
+    return result;
+}
 
 static void check(bool condition, const char *name)
 {
@@ -48,6 +69,12 @@ void interrupt_dispatch(struct exception_frame *frame)
     if (frame->vector >= PIC_VECTOR_BASE && frame->vector < PIC_VECTOR_BASE + 16) { irq_dispatch(frame); return; }
     if (frame->vector != RUM_SYSCALL_VECTOR) exception_dispatch(frame);
     if (frame->eax == TEST_CLOCK) { frame->eax = timer_ticks(); return; }
+    if (frame->eax == TEST_SYNC) {
+        cpu_interrupt_enable();
+        sync_outcome = sync_call(RUM_SYNC_WAIT, RUM_SLEEP_MAX_MS);
+        frame->eax = sync_outcome;
+        return;
+    }
     if (frame->eax != TEST_EVENT) { syscall_dispatch(frame); return; }
     cpu_interrupt_enable();
     void *temporary = kmalloc(64); check(temporary, "temporary ownership during a cancellable wait");
@@ -91,7 +118,14 @@ static void exercise(const char *mode, unsigned action)
                   "cancel wakes and detaches without destroying active ownership");
         } else if (action == 2) task_event_signal(&event);
         else if (action == 3) cancel_expired = true;
-        else serial_writestring("rum_sleep_keyboard_ready\n");
+        else if (action == 4) serial_writestring("rum_sleep_keyboard_ready\n");
+        else {
+            /* A real process waits on a supervisor-owned sync object via the
+               fixture trap. Order these decisions before it can resume. */
+            if (action == CANCEL_THEN_GRANT) check(task_cancel_foreground(), "cancel before sync grant");
+            check(!sync_call(RUM_SYNC_SIGNAL, 0), "offer the waiting process one grant");
+            if (action == GRANT_THEN_CANCEL) check(task_cancel_foreground(), "cancel after sync grant");
+        }
     }
     struct task_information info;
     check(task_wait_process(target, &info), "wait for timed process");
@@ -100,7 +134,7 @@ static void exercise(const char *mode, unsigned action)
         do { digits[n++] = (char)('0' + value % 10u); value /= 10u; } while (value);
         serial_writestring("user status: "); while (n) serial_putchar(digits[--n]); serial_writestring("\n");
     }
-    bool cancelled = action == 1 || action == 3 || action == 4 || mode[0] == 'p';
+    bool cancelled = action == 1 || action >= 3 || mode[0] == 'p';
     check(info.termination == (cancelled ? TASK_TERMINATION_CANCELLED : TASK_TERMINATION_EXIT) &&
           !info.exit_status && !cancel_expired && task_foreground_end(target) && task_reap_process(target),
           "normal completion or safe cancellation before user resumption");
@@ -128,5 +162,23 @@ void kernel_main(uint32_t magic, uint32_t information)
     exercise("latecancel", 3);
     check(late_cancels == 1 && event_cancels == 16, "cancellation before registration and after wakeup");
     exercise("long", 4);
+    const unsigned kinds[] = {OBJECT_SEMAPHORE, OBJECT_MUTEX};
+    for (unsigned i = 0; i < sizeof kinds / sizeof kinds[0]; ++i) {
+        sync_kind = kinds[i]; sync_handle = 0;
+        check(!sync_call(RUM_SYNC_CREATE, 0), "create cancellation fixture object");
+        for (unsigned order = CANCEL_THEN_GRANT; order <= GRANT_THEN_CANCEL; ++order) {
+            if (sync_kind == OBJECT_MUTEX) check(!sync_call(RUM_SYNC_WAIT, 0), "supervisor holds mutex");
+            sync_outcome = -RUM_EIO;
+            exercise("sync", order);
+            check(sync_outcome == (order == CANCEL_THEN_GRANT ? -RUM_EINTR : 0), "first decision survives cancellation");
+            rum_result_t poll = sync_call(RUM_SYNC_WAIT, 0);
+            if (sync_kind == OBJECT_MUTEX) {
+                check(poll == (order == CANCEL_THEN_GRANT ? 0 : RUM_WAIT_ABANDONED) &&
+                      !sync_call(RUM_SYNC_SIGNAL, 0), "only a granted mutex is abandoned on exit");
+            } else check(poll == (order == CANCEL_THEN_GRANT ? 0 : -RUM_ETIMEDOUT), "exact permit count");
+        }
+        check(!object_handles_destroy(&sync_table) && !object_stats().kinds[sync_kind].objects,
+              "cancellation leaves no sync references");
+    }
     serial_writestring("rum_sleep_ok\n"); cpu_halt();
 }

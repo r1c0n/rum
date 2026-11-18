@@ -19,7 +19,7 @@ int main(void)
                    "preserve the original syscall numbers");
     _Static_assert(RUM_SYS_RESOURCES == 39 && sizeof(struct rum_resource_information) == 80 &&
                    RUM_RESOURCE_TYPE_COUNT == 8, "preserve released resource diagnostics");
-    _Static_assert(RUM_OBJECT_THREAD > RUM_OBJECT_PROCESS && !(RUM_RIGHT_MASK & RUM_RIGHT_SIGNAL) &&
+    _Static_assert(RUM_OBJECT_THREAD > RUM_OBJECT_PROCESS && !(RUM_RIGHT_PROCESS & RUM_RIGHT_SIGNAL) &&
                    !(RUM_RIGHT_THREAD & (RUM_RIGHT_TERMINATE | RUM_RIGHT_SIGNAL)),
                    "thread reservations do not widen existing grants");
     assert(RUM_ABI_PROGRAM_BASE == RUM_USER_BASE &&

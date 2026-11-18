@@ -47,27 +47,26 @@ paging fixture checks the frame budget and all kernel stack guards.
 
 ### 2. Kernel waits, events, mutexes and semaphores
 
-- [ ] Build bounded wait registration over scheduler events. Checking a
+- [x] Build bounded wait registration over scheduler events. Checking a
   condition and registering its waiter must be atomic with respect to signals,
   without missed wakeups or duplicate registrations.
-- [ ] Implement referenced event, mutex and semaphore objects with explicit
+- [x] Implement referenced event, mutex and semaphore objects with explicit
   query/wait/signal rights, limits and destruction rules. Define event reset
   modes and semaphore acquisition/release behavior.
-- [ ] Specify mutex ownership, recursion policy and owner-exit handling.
+- [x] Specify mutex ownership, recursion policy and owner-exit handling.
   Report abandonment or terminate the affected process as documented; do not
   silently treat potentially inconsistent protected data as repaired.
-- [ ] Resolve signal, acquisition, timeout and process cancellation through
+- [x] Resolve signal, acquisition, timeout and process cancellation through
   one completion decision. A semaphore permit or acquired mutex must not be
   lost when cancellation competes with a successful wait.
-- [ ] Keep IRQ signaling bounded and allocation-free. Blocking acquisition and
+- [x] Keep IRQ signaling bounded and allocation-free. Blocking acquisition and
   final cleanup require allowed task context, outside short protected updates.
-- [ ] Define fairness, zero-time polls, timeout rounding, tick wraparound and
+- [x] Define fairness, zero-time polls, timeout rounding, tick wraparound and
   saturation. General multi-object wait sets can remain future work; existing
   waits must remain compatible.
 
-Validation: force signal-before/during-registration, multiple waiters, permit
-exhaustion, timeout/cancel races, invalid rights, owner exit and final-close
-races. Check wait registrations and object references after every case.
+The [kernel synchronization guide](threading.md#using-synchronization-inside-the-kernel)
+documents the service and the focused `make test-sleep` QEMU checks.
 
 ### 3. Protect shared process resources
 

@@ -3,6 +3,7 @@
 #define PAGE 0x80800000u
 #define TEST_CLOCK 0xfffffff0u
 #define TEST_EVENT 0xfffffff1u
+#define TEST_SYNC  0xfffffff2u
 int main(int argc, char **argv);
 static struct rum_arguments arguments;
 static void check(int ok, int status) { if (!ok) rum_exit(status); }
@@ -68,6 +69,10 @@ int main(int argc, char **argv)
     check(argc == 2, 1);
     if (equal(argv[1], "normal")) { normal(); return 0; }
     check(rum_open("/data.bin", RUM_OPEN_READ, 0) == 3, 2);
+    if (equal(argv[1], "sync")) {
+        rum_syscall3(TEST_SYNC, 0, 0, 0);
+        return 99; /* Cancellation must win before either case returns to ring 3. */
+    }
     if (equal(argv[1], "yield")) {
         for (unsigned i = 0; i < 32; ++i) check(!rum_yield() && !rum_sleep(0), 3);
         return 42;

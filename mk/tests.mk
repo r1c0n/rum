@@ -599,7 +599,8 @@ build/tests/user/sleep.elf: build/tests/user/sleep.debug.elf build/tools/check-u
 build/tests/sleep-image.o: tests/sleep-image.s build/tests/user/sleep.elf
 	@mkdir -p $(@D)
 	$(AS) $< -o $@
-build/tests/waits.elf: build/tests/waits-kernel.o $(filter-out build/tests/fault-trigger.o build/kernel/process/task.o build/hal/pc/pit.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
+TEST_DEPENDENCIES += build/tests/sync-checks.d
+build/tests/waits.elf: build/tests/waits-kernel.o build/tests/sync-checks.o $(filter-out build/tests/fault-trigger.o build/kernel/process/task.o build/hal/pc/pit.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
 	$(CC) -T $(LINKER_SCRIPT) -nostdlib -ffreestanding -no-pie -Wl,--build-id=none $(filter %.o,$^) -lgcc -o $@
 	grub-file --is-x86-multiboot $@
 build/tests/sleep.elf: build/tests/sleep-kernel.o build/tests/sleep-image.o $(filter-out build/tests/fault-trigger.o build/hal/pc/pit.o build/arch/i386/interrupt.o,$(FAULT_COMMON)) $(LINKER_SCRIPT)
