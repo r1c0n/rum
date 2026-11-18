@@ -233,7 +233,8 @@ def physical_memory_test(stream, symbols, artifacts, mode, registers, serial_tex
                                          artifacts / f"{mode}-idle-stack-base.bin"))[0]
     emergency = struct.unpack("<I", dump_ram(stream, symbols["task_emergency_stack_base"], 4,
                                               artifacts / f"{mode}-emergency-stack-base.bin"))[0]
-    if idle != 0x7FC01000 or emergency != 0x7FC56000:
+    # Idle uses slot zero; the emergency slot follows the 32 execution slots.
+    if idle != 0x7FC01000 or emergency != 0x7FC01000 + 33 * 0x5000:
         raise RuntimeError("Invalid guarded idle/emergency stack slots")
     stack_table = struct.unpack("<1024I", dump_ram(stream, directory[stack_index] & 0xFFFFF000, 4096,
                                                    artifacts / f"{mode}-stack-table.bin"))

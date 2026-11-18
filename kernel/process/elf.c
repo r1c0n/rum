@@ -58,14 +58,15 @@ static rum_result_t plan_image(const struct elf_source *source, struct rum_elf_p
 }
 
 static bool build_stack(struct paging_space *space, const struct rum_arguments *arguments,
-                        uint32_t *stack)
+                        uint32_t top, uint32_t *stack)
 {
-    uint32_t strings = RUM_USER_STACK_TOP - arguments->string_bytes;
+    uint32_t base = top - RUM_USER_STACK_SIZE;
+    uint32_t strings = top - arguments->string_bytes;
     uint32_t words_count = arguments->argc + RUM_ABI_STACK_FIXED_WORDS;
     uint32_t words_bytes = words_count * sizeof(uint32_t);
-    if (strings < RUM_USER_STACK_BASE + words_bytes) return false;
+    if (strings < base + words_bytes) return false;
     uint32_t esp = (strings - words_bytes) & ~(RUM_STACK_ALIGNMENT - 1u);
-    if (esp < RUM_USER_STACK_BASE) return false;
+    if (esp < base) return false;
 
     uint32_t words[RUM_PROCESS_ARGUMENT_LIMIT + RUM_ABI_STACK_FIXED_WORDS] = {0};
     words[0] = arguments->argc;
@@ -105,9 +106,11 @@ rum_result_t elf_load_process_from_source(const struct elf_source *source,
         if (!result && !(segment->program.flags & RUM_ELF_PF_W) &&
             !paging_user_protect(space, segment->start, segment->pages, 0)) result = -RUM_EIO;
     }
-    uint32_t stack = 0;
-    if (!result && !paging_user_allocate(space, RUM_USER_STACK_BASE, STACK_PAGES, PAGING_WRITABLE)) result = -RUM_ENOMEM;
-    if (!result && !build_stack(space, arguments, &stack)) result = -RUM_EIO;
+    uint32_t stack = 0, top;
+    if (!result && !thread_stack_top(0, &top)) result = -RUM_EIO;
+    if (!result && !paging_user_allocate(space, top - RUM_USER_STACK_SIZE, STACK_PAGES, PAGING_WRITABLE))
+        result = -RUM_ENOMEM;
+    if (!result && !build_stack(space, arguments, top, &stack)) result = -RUM_EIO;
     if (result) {
         if (!paging_space_destroy(space)) cpu_halt();
         return result;

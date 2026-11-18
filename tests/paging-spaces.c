@@ -147,6 +147,19 @@ static void kernel_stack_checks(struct paging_space *first, struct paging_space 
     check(paging_kernel_stack_release(1) && pmm_stats().free_pages == baseline &&
           paging_stats().shared_table_pages == initial.shared_table_pages &&
           !paging_kernel_stack_release(1), "release last stack and its empty table");
+
+    for (uint32_t slot = 0; slot < RUM_KERNEL_STACK_SLOTS; ++slot) {
+        check(paging_kernel_stack_allocate(slot) &&
+              !paging_translate(first, RUM_KERNEL_STACK_GUARD(slot), NULL) &&
+              paging_translate(second, RUM_KERNEL_STACK_SLOT_TOP(slot) - 1, NULL),
+              "every reserved kernel stack maps without touching its guard");
+    }
+    check(baseline - pmm_stats().free_pages ==
+          1 + RUM_KERNEL_STACK_SLOTS * (RUM_KERNEL_STACK_SIZE / PAGE_SIZE),
+          "all kernel stacks share one page table");
+    for (uint32_t slot = 0; slot < RUM_KERNEL_STACK_SLOTS; ++slot)
+        check(paging_kernel_stack_release(slot), "release every reserved stack");
+    check(pmm_stats().free_pages == baseline, "full stack window returns every frame");
 }
 
 void paging_space_checks(void)
